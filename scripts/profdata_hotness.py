@@ -22,9 +22,12 @@ Usage:
 """
 
 import argparse
+import collections
 import re
 import subprocess
 import sys
+
+VEC_RE = re.compile(r"\b[xyz]mm\d+\b")
 
 
 def load(profdata, llvm_profdata):
@@ -59,6 +62,11 @@ def main():
     p.add_argument("--top", type=int, default=25)
     p.add_argument("--grep", default=None,
                    help="only print functions whose name contains this")
+    p.add_argument("--binary", default=None,
+                   help="also report each function's machine-code shape "
+                        "(instruction count and how many use vector "
+                        "registers) from this unstripped binary; functions "
+                        "with no symbol were fully inlined away")
     args = p.parse_args()
 
     tool = args.llvm_profdata
@@ -84,10 +92,59 @@ def main():
             print(f"  sum={f['sum']:>14}  max={f['max']:>14}  {f['short']}")
         return
 
+    code = code_shape(args.binary) if args.binary else None
+
     print(f"\ntop {args.top} by max block count:")
+    covered = 0
+    novec = 0
     for f in sorted(funcs, key=lambda f: -f["max"])[:args.top]:
+        share = 100.0 * f["sum"] / total if total else 0
+        covered += share
+        tail = ""
+        if code is not None:
+            c = code.get(f["short"])
+            if c is None:
+                tail = "  [inlined away: no symbol]"
+            else:
+                tail = f"  [{c[0]} insns, {c[1]} vector]"
+                if c[1] == 0:
+                    novec += share
         print(f"  max={f['max']:>14}  sum={f['sum']:>14}  "
-              f"({100.0 * f['sum'] / total if total else 0:5.2f}%)  {f['short']}")
+              f"({share:5.2f}%)  {f['short']}{tail}")
+    print(f"\nthese {args.top} functions hold {covered:.2f}% of the total "
+          f"block count")
+    if code is not None:
+        print(f"of which {novec:.2f} percentage points sit in functions whose "
+              f"own machine code contains no vector-register instruction")
+
+
+def code_shape(binary):
+    """symbol -> (instruction count, instructions using a vector register)"""
+    nm = subprocess.run(["nm", "-S", "--defined-only", binary],
+                        capture_output=True, text=True, check=True).stdout
+    syms = {}
+    for line in nm.splitlines():
+        p = line.split()
+        if len(p) < 4 or p[2].lower() != "t":
+            continue
+        a, sz, name = int(p[0], 16), int(p[1], 16), " ".join(p[3:])
+        if sz:
+            syms[name] = (a, sz)
+    out = {}
+    for name, (a, sz) in syms.items():
+        d = subprocess.run(
+            ["objdump", "-d", "--no-show-raw-insn",
+             f"--start-address={a}", f"--stop-address={a + sz}", binary],
+            capture_output=True, text=True, check=True).stdout
+        n = v = 0
+        for line in d.splitlines():
+            m = re.match(r"^\s+[0-9a-f]+:\t(.*)$", line)
+            if m:
+                n += 1
+                if VEC_RE.search(m.group(1)):
+                    v += 1
+        out[name] = (n, v)
+    return out
 
 
 if __name__ == "__main__":

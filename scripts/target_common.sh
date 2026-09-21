@@ -153,6 +153,13 @@ run_correctness() {
       done
       rmdir "$scratch"
       ;;
+    *)
+      # Reachable if a caller did `TARGET=x source target_common.sh`: bash
+      # restores the temporary assignment when the builtin returns, so TARGET
+      # is empty again by the time this runs. Use `export TARGET=x` instead.
+      echo "run_correctness: no procedure for TARGET='$TARGET'" >&2
+      return 1
+      ;;
   esac
 }
 

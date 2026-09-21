@@ -1895,7 +1895,11 @@ confirm.json`, 420 samples, same harness and pinning):
 All four are **real** (the CI excludes 1 in every case, and every per-workload
 CI excludes 1 too) and all four are **well under the 3% MDE**. The largest
 genuine effect any global knob has on zopfli is `-unroll-max-count=2` at
-**+1.55% [+1.43%, +1.67%]** --- about half the MDE.
+**+1.55% [+1.43%, +1.67%]** --- about half the MDE. Section 31 sweeps the
+unroll dimension properly and finds the saturation point one step further
+out, at `-unroll-max-count=1`, **+1.59% [+1.30%, +1.82%]**; it also measures
+`-unroll-max-count=2` a second time, at +1.43% [+1.24%, +1.62%], which is
+how far two independent n=15/n=25 runs of the same binary drift apart here.
 
 ### 27. What the knobs actually did to the loops
 
@@ -2013,6 +2017,15 @@ accept or decline:
 > Stage 1 / Stage 2 transfer slot goes to oxipng or symphonia (SPEC.ja.md
 > 6.4). Nothing measured here argues that the rule *mis*fired; it argues that
 > its scope is global knobs.
+>
+> **Section 31 weakens point (ii) of this recommendation and should be read
+> with it.** Estimating the Stage 2 ceiling on those two loops from nine
+> extra builds puts it at about +1.6%, half the MDE: the width family does
+> not reach either loop at all (byte-identical machine code under every
+> forced width, even with the unroller disabled), `src/hash.rs:150` has an
+> average trip count below 1 so its `cost` verdict is correct, and the whole
+> unroll dimension on `src/cache.rs:108` is worth +1.59%. The honest
+> expectation for zopfli's Stage 2 is a negative result.
 
 ### 29. Implications for the Stage 1 candidate set
 
@@ -2049,7 +2062,12 @@ Five procedural conclusions for Stage 1 and Stage 2:
    SPEC.ja.md 7's plan to hand Jev "the source of functions whose loops got a
    `cost` remark" resolves here to `<ZopfliLongestMatchCache as Cache>::try_get`
    and `<ZopfliHash>::update` --- the 2nd and 4th hottest functions. That is a
-   workable Stage 1 input.
+   workable Stage 1 input, with one caveat section 31.2 adds: a `cost`
+   classification is **not** by itself evidence of an opportunity.
+   `<ZopfliHash>::update`'s loop is `cost`-declined and its average trip
+   count is below 1, so the cost model is simply right. A site's trip count
+   (which the plugin dump writes, SPEC.ja.md 8.5) has to gate the `cost`
+   class before it reaches Jev.
 3. **The `.text` hash decides what to time; the remark diff decides what to
    look at.** Six configurations skipped, two of them (the same two as on the
    toy) with changed remarks and identical code, and one (`-unroll-max-count=2`)
@@ -2089,3 +2107,286 @@ Five procedural conclusions for Stage 1 and Stage 2:
   reduction.
 - Post-hoc attribution with `perf` / `callgrind` (SPEC.ja.md 10) was not
   needed --- no configuration produced a difference worth attributing.
+
+### 31. Estimating the Stage 2 ceiling on zopfli without the plugin
+
+Section 28 recorded "flat under global hints" and named two loops as the
+reason not to close the book: `src/cache.rs:108` (inside
+`<ZopfliLongestMatchCache as Cache>::try_get`, 10.45% of block counts) and
+`src/hash.rs:150` (inside `<ZopfliHash>::update`, 9.62%), both hot, both
+integer, both declined with a **cost** remark. This section puts a number on
+what a per-site hint could do to them, using the sweep's existing logs plus
+nine extra builds. No plugin, so this is an estimate and is labelled as one
+everywhere below.
+
+Reproduce with:
+
+```
+scripts/loop_body_insns.py --loc src/cache.rs:108 --loc src/hash.rs:150 \
+    artifacts/zopfli-unroll/bin/{baseline,g5-max1,g2-unroll-max2,g5-max4,g2-unroll-max8,g5-count8}
+scripts/func_code_diff.py --match 5Cache7try_get --match 10ZopfliHash6update \
+    artifacts/zopfli-headroom/bin/{baseline,g1-maxbw,g1-vw8,g1-vw16,g1-vw32,g1-maxbw-vw32}
+TARGET=zopfli SUITE=unroll ONLY='^(g5-|g2-unroll-max2$|g2-unroll-max8$)' \
+    RUNS=15 WARMUP=3 scripts/target_headroom.sh
+scripts/profdata_hotness.py pgo/zopfli/merged.profdata --top 20 \
+    --binary artifacts/zopfli-headroom/bin/baseline
+```
+
+Two new scripts: `scripts/loop_body_insns.py` runs SPEC.ja.md 7's attribution
+backwards (how many instructions in this binary come from `file:line`, and
+what are they) and `scripts/func_code_diff.py` compares one function's
+normalised instruction sequence across builds. `scripts/target_headroom.sh`
+gained `SUITE=` (output directory, so a probe does not overwrite the main
+sweep) and `ONLY=` (a regex over configuration names), plus a group 5 for the
+unroll dimension.
+
+#### 31.1 The width family does not reach either loop --- at all
+
+| config | cache.rs:108 remark set | hash.rs:150 remark set | `try_get` code | `ZopfliHash::update` code |
+|---|---|---|---|---|
+| baseline | 16 `unable to calculate the loop count due to complex control flow` + 16 cost-vec + 16 cost-interleave + 15 `unrolled by 8 with run-time trip count` + 1 `unrolled by 20` | 12 cost-vec + 12 cost-interleave | 712 insns, 0 vector | 88 insns, 0 vector |
+| `-vectorizer-maximize-bandwidth` | **identical** | **identical** | **identical** | **identical** |
+| `-force-vector-width=8` | **identical** | **identical** | **identical** | **identical** |
+| `-force-vector-width=16` | **identical** | **identical** | **identical** | **identical** |
+| `-force-vector-width=32` | **identical** | **identical** | **identical** | **identical** |
+| `-vectorizer-maximize-bandwidth -force-vector-width=32` | **identical** | **identical** | **identical** | **identical** |
+| `-force-vector-interleave=1` | **identical** | **identical** | **identical** | **identical** |
+
+"Identical" is literal in both columns: the multiset of remark lines at that
+DebugLoc is the same, and the normalised instruction sequence of the
+containing function hashes to the same value (`scripts/func_code_diff.py`
+replaces addresses and branch targets with `A`, so relocation does not count
+as a change). `try_get` is 712 instructions and `<ZopfliHash>::update` is 88
+in every one of these builds, and **neither contains a single
+vector-register instruction in any of them**.
+
+The obvious objection is that the unroller got there first and left the
+vectorizer nothing. It did not. Three extra builds turn the unroller off and
+force the width anyway:
+
+```
+$ scripts/loop_body_insns.py --loc src/cache.rs:108 --loc src/hash.rs:150 \
+      artifacts/zopfli-unroll/bin/g5-max1 \
+      artifacts/zopfli-probe/p1-max1-vw8 \
+      artifacts/zopfli-probe/p2-max1-vw16 \
+      artifacts/zopfli-probe/p3-max1-maxbw
+g5-max1        (-unroll-max-count=1)                      cache.rs:108  50 insns, 0 vector   hash.rs:150  204 insns, 0 vector
+p1-max1-vw8    (-unroll-max-count=1 -force-vector-width=8)  ... identical to g5-max1 ...
+p2-max1-vw16   (-unroll-max-count=1 -force-vector-width=16) ... identical to g5-max1 ...
+p3-max1-maxbw  (-unroll-max-count=1 -vectorizer-maximize-bandwidth) ... identical to g5-max1 ...
+```
+
+All three also keep `loop not vectorized: unable to calculate the loop count
+due to complex control flow` at `cache.rs:108:17`, and all three produce
+output identical to the baseline on all six inputs.
+
+**So the H01 family (`vectorize.width`) is structurally blocked on both
+loops, not merely out-competed.** Whatever a Stage 2 plan would write into
+`llvm.loop.vectorize.width` for these two sites, the global form of the same
+request changes nothing, and the loop-metadata form goes through the same
+`LoopVectorizeHints` (SPEC.ja.md 8.4).
+
+#### 31.2 Why: the two loops fail for two different reasons, and the profile says the cost model is right about one of them
+
+**`src/hash.rs:150` is a genuine `cost` decline, and the cost model is
+correct.** It carries only the two cost strings --- no legality and no
+unsupported string appears at that DebugLoc anywhere in the 31764-line log.
+The profile explains the verdict:
+
+```
+$ grep -A3 '10ZopfliHash6update:' artifacts/zopfli-day0/profdata-functions.txt
+    Counters: 12
+    Block counts: [151050803, 5956749, 145094557, 5622022, 5644788,
+                   142776781, 142761838, 145093615, 142776781, 142761838, 0, 5956749]
+```
+
+Entry count 151,050,803; the `while another_index < array.len() && array_pos
+== array[another_index] && ...` body runs 142,776,781 times in total. **The
+loop body executes about 0.95 times per call** --- it almost always exits on
+the first test. No vectorization factor can pay for a prologue on a loop with
+an average trip count below one, so `the cost-model indicates that
+vectorization is not beneficial` is not an opportunity, it is the right
+answer. This is an important qualification of SPEC.ja.md 8.3: a site
+classified `cost` is not automatically a site worth asking Jev about.
+
+**`src/cache.rs:108` is the opposite: a long loop the vectorizer cannot
+analyse.**
+
+```
+$ grep -A3 '5Cache7try_get:' artifacts/zopfli-day0/profdata-functions.txt
+    Counters: 17
+    Block counts: [962322, 706227900, 110342610, ...]
+```
+
+962,322 calls, hottest block 706,227,900, i.e. **about 734 iterations per
+call** of a `sublen[i] = dist; i += 1;` u16 fill --- exactly the shape a width
+hint is for. It is nonetheless refused, and the reason at that DebugLoc is
+not cost but `unable to calculate the loop count due to complex control
+flow` (classified `unknown` in section 23, and on this evidence it behaves
+like a legality/analysis refusal). The two cost strings at the same DebugLoc
+belong to the interleave decision and to other inline instances; forcing the
+width does not remove them.
+
+The one dimension that does reach this loop is unrolling: LLVM already
+applies `unrolled loop by a factor of 8 with run-time trip count` to it in
+the baseline.
+
+#### 31.3 The unroll dimension, swept properly (group 5, 9 configurations)
+
+```
+$ TARGET=zopfli SUITE=unroll ONLY='^(g5-|g2-unroll-max2$|g2-unroll-max8$)' \
+      RUNS=15 WARMUP=3 scripts/target_headroom.sh
+```
+
+**All nine configurations produce output identical to the baseline on all six
+inputs**, so all nine are in the judgement. Timed against the baseline at
+n=15 warmup 3 (540 samples, one interleaved invocation, MDE still 3.00%):
+
+| config | knobs | insns at `src/cache.rs:108` | aggregate ratio | 95% CI | text | binary | json |
+|---|---|---|---|---|---|---|---|
+| baseline | (unroll ×8 runtime) | 615 | 1.0000 | --- | --- | --- | --- |
+| g5-max1 | `-unroll-max-count=1` | **50** | **1.0159** | [1.0130, 1.0182] | +2.23% | +0.83% | +1.73% |
+| g2-unroll-max2 | `-unroll-max-count=2` | 238 | 1.0143 | [1.0124, 1.0162] | +1.56% | +1.47% | +1.27% |
+| g5-max2-runtime-off | `-unroll-max-count=2 -unroll-runtime=false` | --- | 1.0127 | [1.0098, 1.0148] | +1.72% | +0.84% | +1.25% |
+| g5-max2-thr1000 | `-unroll-max-count=2 -unroll-threshold=1000` | --- | 1.0110 | [1.0083, 1.0134] | +1.32% | +0.86% | +1.12% |
+| g5-max4 | `-unroll-max-count=4` | 354 | 1.0073 | [1.0039, 1.0100] | +0.95% | +0.77% | +0.46% |
+| g2-unroll-max8 | `-unroll-max-count=8` | 600 | 1.0026 | [1.0012, 1.0044] | +0.30% | +0.35% | +0.14% |
+| g5-count8 | `-unroll-count=8` | 608 | 0.9756 | [0.9647, 0.9821] | -2.63% | -3.09% | -1.60% |
+| g5-count4 | `-unroll-count=4` | --- | 0.9730 | [0.9655, 0.9775] | -2.41% | -3.50% | -2.20% |
+| g5-count2 | `-unroll-count=2` | --- | 0.9728 | [0.9710, 0.9747] | -1.64% | -3.94% | -2.56% |
+
+Every CI excludes 1, so every one of these is a real effect. The dimension is
+**monotone in the unroll cap and saturates**: the less LLVM unrolls, the
+faster zopfli runs, and the curve flattens at `-unroll-max-count=1`.
+
+The objdump evidence for the mechanism, not the remarks (section 27: the
+remark diff does not report scalar unrolling):
+
+```
+$ scripts/loop_body_insns.py --loc src/cache.rs:108 ...
+baseline        615 instructions at cache.rs:108   (try_get 311 + lz77_optimal 304)
+g2-unroll-max8  600
+g5-max4         354
+g2-unroll-max2  238
+g5-max1          50
+```
+
+and per containing function:
+
+```
+$ # instructions in <ZopfliLongestMatchCache as Cache>::try_get, by source line
+baseline        712 total, 311 at cache.rs:108, 98 at cache.rs:107
+g2-unroll-max2  443 total, 118 at cache.rs:108,  42 at cache.rs:107
+g5-max1         345 total,  27 at cache.rs:108,  38 at cache.rs:107
+```
+
+`-unroll-count=N` (force a count on **every** loop) goes the other way and is
+the worst family in the whole study: it inflates `src/hash.rs:150` from 207
+instructions to **1022** and destroys the one genuinely useful vectorized
+loop in the hottest function, `src/lz77.rs:563` dropping from 23
+instructions with 2 vector registers to 4 with none.
+
+#### 31.4 The Stage 2 ceiling
+
+Two facts bound it.
+
+**First, the best unroll setting is already a de-facto site intervention.**
+Profile-weighted, `-unroll-max-count=1` changes very little:
+
+```
+$ # normalised code hash per symbol, baseline vs g5-max1, weighted by profdata share
+   symbols compared 451, machine code changed in 22
+   profile share held by the changed symbols: 37.25%
+      24.63%  zopfli::squeeze::lz77_optimal::<ZopfliLongestMatchCache>
+      10.45%  <ZopfliLongestMatchCache as Cache>::try_get
+       1.24%  <Lz77Store>::follow_path::<ZopfliLongestMatchCache>
+       0.36%  zopfli::katajainen::length_limited_code_lengths
+       0.25%  zopfli::deflate::optimize_huffman_for_rle
+       0.15%  <SymbolStats>::get_statistics
+```
+
+`zopfli::lz77::find_longest_match_loop` (42.20%) and `<ZopfliHash>::update`
+(9.62%) are **byte-identical** under it. The two symbols that do change and
+that matter are precisely the two hosts of the `cache.rs:108` loop, holding
+35.08% of block counts between them; the remaining 20 changed symbols hold
+about 2.2%. So the global knob is already hitting essentially one site, and
+a per-site hint could reclaim at most that ~2.2% of collateral.
+
+**Second, the measured value of the whole dimension on that site is
++1.59%.** Driving `cache.rs:108` from 615 instructions to 50 --- the entire
+span the unroller can produce, from ×8 runtime unrolling to none --- buys
+**+1.59% [+1.30%, +1.82%]** on the aggregate.
+
+Amdahl, done both ways:
+
+- *Share-based ceiling, useless as expected.* The two functions hold 20.07%
+  of block executions, so removing their loops entirely would give
+  1/(1−0.2007) = **+25.1%**. SPEC.ja.md 8.3-2 already warns that
+  `1/(1−S)` from counts × instructions is a rough order-of-magnitude figure;
+  here it is 16x above anything observed and carries no information.
+- *Empirically anchored ceiling.* `cache.rs:108`: **+1.59%**, measured, with
+  the global knob already at its most extreme setting for that loop, plus at
+  most ~2.2% of profile share worth of collateral a site hint could avoid.
+  `hash.rs:150`: **0%** --- average trip count below 1, no family reaches it,
+  and the only knob that changes its code (`-unroll-count`) is a −2.4% to
+  −2.7% regression. H01 (`vectorize.width`) on both: **0%**, measured
+  byte-for-byte.
+
+**Verdict, recorded: the Stage 2 ceiling from these two loops is about
++1.6%, roughly half the MDE of 3.00%. Per-site hints on zopfli's two
+cost-declined hot loops cannot reach the minimum effect size.** The
+heterogeneity gate of SPEC.ja.md 8.3-3 would therefore be expected to fail
+on zopfli, and the recommendation in section 28 (keep zopfli as the transfer
+target, do not promote it) should be read with that in mind: the honest
+expectation is a negative Stage 2 result on this target, reported as such.
+
+This is an estimate from global knobs, not a measurement of loop metadata.
+It could be wrong in one direction only: if `llvm.loop.vectorize.width` on a
+single site behaves differently from `-force-vector-width` on every site.
+Section 31.1 makes that unlikely for these two loops --- the width request
+does not change their code even when nothing else competes for them --- but
+the plugin is what settles it.
+
+#### 31.5 How much of zopfli is out of reach in principle
+
+```
+$ scripts/profdata_hotness.py pgo/zopfli/merged.profdata --top 20 \
+      --binary artifacts/zopfli-headroom/bin/baseline
+these 20 functions hold 99.16% of the total block count
+of which 24.78 percentage points sit in functions whose own machine code
+contains no vector-register instruction
+```
+
+| function | share | own machine code | reachable by a loop hint? |
+|---|---|---|---|
+| `lz77::find_longest_match_loop` | 42.20% | 270 insns, **9 vector** | the 9 are the `src/lz77.rs:563` u16 fill (23 insns), already VF 16 IC 4. The rest is the data-dependent match scan: no |
+| `squeeze::lz77_optimal::<..>` | 24.63% | 3533 insns, 823 vector | fat-LTO inline host; contains the inlined copies of `cache.rs:108` (304 insns) and `hash.rs:150` (88 insns). Function-level classification is meaningless here |
+| `<ZopfliLongestMatchCache as Cache>::try_get` | 10.45% | 712 insns, **0 vector** | unroll only, worth +1.59% (31.4) |
+| `<ZopfliHash>::update` | 9.62% | 88 insns, **0 vector** | no (trip count < 1) |
+| `squeeze::get_cost_stat` | 3.69% | 42 insns, 7 vector, 1 backward branch | its loop averages 166329758/64512000 = **2.6 iterations** and the FP is a scalar `vaddsd` chain: no |
+| `<ZopfliLongestMatchCache>::max_sublen` | 2.42% | inlined away, no symbol | --- |
+| 11 further functions (`follow_path` 1.24%, `Cache::store` 1.36%, `boundary_pm` 0.65%, `find_longest_match` 0.73%, `append_store_item` 0.26%, `lit_len_dist` 0.16%, `hash::new` 0.08%, `add_huffman_bits` 0.14%, `add_bits` 0.09%, ...) | | **0 vector** each | --- |
+
+Adding it up: **24.78% of block executions are in functions with no
+vectorized code at all**, and adding `find_longest_match_loop`, which is
+96.7% scalar by instruction count, brings it to **66.98% of the profile in
+code that is essentially entirely scalar.** The top five functions hold
+90.59%; of those, only `get_cost_stat` (3.69%) is effectively loopless, and
+the rest are loops the vectorizer refused on analysis or legality grounds.
+
+This is the zopfli answer to the question SPEC.ja.md 6.1-4 asks of jaq: the
+share that no hint can reach. jaq's gate is 70% of `total_score` from an
+interpreter layer; zopfli's equivalent figure is ~67%, and it comes not from
+indirect calls and refcounting but from **data-dependent early-exit byte
+scans** --- LZ77 match comparison, hash chain walking. Different cause, same
+consequence for a loop-metadata method.
+
+#### 31.6 One script bug found while doing this
+
+`TARGET=zopfli source scripts/target_common.sh` does **not** work: bash
+restores a temporary assignment when the builtin returns, so `TARGET` is
+empty again by the time a later `run_correctness` call runs its `case`, and
+the function silently did nothing. `export TARGET=zopfli` first. A `*)` arm
+that returns an error was added to `run_correctness` so it can never fail
+quietly again. The `scripts/toy_*.sh` and `TARGET=x scripts/target_*.sh`
+forms were never affected (those set the variable in a child process).
