@@ -6180,3 +6180,379 @@ not the engine.
 - The three poisoning items are excluded from the candidate profiling run,
   so no Experiment 2 arm can contain them; `T_allraw` is kept only as the
   positive control for section 77.
+
+
+## Marks (jaq) --- where the human's proxy points jev-opt
+
+Date: 2026-09-22, same machine and pinned toolchain as every section above
+(rustc 1.100.0-nightly bba531001 / LLVM 23.1.1), same jaq submodule commit
+`c866e70303b5dbc37d83a0b0cbacf10e90af9c8c` (v3.1.1). **Sections are
+numbered from 80.**
+
+Decision 58 fixes the experiment at four items, and this is the first:
+*speed this function up* --- a human, or Claude acting as the human's proxy,
+names the functions and jev-opt decides what to do with them. This section
+is the profiling that produced `targets/jaq/jev-marks.txt`. **It contains no
+hint, attribute or compiler setting**, and neither does the marks file or
+`targets/jaq/jev-marks.rationale.md`: naming a hint here would be the proxy
+doing the optimising.
+
+New in this section: `scripts/perf_local.sh` (a rootless `perf`),
+`scripts/perf_marks_profile.sh` (record every frozen workload of a target),
+`scripts/perf_hotness.py` (per-symbol and inline-aware shares, and the
+coverage of a marks file) and `scripts/inline_structure.py` (what is inside
+a post-LTO inline host, with a backedge count per source function).
+
+Reproduce with:
+
+```
+scripts/perf_local.sh setup                       # no root required
+export TARGET=jaq                                 # NOT `TARGET=jaq scripts/...`
+scripts/perf_marks_profile.sh /tmp/perf-flat 6 5000
+scripts/perf_hotness.py --binary target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+    --inline --crates --top 35 --tsv artifacts/jaq-marks/perf-self.tsv \
+    --inline-tsv artifacts/jaq-marks/perf-inline.tsv /tmp/perf-flat/*.data
+scripts/inline_structure.py --binary target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+    --names-from artifacts/jaq-marks/perf-self.tsv --top 24 \
+    --tsv artifacts/jaq-marks/inline-structure.tsv
+scripts/perf_hotness.py --binary target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+    --top 0 --marks targets/jaq/jev-marks.txt /tmp/perf-flat/*.data
+```
+
+### 80. `perf` works on this machine after all, without root
+
+results.md "Day 0 (toy)" section 3 recorded that `perf` is absent, and
+`scripts/ipsample.c` --- the `LD_PRELOAD` `ITIMER_PROF` sampler oxipng's
+section 43 used --- exists because of that. The user prefers `perf`, so it
+was tried again, and two things had changed or had never been checked:
+
+```
+$ zcat /proc/config.gz | grep -E 'CONFIG_PERF_EVENTS='
+CONFIG_PERF_EVENTS=y
+$ uname -r ; cat /proc/sys/kernel/perf_event_paranoid
+6.18.33.2-microsoft-standard-WSL2
+2
+```
+
+The WSL2 kernel has the subsystem compiled in, and a `perf_event_open`
+probe (software `cpu-clock`, sampling `cpu-clock`, hardware `cycles`,
+hardware `instructions`) succeeds on all four at `paranoid=2`. What was
+missing was only the *tool*, and installing it needs root --- which this
+account does not have (`sudo` asks for a password). The way round is that
+`apt-get download` does not need root:
+
+```
+$ apt-get download linux-perf libopencsd1 libbabeltrace1 libtraceevent1
+$ for d in *.deb; do dpkg-deb -x "$d" $PREFIX/root; done
+$ LD_LIBRARY_PATH=$PREFIX/root/usr/lib/x86_64-linux-gnu \
+      PERF_EXEC_PATH=$PREFIX/root/usr/lib/perf-core $PREFIX/root/usr/bin/perf --version
+perf version 7.1.8
+```
+
+`linux-perf` needs exactly three shared libraries Pengwin 13 does not ship
+(`libopencsd_c_api.so.1`, `libbabeltrace-ctf.so.1`, `libtraceevent.so.1`).
+The tool is 7.1.8 from trixie-backports and the kernel is 6.18; recording
+and reporting `cycles:u` work regardless. `scripts/perf_local.sh` is that
+sequence plus a wrapper script, idempotent, and it prints the wrapper's
+path. **`scripts/ipsample.c` was therefore not used** --- it stays as the
+fallback for a machine where this does not work.
+
+Three properties of `perf` on this kernel that the numbers below depend on.
+
+**The hardware PMU is real.** `perf record -e cycles:u` on the hold-strproc
+case and `-e cpu-clock:u` on the same case, 6 runs each, agree to within
+0.3 percentage points on all eight of the top-8 symbols (25.97/26.16,
+13.30/13.05, 6.40/6.48, 6.34/6.32, 4.08/3.81, 3.80/3.77, 3.17/3.22,
+3.14/3.09) and to 0.6 points on concentration (top 5 56.09 vs 55.82; top 30
+91.13 vs 90.57). A virtualised PMU that fabricated its samples would not
+reproduce a software timer this closely.
+
+**Only user time is visible, and the kernel IP leaks anyway.** At
+`paranoid=2` the event must be `:u`. 11.16% of samples land outside the jaq
+binary: 8.03% at `0xffffffff…` kernel addresses (WSL2 reports the kernel IP
+for a `:u` sample taken during a syscall) and 3.04% in libc. Per case the
+in-binary fraction is 94.6% (objsearch), 97.1% (strproc) and **68.2%
+(readwrite)** --- that case writes 50 MB to `/dev/null`. Every share below
+is a share of the in-binary part.
+
+**Callchains do not work on this binary, in either mode.** The frozen recipe
+does not force frame pointers, so `--call-graph fp` returns stack garbage
+(`0x95e9800095d28` as a caller of `mi_free`). `--call-graph dwarf` resolves
+more than one frame for only 20.2% of samples at 4096 bytes of captured
+stack and 25.1% at 32768, and **not one** of the resolvable chains has a
+mimalloc symbol as its leaf. So there is no inclusive column in this section
+and no attribution of the allocator's 22.94% to the jaq functions that drive
+it. Recorded as a negative result.
+
+### 81. The recording, and how a sample becomes a function
+
+Six workloads --- the three holdout and the three training cases of section
+52, argv for argv including the x4/x8/x2 repeat counts --- each recorded as
+six consecutive runs inside one `perf record -e cycles:u -F 5000`, pinned to
+CPU 4 (`BENCH_CPU` for jaq), stdout to `/dev/null`, `--no-buildid-cache`.
+The binary is the section 53 PGO baseline, re-verified before recording:
+`merged.profdata` sha256 `4e879ce1…`, `.text` sha256 `642dd55e…`.
+
+| workload | samples | in-binary share of user cycles |
+|---|--:|--:|
+| hold-objsearch | 31841 | 94.63% |
+| hold-strproc | 33685 | 97.06% |
+| hold-readwrite | 27254 | 68.20% |
+| train-objsearch | 31800 | 94.60% |
+| train-strproc | 33374 | 97.17% |
+| train-readwrite | 27079 | 68.37% |
+
+185033 samples, 27079--33685 per workload. Shares are summed sample periods
+(what `perf report`'s Overhead column shows), not sample counts.
+
+Attribution is done by `scripts/perf_hotness.py`, not by `perf report`, for
+one reason: **the binary contains 761 demangled names with more than one
+definition** and `jaq_json::read::parse` has four, so `perf`'s per-symbol
+rows split a source function across its LTO copies. The script turns each
+sample's ip into a link-time vaddr through that process's own
+`PERF_RECORD_MMAP2` record and the binary's LOAD headers (the executable
+segment has `p_vaddr - p_offset = 0x1000`, so the two are not
+interchangeable), then resolves it against `nm` and against
+`llvm-symbolizer --inlining` (Debian LLVM 19.1.7; demangling the binary's
+5723 text symbols with the pinned toolchain's 23.1.1 `llvm-nm -C` gives an
+identical set of 4763 Rust names, so the marks are spelled the way the
+plugin's `llvm::demangle()` will spell them). The holdout and training halves of each case
+agree to within 0.5 points on every row, which is the strongest statement
+this profile makes about its own repeatability.
+
+### 82. Self time by post-LTO symbol, top 20 of the 236 with a sample
+
+`eq-w` is the mean of the six per-workload shares; `obj`/`str`/`rw` are the
+per-case shares with holdout and training averaged. `insns`, `vec` and `be`
+are `scripts/interp_share.py`'s machine-code counts for the symbol.
+
+| # | share | eq-w | obj | str | rw | insns | vec | be | crate | function |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|---|---|
+| 1 | 29.29% | 29.15% | 33.9 | 26.0 | 27.5 | 4426 | 150 | 259 | jaq_json | `jaq_json::read::parse::<hifijson::SliceLexer>` |
+| 2 | 8.32% | 6.91% | 6.8 | 13.2 | 0.8 | 6562 | 549 | 236 | jaq_core | `<jaq_core::compile::TermId>::run::<jaq_all::data::DataKind>` |
+| 3 | 6.81% | 6.14% | 9.3 | 6.6 | 2.5 | 46 | 0 | 3 | C:mimalloc | `mi_free` |
+| 4 | 4.48% | 7.55% | 0.1 | 0.0 | 22.6 | 2390 | 22 | 179 | jaq_json | `jaq_json::write::write` |
+| 5 | 3.10% | 2.92% | 3.6 | 3.2 | 1.9 | 34 | 0 | 2 | C:mimalloc | `_mi_page_malloc_zero` |
+| 6 | 3.09% | 2.89% | 3.7 | 3.1 | 1.8 | 29 | 0 | 0 | C:mimalloc | `mi_theap_malloc_aligned` |
+| 7 | 2.71% | 2.12% | 0.0 | 6.4 | 0.0 | 451 | 30 | 40 | jaq_json | `<jaq_json::funs::base<jaq_all::data::DataKind>::{closure#3} as core::ops::function::FnO…` |
+| 8 | 2.53% | 2.14% | 4.2 | 2.3 | 0.0 | 1012 | 48 | 53 | jaq_core | `<<jaq_core::path::Path<jaq_json::Val>>::run::{closure#0} as core::ops::function::FnOnce…` |
+| 9 | 2.50% | 2.34% | 3.3 | 2.3 | 1.4 | 6 | 0 | 0 | C:mimalloc | `mi_malloc_aligned` |
+| 10 | 2.45% | 4.11% | 0.2 | 0.0 | 12.2 | 41 | 0 | 2 | core | `<core::io::write::default_write_fmt::Adapter<alloc::io::buffered::bufwriter::BufWriter<…` |
+| 11 | 2.43% | 2.66% | 4.6 | 0.1 | 3.3 | 346 | 21 | 16 | hashbrown | `<hashbrown::raw::RawTable<usize>>::reserve_rehash::<indexmap::map::core::get_hash<jaq_j…` |
+| 12 | 2.37% | 2.23% | 5.0 | 0.7 | 1.1 | 271 | 0 | 29 | alloc | `<alloc::rc::Rc<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::Ra…` |
+| 13 | 1.99% | 1.59% | 1.0 | 3.8 | 0.0 | 434 | 34 | 18 | core | `<core::iter::adapters::flatten::FlatMap<core::iter::adapters::filter::Filter<alloc::box…` |
+| 14 | 1.95% | 1.66% | 3.5 | 1.5 | 0.0 | 21 | 0 | 1 | C:mimalloc | `mi_page_free_list_extend` |
+| 15 | 1.73% | 1.36% | 0.0 | 4.1 | 0.0 | 432 | 98 | 14 | jaq_std | `<jaq_std::base_run<jaq_all::data::DataKind>::{closure#7} as core::ops::function::FnOnce…` |
+| 16 | 1.31% | 1.07% | 1.2 | 2.0 | 0.0 | 466 | 58 | 13 | jaq_core | `jaq_core::path::run::<jaq_json::Val, jaq_json::Val, alloc::vec::into_iter::IntoIter<(ja…` |
+| 17 | 1.30% | 1.02% | 0.0 | 3.1 | 0.0 | 582 | 54 | 25 | core | `<core::iter::sources::from_fn::FromFn<jaq_core::fold::fold<jaq_core::filter::Ctx<jaq_al…` |
+| 18 | 1.19% | 0.99% | 1.4 | 1.5 | 0.0 | 1052 | 118 | 19 | jaq_core | `<jaq_core::path::Path<core::result::Result<jaq_json::Val, jaq_core::exn::Exn<jaq_json::…` |
+| 19 | 1.17% | 1.23% | 1.7 | 0.6 | 1.4 | 1492 | 0 | 90 | jaq_json | `<jaq_json::Val as core::hash::Hash>::hash::<foldhash::fast::FoldHasher>` |
+| 20 | 1.10% | 1.86% | 0.0 | 0.0 | 5.6 | 471 | 152 | 25 | ? | `<&alloc::string::String as core::fmt::Display>::fmt` |
+
+**Concentration: top 5 = 52.01%, top 10 = 65.30%, top 20 = 81.84%, top 30 =
+88.50%.** By crate: jaq_json 38.50%, **mimalloc (C) 22.94%** over 88
+symbols, jaq_core 15.26%, core 10.47%, alloc 4.49%, `<&…` Display
+instantiations 3.00%, hashbrown 2.43%, jaq_std 1.73%, the `jaq` bin 0.60%,
+bytes 0.55%. jaq's own workspace crates hold 56.1% of the cycles --- not
+comparable with section 54's 35.3%, which was a share of *instrumented*
+code and so excluded mimalloc from its denominator by construction.
+
+Only `jaq_json::read::parse` is in the top 3 of all six recordings
+(26.0--34.4%). `jaq_json::write::write` is 22.6% of readwrite and 0.1%
+elsewhere; `<jaq_json::funs::base…{closure#3}…>::call_once` is 6.4% of
+strproc and 0.0% elsewhere; `Rc<IndexMap>::drop_slow` is 5.0% of objsearch.
+The full per-case tables are in `targets/jaq/jev-marks.rationale.md`.
+
+### 83. Inline-aware reach: a hot symbol is not a hot function
+
+`read::parse` is 4426 instructions and 259 backedges, of which **805
+instructions belong to `read::parse` itself**; the rest is the hifijson
+lexer, inlined. A mark names a source function, so the table that matters is
+this one: `reach` is the share of cycles whose machine code has that
+function anywhere in its inlined frame stack, `leaf` the share where it is
+innermost, and `own/ownbe`, `reach-insns/be` are
+`scripts/inline_structure.py`'s instruction and machine-code-backedge counts
+for the function's own body and for its body plus everything inlined into
+it.
+
+| # | reach | leaf | obj | str | rw | own/ownbe | reach-insns/be | function |
+|--:|--:|--:|--:|--:|--:|--:|--:|---|
+| 1 | 29.29% | 2.92% | 33.9 | 26.0 | 27.5 | 805/26 | 4426/259 | `jaq_json::read::parse::<hifijson::SliceLexer>` |
+| 2 | 10.85% | 0.07% | 16.2 | 5.0 | 13.3 | 69/0 | 1064/49 | `<hifijson::SliceLexer as hifijson::token::Lex>::seq::<hifijson::Error, jaq_json::read::…` |
+| 3 | 10.64% | 1.90% | 15.9 | 4.9 | 13.1 | 240/4 | 763/21 | `jaq_json::read::parse::<hifijson::SliceLexer>::{closure#1}` |
+| 4 | 9.07% | 0.05% | 4.1 | 16.8 | 1.9 | 44/2 | 715/46 | `<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold::<hifijson::str::Error, all…` |
+| 5 | 9.07% | 0.00% | 4.1 | 16.8 | 1.9 | 0/0 | 715/46 | `jaq_json::read::parse_string::<hifijson::SliceLexer>` |
+| 6 | 8.32% | 2.02% | 6.8 | 13.2 | 0.8 | 1322/24 | 6562/236 | `<jaq_core::compile::TermId>::run::<jaq_all::data::DataKind>` |
+| 7 | 7.53% | 0.49% | 3.4 | 14.0 | 1.4 | 15/0 | 69/3 | `<hifijson::SliceLexer as hifijson::write::Write>::write_until::<hifijson::str::LexWrite…` |
+| 8 | 7.45% | 0.00% | 11.1 | 3.3 | 9.6 | 19/0 | 253/10 | `<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>::i…` |
+| 9 | 7.45% | 1.38% | 11.1 | 3.3 | 9.6 | 9/0 | 234/10 | `<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>::i…` |
+| 10 | 6.81% | 0.19% | 9.3 | 6.6 | 2.5 | -/- | -/- | `mi_free` |
+| 11 | 6.75% | 0.00% | 2.8 | 12.9 | 1.0 | 0/0 | 43/2 | `<core::iter::adapters::copied::Copied<core::slice::iter::Iter<u8>> as core::iter::trait…` |
+| 12 | 6.75% | 0.14% | 2.8 | 12.9 | 1.0 | 5/0 | 43/2 | `<core::slice::iter::Iter<u8> as core::iter::traits::iterator::Iterator>::try_fold::<(),…` |
+| 13 | 6.75% | 0.00% | 2.8 | 12.9 | 1.0 | 0/0 | 43/2 | `<core::iter::adapters::copied::Copied<core::slice::iter::Iter<u8>> as core::iter::trait…` |
+| 14 | 5.66% | 0.00% | 8.6 | 2.3 | 7.3 | 18/0 | 205/9 | `<indexmap::map::core::IndexMapCore<jaq_json::Val, jaq_json::Val>>::insert_full` |
+| 15 | 4.70% | 2.64% | 6.5 | 4.6 | 1.4 | -/- | -/- | `mi_free_ex` |
+| 16 | 4.68% | 1.13% | 1.8 | 9.1 | 0.6 | 6/0 | 20/0 | `core::iter::adapters::copied::copy_try_fold::<u8, (), core::ops::control_flow::ControlF…` |
+| 17 | 4.48% | 1.23% | 0.1 | 0.0 | 22.6 | 749/16 | 2390/179 | `jaq_json::write::write` |
+| 18 | 3.56% | 1.70% | 1.3 | 7.0 | 0.5 | 6/0 | 14/0 | `core::iter::traits::iterator::Iterator::position::check::<u8, hifijson::str::LexWrite::…` |
+
+The string scan reads as a chain and **the backedge is two frames below the
+function that looks hot**: `str_fold` (9.07%) -> `write_until` (7.53%) ->
+`Copied<Iter<u8>>::position` (6.75%) -> `Iter<u8>::try_fold` (6.75%) ->
+`copy_try_fold` (4.68%) -> `position::check::{closure#0}` (3.56%, leaf
+1.70%). `write_until`'s own body is 15 instructions with no backedge of its
+own; three appear once the `position` chain is counted in. This is the same
+`slice::iter().position(..)` byte scanner section 54 found, seen from the
+other end.
+
+### 84. What the PGO profile said, and what `perf` says, about the same binary
+
+Section 54's column is the sum of PGO block counts per profdata record.
+
+| profdata share | perf self | perf reach | function |
+|--:|--:|--:|---|
+| 22.52% | - | 7.53% | `<hifijson::SliceLexer as hifijson::write::Write>::write_until::<hifijson::str::LexWrite…` |
+| 7.26% | 29.29% | 29.29% | `jaq_json::read::parse::<hifijson::SliceLexer>` |
+| 5.73% | 1.73% | 1.73% | `<jaq_std::base_run<jaq_all::data::DataKind>::{closure#7} as core::ops::function::FnOnce…` |
+| 4.66% | - | 0.46% | `jaq_json::read::ws_tk::<hifijson::SliceLexer>` |
+| 4.62% | - | 2.29% | `<hifijson::SliceLexer as hifijson::num::LexWrite>::num_string_with` |
+| 4.33% | 4.48% | 4.48% | `jaq_json::write::write` |
+| 3.32% | - | 9.07% | `jaq_json::read::parse_string::<hifijson::SliceLexer>` |
+| 2.22% | 0.04% | 2.68% | `core::ptr::drop_glue::<jaq_json::Val>` |
+| 2.06% | 0.00% | 0.52% | `__rustc::__rust_alloc` |
+| 2.00% | - | 0.39% | `__rustc::__rust_dealloc` |
+| 1.93% | 8.32% | 8.32% | `<jaq_core::compile::TermId>::run::<jaq_all::data::DataKind>` |
+| 1.92% | - | 7.45% | `<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>::i…` |
+| 1.85% | - | 0.51% | `<jaq_json::num::Num>::from_str_radix` |
+| 1.70% | 0.00% | 0.25% | `<alloc::raw_vec::RawVecInner>::finish_grow` |
+| 1.56% | 2.45% | 2.49% | `<core::io::write::default_write_fmt::Adapter<alloc::io::buffered::bufwriter::BufWriter<…` |
+| 1.56% | 0.25% | 2.35% | `<alloc::io::buffered::bufwriter::BufWriter<std::io::stdio::StdoutLock> as core::io::wri…` |
+| 1.54% | - | 0.40% | `<alloc::raw_vec::RawVecInner>::grow_amortized` |
+| 1.36% | 0.32% | 0.44% | `core::ptr::drop_glue::<alloc::boxed::Box<dyn core::iter::traits::iterator::Iterator<Ite…` |
+| 1.21% | - | 2.30% | `<bstr::utf8::Chars as core::iter::traits::iterator::Iterator>::count` |
+| 1.10% | - | 0.46% | `<alloc::vec::Vec<u8>>::reserve` |
+
+Four differences, all structural:
+
+1. **`write_until`: 22.52% -> 7.53% reach, and it is not in the perf flat
+   table at all.** The hottest profdata record in the program was inlined
+   into `read::parse`. A profdata record is a pre-inlining IR function; a
+   perf sample lands in the symbol that absorbed it.
+2. **`read::parse` 7.26% -> 29.29%, `TermId::run` 1.93% -> 8.32%**: the same
+   effect from the host's side. The two functions that hold 37.6% of the
+   cycles between them sit at ranks 2 and 11 of the profdata list.
+3. **mimalloc 4.06% -> 22.94%.** Section 51 said `__rust_alloc` and
+   `__rust_dealloc` are one-instruction thunks and that every
+   interpreter-layer share in section 54 is therefore an under-count "by an
+   unknown amount". The amount is now known: allocation is the second
+   largest consumer of cycles in jaq, and no profdata-based list can see it.
+4. **Block counts over-weight small, very frequent bodies.** `ws_tk` 4.66%
+   -> 0.46%, `num_string_with` 4.62% -> 2.29%, `from_str_radix` 1.85% ->
+   0.51%, `base_run…{closure#7}` 5.73% -> 1.73%. A block count is a count,
+   not a cost.
+
+The consequence for this experiment is blunt: **the section 54 hot list was
+not a usable list of places to mark.** Six of its top ten are either inlined
+away, mis-weighted, or invisible.
+
+### 85. The marks file
+
+`targets/jaq/jev-marks.txt`, 15 lines plus a comment header. A line matches
+an LLVM function whose demangled v0 name equals it, or continues with `::<`
+(a generic instantiation) or `::{closure`; so `jaq_core::path::run` matches
+both instantiations and does not match `jaq_core::path::run_all`, and
+`jaq_json::read::parse` does not match `jaq_json::read::parse_string`. A `#`
+is a comment only as the first non-space character of a line, because
+`{closure#3}` contains one.
+
+```
+jaq_json::read::parse
+<hifijson::SliceLexer as hifijson::token::Lex>::seq
+<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold
+<hifijson::SliceLexer as hifijson::write::Write>::write_until
+<jaq_core::compile::TermId>::run
+<jaq_json::funs::base<jaq_all::data::DataKind>::{closure#3} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once
+<<jaq_core::path::Path<jaq_json::Val>>::run::{closure#0} as core::ops::function::FnOnce<(jaq_core::path::Part<jaq_json::Val>, jaq_json::Val)>>::call_once
+<jaq_std::base_run<jaq_all::data::DataKind>::{closure#7} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once
+jaq_core::path::run
+jaq_json::write::write
+<core::io::write::default_write_fmt::Adapter<alloc::io::buffered::bufwriter::BufWriter<std::io::stdio::StdoutLock>> as core::fmt::Write>::write_str
+<&alloc::string::String as core::fmt::Display>::fmt
+<hashbrown::raw::RawTable<usize>>::reserve_rehash::<indexmap::map::core::get_hash<jaq_json::Val, jaq_json::Val>::{closure#0}>
+<alloc::rc::Rc<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>>::drop_slow
+<jaq_json::Val as core::hash::Hash>::hash
+```
+
+Every mark's comment in the file gives its share, its per-workload shares,
+its instruction and backedge counts and what it does --- and nothing else.
+
+| reach | be | mark (abbreviated) |
+|--:|--:|---|
+| 29.29% | 259 | `jaq_json::read::parse` |
+| 13.05% | 49 | `<SliceLexer as hifijson::token::Lex>::seq` |
+| 9.07% | 46 | `<SliceLexer as hifijson::str::LexWrite>::str_fold` |
+| 8.85% | 236 | `<jaq_core::compile::TermId>::run` |
+| 8.75% | 3 | `<SliceLexer as hifijson::write::Write>::write_until` |
+| 4.48% | 179 | `jaq_json::write::write` |
+| 2.71% | 40 | `<jaq_json::funs::base…{closure#3} as FnOnce<…>>::call_once` |
+| 2.53% | 53 | `<<path::Path<Val>>::run::{closure#0} as FnOnce<…>>::call_once` |
+| 2.49% | 2 | `<…Adapter<BufWriter<StdoutLock>> as core::fmt::Write>::write_str` |
+| 2.43% | 16 | `<RawTable<usize>>::reserve_rehash::<…get_hash<Val, Val>…>` |
+| 2.37% | 29 | `<Rc<IndexMap<Val, Val, RandomState>>>::drop_slow` |
+| 1.73% | 14 | `<jaq_std::base_run…{closure#7} as FnOnce<…>>::call_once` |
+| 1.73% | 13 | `jaq_core::path::run` |
+| 1.17% | 90 | `<jaq_json::Val as core::hash::Hash>::hash` |
+| 1.10% | 25 | `<&alloc::string::String as core::fmt::Display>::fmt` |
+
+All fifteen still contain a machine-code loop after LTO (`be > 0`), which
+was the second of the two tests; the first was share. The reaches overlap
+--- the four read-path marks union to exactly `read::parse`'s own 29.29%,
+because the other three are entirely inside it --- so the union over all
+fifteen is the number that counts:
+
+| | covered |
+|---|--:|
+| **all six workloads** | **60.91%** of in-binary user cycles |
+| hold-objsearch / train-objsearch | 58.17% / 58.68% |
+| hold-strproc / train-strproc | 56.91% / 56.72% |
+| hold-readwrite / train-readwrite | 74.62% / 74.39% |
+| **of the markable (Rust) cycles** | **79.04%** |
+
+The 39.09% not covered is 22.94% mimalloc --- C, no IR, unreachable by any
+plugin --- plus a 16.15% tail whose three largest entries are 1.56%, 1.30%
+and 1.19%. Reaching 70% of *total* cycles would need something the plugin
+cannot do; 79% of what it can touch is the honest ceiling of a 15-mark set
+here.
+
+Deliberately excluded, on the record: `core::ptr::drop_glue::<jaq_json::Val>`
+(2.68% reach --- the largest unmarked Rust item, but compiler-generated, with
+no source function behind it); the `core::iter` adapters under the lexer
+(`position` 6.75%, `try_fold` 6.75%, `copy_try_fold` 4.68%) --- they hold the
+backedge, but marking `write_until` and `str_fold` reaches the same machine
+code and is what a human would point at; `__rust_alloc`/`__rust_dealloc`
+(0.52% and 0.39% of cycles against 2.06% and 2.00% of block counts).
+
+### 86. Deviations, and what is not done
+
+- **No timing was run.** This section is profiling only; the marks have not
+  been built with, and nothing here is a speed claim.
+- **The machine was shared.** The LLVM plugin work (C++ compiles, toy
+  builds) ran on other cores throughout. Shares are ratios within one
+  pinned process, which is far less sensitive to a neighbour than a wall
+  time is, and the holdout/training agreement to 0.5 points is evidence
+  that the neighbour did not distort them --- but section 48's rule (one
+  measurement at a time) was not honoured and is noted.
+- **Kernel time is outside the picture.** 11.16% of samples, and 32% of the
+  readwrite case's, are kernel or libc. A marks file cannot address them.
+- **No callchains**, for the reason in section 80. The allocator's 22.94%
+  is unattributed to callers.
+- **`perf.data` is not kept** (7.5 MB flat, 124 MB with dwarf stacks). The
+  reductions are `artifacts/jaq-marks/perf-self.tsv` (236 symbols that got
+  a sample), `perf-inline.tsv` (1897 source functions) and
+  `inline-structure.tsv` (1829 rows), and `/artifacts/` is gitignored like
+  every other artifact directory in this repository, so they are not in the
+  commit either; the commands above regenerate all three in about 40
+  seconds of recording plus 10 of analysis.
+- **One binary.** All of this describes the PGO baseline. A different
+  configuration inlines differently, and the inline-aware table would move
+  with it; the self-time table would move less.

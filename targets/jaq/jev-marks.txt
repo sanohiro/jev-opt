@@ -1,0 +1,119 @@
+# jev-opt marks --- jaq
+#
+# WHAT THIS FILE IS. One function per line: the places a human (through
+# Claude acting as the human's proxy, decision 58) asks jev-opt to work on.
+# It says WHERE, and nothing about what to do there: choosing hints is Jev's
+# job, and no hint, attribute or knob is named or implied anywhere in this
+# file or in targets/jaq/jev-marks.rationale.md.
+#
+# MATCHING RULE. A line matches an LLVM function whose demangled v0 name
+#   * is equal to the line, or
+#   * continues with `::<`       (any generic instantiation), or
+#   * continues with `::{closure` (a closure defined in it).
+# So `jaq_core::path::run` marks both instantiations of that function and
+# does NOT match `jaq_core::path::run_all`, and `jaq_json::read::parse` does
+# NOT match `jaq_json::read::parse_string`. Lines whose first non-space
+# character is `#` are comments; `#` inside a name (`{closure#3}`) is not.
+# Build the target with -Csymbol-mangling-version=v0, which the frozen
+# recipe in scripts/target_common.sh already does. The strings below were
+# produced by `llvm-cxxfilt` (Debian LLVM 19.1.7) and `llvm-symbolizer`;
+# demangling the binary's 5723 text symbols with the pinned toolchain's
+# LLVM 23.1.1 `llvm-nm -C` gives an identical set of 4763 Rust names, so
+# the plugin's own `llvm::demangle()` will see these spellings. Note that
+# both `base<T>` (a type position, inside an `<… as FnOnce<…>>` shim) and
+# `base::<T>` (a path position) occur, and they are different functions.
+#
+# WHERE THE NUMBERS COME FROM. `perf record -e cycles:u -F 5000`, 6 repeats
+# of each of the three holdout and three training workloads on the Stage 0
+# PGO baseline binary (results.md "Stage 0 (jaq)" section 53, .text
+# 642dd55e…, merged.profdata 4e879ce1…); 185033 samples in total, 27079 to
+# 33685 per workload. `share` is that function's own post-LTO symbol as a
+# percentage of in-binary user cycles, summed over all six workloads;
+# `reach` is the percentage of cycles running machine code that belongs to
+# it wherever fat LTO placed it (its body plus everything inlined into it,
+# and its own code inlined into other symbols). `insns` and `be` are the
+# machine-code instruction and backedge counts of the code that belongs to
+# it, so `be > 0` means it still contains a machine-code loop after LTO.
+# Full tables: targets/jaq/jev-marks.rationale.md, artifacts/jaq-marks/*.tsv,
+# results.md "Marks (jaq)".
+#
+# COVERAGE. These 15 marks cover 60.91% of in-binary user cycles (per
+# workload 56.7% to 74.6%) and 79.04% of the cycles that are reachable at
+# all: the remaining 22.94% is mimalloc, which is C and has no LLVM IR for a
+# plugin to touch (results.md "Stage 0 (jaq)" section 51).
+
+# --- the JSON read path: 29.29% reach, hot in all six workloads -----------
+# share 29.29%, reach 29.29% (26.0-34.4% in every workload), 4426 insns /
+# 259 backedges. The post-LTO symbol the whole hifijson lexer was inlined
+# into, and the only function that is top-3 in all six workloads. The three
+# marks after it are inside it, so they add nothing to this 29.29%.
+jaq_json::read::parse
+
+# reach 13.05% (objsearch 15.8%, readwrite 13.1%, strproc 4.8%), 1064 insns
+# / 49 backedges inside the read::parse hosts. The token dispatch loop:
+# skip whitespace, read one token, decide. Both instantiations match.
+<hifijson::SliceLexer as hifijson::token::Lex>::seq
+
+# reach 9.07% (strproc 16.7%, objsearch 4.0%), 715 insns / 46 backedges.
+# The string-body loop: scan to the next `"` or `\`, copy, handle the
+# escape, repeat.
+<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold
+
+# reach 8.75% (strproc 14.0%), 69 insns / 3 backedges inlined plus a
+# 42-insn / 2-backedge standalone symbol. The byte scanner str_fold runs:
+# `slice::iter().copied().position(..)`, an early-exit, data-dependent
+# scan. It was the single hottest record in the PGO profile (22.5% of block
+# counts, results.md section 54) and is a fraction of that in cycles.
+<hifijson::SliceLexer as hifijson::write::Write>::write_until
+
+# --- the filter/interpreter path: hot in objsearch and strproc ------------
+# share 8.32% (strproc 13.3%, objsearch 7.0%, readwrite 0.8%), reach 8.85%
+# counting its closures inlined elsewhere, 6562 insns / 236 backedges --- the largest hot symbol in the
+# binary. The interpreter's term dispatch.
+<jaq_core::compile::TermId>::run
+
+# share 2.71% (strproc 6.3%, and zero elsewhere), 451 insns / 40 backedges.
+# The `ascii_downcase`/`length` builtin body of the strproc filter.
+<jaq_json::funs::base<jaq_all::data::DataKind>::{closure#3} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once
+
+# share 2.53% (objsearch 4.2%, strproc 2.4%), 1012 insns / 53 backedges.
+# Path traversal: `.[]` and `.id` walking a Val.
+<<jaq_core::path::Path<jaq_json::Val>>::run::{closure#0} as core::ops::function::FnOnce<(jaq_core::path::Part<jaq_json::Val>, jaq_json::Val)>>::call_once
+
+# share 1.73% (strproc 4.1%), 432 insns / 14 backedges. The jaq-std builtin
+# dispatch closure.
+<jaq_std::base_run<jaq_all::data::DataKind>::{closure#7} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once
+
+# share 1.31%, reach 1.73% over both instantiations (objsearch 1.2%,
+# strproc 1.9%), 466 insns / 13 backedges. The loop over path parts.
+jaq_core::path::run
+
+# --- the write path: 22.5% + 12.1% of the readwrite workload --------------
+# share 4.48% overall but 22.5% of readwrite, equal-weight 7.55%, reach
+# 4.48%, 2390 insns / 179 backedges. The Val serialiser.
+jaq_json::write::write
+
+# share 2.45% overall, 12.1% of readwrite, 41 insns / 2 backedges in a
+# standalone symbol that is called, not inlined. Every byte jaq prints
+# passes through it.
+<core::io::write::default_write_fmt::Adapter<alloc::io::buffered::bufwriter::BufWriter<std::io::stdio::StdoutLock>> as core::fmt::Write>::write_str
+
+# share 1.10% overall, 5.9% of readwrite, 471 insns / 25 backedges. The
+# string-escaping half of the write path.
+<&alloc::string::String as core::fmt::Display>::fmt
+
+# --- object machinery: hot in objsearch -----------------------------------
+# share 2.43%, reach 2.43% (objsearch 4.7%, readwrite 3.3%), 346 insns / 16
+# backedges. Rehashing the IndexMap that backs every JSON object; a generic
+# instantiated on jaq_json::Val, so it is jaq's code in everything but the
+# crate name.
+<hashbrown::raw::RawTable<usize>>::reserve_rehash::<indexmap::map::core::get_hash<jaq_json::Val, jaq_json::Val>::{closure#0}>
+
+# share 2.37% (objsearch 5.0%), 271 insns / 29 backedges. Dropping one
+# JSON object: walk the buckets, drop each Val.
+<alloc::rc::Rc<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>>::drop_slow
+
+# share 1.17% (objsearch 1.7%, readwrite 1.4%, strproc 0.6%), 1492 insns /
+# 90 backedges --- the most loop-dense function in jaq_json. Hashing a Val
+# for the object map.
+<jaq_json::Val as core::hash::Hash>::hash
