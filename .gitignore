@@ -32,3 +32,6 @@ run-manifest.json
 # targets/zopfli/workloads/gen.py, fixed seeds)
 /targets/zopfli/workloads/*.dat
 /targets/zopfli/workloads/*.gz
+
+# jaq generated workloads (regenerable: targets/jaq/workloads/gen.py, fixed seeds)
+/targets/jaq/workloads/*.json

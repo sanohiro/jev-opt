@@ -231,6 +231,7 @@ for w in "${WORKLOADS[@]}"; do WL+=(--workload "$w"); done
 
 "$REPO/scripts/bench.py" run \
   --cpu "$BENCH_CPU" --warmup "$WARMUP" --runs "$RUNS" \
+  --stdout "$BENCH_STDOUT" --gap-ms "$BENCH_GAP_MS" \
   "${LBL[@]}" "${WL[@]}" --out "$OUT/$BENCH_OUT_NAME.json" --progress
 
 "$REPO/scripts/bench.py" stats "$OUT/$BENCH_OUT_NAME.json" --base baseline \

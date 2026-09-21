@@ -267,6 +267,10 @@ def main():
                    help="only walk symbols whose name contains this")
     p.add_argument("--out", required=True, help="output directory")
     p.add_argument("--top", type=int, default=30)
+    p.add_argument("--no-dump", action="store_true",
+                   help="do not write remark-attribution.json (it is one "
+                        "record per remark location x candidate function and "
+                        "reaches gigabytes on a large target)")
     args = p.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -372,12 +376,21 @@ def main():
             else:
                 per_site[s]["#slp"] += 1
 
-    with open(os.path.join(args.out, "remark-attribution.json"), "w") as f:
-        json.dump({"binary": args.bin, "log": args.log,
-                   "src_prefix": args.src_prefix,
-                   "symbols_walked": len(syms), "instructions": len(insns),
-                   "remarks": attributed,
-                   "unattributed": unattributed}, f, indent=1)
+    # The per-remark dump is one record per (remark location x candidate
+    # function). On zopfli that is 6067 locations and 40 MB; on jaq it is
+    # 46363 locations with up to hundreds of candidates each and the file
+    # came out at 5.4 GB (results.md "Stage 0 (jaq)" section 56). --no-dump
+    # skips it; the printed reports do not use it.
+    if args.no_dump:
+        print("(remark-attribution.json not written: --no-dump)")
+    else:
+        with open(os.path.join(args.out, "remark-attribution.json"), "w") as f:
+            json.dump({"binary": args.bin, "log": args.log,
+                       "src_prefix": args.src_prefix,
+                       "symbols_walked": len(syms),
+                       "instructions": len(insns),
+                       "remarks": attributed,
+                       "unattributed": unattributed}, f, indent=1)
 
     # ----- reports -----
     print()

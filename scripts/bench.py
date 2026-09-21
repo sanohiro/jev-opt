@@ -62,6 +62,16 @@ def cmd_run(args):
 
     pin = ["taskset", "-c", args.cpu]
 
+    # SPEC.ja.md 10: "discard stdout the same way in both variants, and keep
+    # the correctness check separate from the timing". `pipe` (the default,
+    # unchanged for toy and zopfli) reads the child's stdout into memory and
+    # compares it across labels, which is free when the output is a checksum
+    # line and ruinous when it is a re-serialised 25 MB JSON document: the
+    # child then blocks on this process's pipe reads inside the timed window.
+    # `devnull` is for those targets; correctness there is run_correctness's
+    # sha256 of stdout, taken outside the timing run.
+    sink = subprocess.PIPE if args.stdout == "pipe" else subprocess.DEVNULL
+
     header = {
         "schema_version": 1,
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -74,6 +84,7 @@ def cmd_run(args):
         "aslr": read_file("/proc/sys/kernel/randomize_va_space"),
         "lscpu_e": capture(["lscpu", "-e"]),
         "taskset": " ".join(pin),
+        "gap_ms": args.gap_ms,
         "note": "ns is time.perf_counter_ns around subprocess.run, so it "
                 "includes fork/exec and process teardown.",
     }
@@ -92,19 +103,20 @@ def cmd_run(args):
                 lname, path = labels[i]
                 argv = pin + [path] + wargs
                 t0 = time.perf_counter_ns()
-                proc = subprocess.run(argv, stdout=subprocess.PIPE,
+                proc = subprocess.run(argv, stdout=sink,
                                       stderr=subprocess.DEVNULL)
                 t1 = time.perf_counter_ns()
                 if proc.returncode != 0:
                     sys.exit(f"{lname}/{wname} exited {proc.returncode}")
-                # The toy prints a checksum line; keep it as a free
-                # correctness check across configs (SPEC.ja.md 10).
-                out = proc.stdout.decode(errors="replace").strip()
-                key = wname
-                if key not in digests:
-                    digests[key] = out
-                elif digests[key] != out and [lname, wname] not in digest_mismatches:
-                    digest_mismatches.append([lname, wname])
+                if proc.stdout is not None:
+                    # The toy prints a checksum line; keep it as a free
+                    # correctness check across configs (SPEC.ja.md 10).
+                    out = proc.stdout.decode(errors="replace").strip()
+                    key = wname
+                    if key not in digests:
+                        digests[key] = out
+                    elif digests[key] != out and [lname, wname] not in digest_mismatches:
+                        digest_mismatches.append([lname, wname])
                 if not warm:
                     samples.append({"label": lname, "workload": wname,
                                     "round": r - args.warmup,
@@ -112,7 +124,10 @@ def cmd_run(args):
                 done += 1
                 if args.progress and done % 20 == 0:
                     print(f"  {done}/{total}", file=sys.stderr, flush=True)
+                if args.gap_ms:
+                    time.sleep(args.gap_ms / 1000.0)
 
+    header["stdout_mode"] = args.stdout
     header["stdout_per_workload"] = digests
     header["stdout_mismatches"] = digest_mismatches
     header["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -333,6 +348,19 @@ def main():
     r.add_argument("--runs", type=int, default=30)
     r.add_argument("--out", required=True)
     r.add_argument("--progress", action="store_true")
+    r.add_argument("--gap-ms", type=int, default=0,
+                   help="idle this many milliseconds after each timed run "
+                        "(outside the timed window). Default 0, which is what "
+                        "the toy and zopfli runs used. A target that leaves a "
+                        "large resident set behind makes the NEXT process pay "
+                        "for reclaiming it, which the round-robin turns into "
+                        "noise; a short gap lets the machine settle first "
+                        "(results.md \"Stage 0 (jaq)\" section 55)")
+    r.add_argument("--stdout", choices=("pipe", "devnull"), default="pipe",
+                   help="what to do with each run's stdout: 'pipe' (default) "
+                        "captures it and cross-checks it between labels; "
+                        "'devnull' discards it, for targets whose output is "
+                        "large enough to distort the measurement")
     r.set_defaults(func=cmd_run)
 
     s = sub.add_parser("stats", help="paired bootstrap over a run's JSON")

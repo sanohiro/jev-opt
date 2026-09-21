@@ -51,6 +51,7 @@ WL=()
 for w in "${WORKLOADS[@]}"; do WL+=(--workload "$w"); done
 "$REPO/scripts/bench.py" run \
   --cpu "$BENCH_CPU" --warmup "$WARMUP" --runs "$RUNS" \
+  --stdout "$BENCH_STDOUT" --gap-ms "$BENCH_GAP_MS" \
   --label "A1=$OUT/A1" --label "A2=$OUT/A2" \
   "${WL[@]}" --out "$OUT/aa.json" --progress
 

@@ -2541,8 +2541,8 @@ once. The consequence for everything below is concrete: `__rust_alloc` and
 *often* jaq allocates and nothing at all about how *long* that takes. Every
 "interpreter-layer share" in section 54 therefore **under**-counts the
 allocation part of that layer. The same blindness was found
-independently by the oxipng work running beside this one, whose section adds
-the third check to `scripts/target_pgo_baseline.sh`:
+independently by the oxipng work running beside this one (sections 42-43),
+whose author added the third check to `scripts/target_pgo_baseline.sh`:
 `cargo tree -e build | grep -iE 'cc v|-sys v|cmake v|bindgen v'`. The
 SPEC.ja.md 6.1-2 filter as written has two greps and neither can see a C
 dependency: the crate name need not contain "simd" and the C sources live in
@@ -2809,6 +2809,16 @@ weight in profdata records with no symbol in this binary: 2.81%
 6.29% of loopless symbols; ceiling = that plus both mixed hosts plus the
 entire unclassified tail). **Both numbers are below 70%, so jaq passes
 SPEC.ja.md 6.1-4 and is not swapped out on this criterion.**
+
+One number for the report, since a range from 31% to 62% invites the
+question. The 25.56% tail splits, by the machine-code check alone, into
+6.29% with no backedge, 16.46% with at least one (of which 7.81% has
+between one and ten, i.e. small functions) and 2.81% with no symbol. If the
+16.46% is divided in the same (a):(b):mixed proportion the hand-classified
+top 20 shows (38.18 : 24.68 : 11.59), the interpreter layer lands at
+**about 39%**. That is a point estimate from an extrapolation, not a
+measurement, and the honest statement is the range; 39% is what to quote
+when one number is needed, and it is comfortably under 70% either way.
 
 Two qualifications on that pass, and they matter more than the number:
 
@@ -3263,6 +3273,513 @@ artifacts/jaq-headroom/bin/baseline: hash 7ad6d9821bbed2fb  IDENTICAL
 
 so the normalised hash **is** stable across rebuilds where the raw `.text`
 hash is not, which is what makes it usable as the code-change criterion.
+
+### 57. Headroom sweep: 33 builds, correctness first, and no configuration skipped
+
+```
+$ export TARGET=jaq
+$ BENCH_SET=training ONLY='^(g[0-3]-|g5-(max1|max4|count2|count4)$)' \
+      RUNS=15 WARMUP=3 scripts/target_headroom.sh
+```
+
+Baseline plus 32 configurations: groups 0-3 of the SPEC.ja.md 6.3 matrix
+plus the four extra points of group 5 that section 31.3 added for the unroll
+dimension (`-unroll-max-count=1/4` and `-unroll-count=2/4`;
+`-unroll-max-count=2/8` are already group 2). Every one is the SPEC.ja.md 3
+recipe --- same `-Cprofile-use=pgo/jaq/merged.profdata`, same
+`-Ctarget-cpu=native -Csymbol-mangling-version=v0`, same
+`CARGO_PROFILE_RELEASE_{OPT_LEVEL=3,LTO=fat,CODEGEN_UNITS=1,DEBUG=1,PANIC=unwind,STRIP=none}`,
+same three `-pass-remarks*` flags, explicit `--target`, own
+`CARGO_TARGET_DIR`, `--locked`, clean build --- plus that configuration's
+knobs. Build time 39.6-48.7 s each (1352 s for all 33; the build phase and the
+timing phase together took about 65 minutes). **No
+configuration failed to build.**
+
+Two deviations from zopfli's list, both deliberate: group 4 is **not** swept
+(section 28 settled it on zopfli --- `+prefer-256-bit` is byte-identical
+code on znver3, `+prefer-128-bit` and `x86-64-v3` are small regressions ---
+and the four unroll points of group 5 are the better use of the build
+budget), and **the sweep runs on the training inputs** (`BENCH_SET=training`),
+which is what SPEC.ja.md 7 asks for and what section 30 recorded as the one
+thing zopfli got wrong.
+
+| config | knobs | output hashes | .text vs base | raw +/- | norm +/- | vec decision changed | timed? |
+|---|---|---|---|---|---|---|---|
+| g0-align5 | `-align-all-nofallthru-blocks=5` | MATCH | differ | +0 / -0 | +0 / -0 | no | yes (noise probe) |
+| g1-maxbw | `-vectorizer-maximize-bandwidth` | MATCH | differ | +2 / -1 | +2 / -1 | YES | yes |
+| g1-vw8 | `-force-vector-width=8` | MATCH | differ | +22 / -31 | +21 / -31 | YES | yes |
+| g1-vw16 | `-force-vector-width=16` | MATCH | differ | +30 / -37 | +29 / -37 | YES | yes |
+| g1-vw32 | `-force-vector-width=32` | MATCH | differ | +31 / -34 | +27 / -34 | YES | yes |
+| g1-maxbw-vw32 | both | MATCH | differ | +31 / -34 | +27 / -34 | YES | yes |
+| g1-ic1 | `-force-vector-interleave=1` | MATCH | differ | +44 / -43 | +44 / -43 | YES | yes |
+| g1-ic2 | `-force-vector-interleave=2` | MATCH | differ | +51 / -54 | +51 / -54 | YES | yes |
+| g1-ic4 | `-force-vector-interleave=4` | MATCH | differ | +64 / -58 | +60 / -58 | YES | yes |
+| g1-tailfold-prefer | `-epilogue-tail-folding-policy=prefer-fold-tail` | MATCH | differ | +10 / -0 | +10 / -0 | no | yes |
+| g1-tfstyle-data | `-force-tail-folding-style=data` | MATCH | differ | +0 / -0 | +0 / -0 | no | yes |
+| g1-tfstyle-data-and-control | `-force-tail-folding-style=data-and-control` | MATCH | differ | +0 / -1 | +0 / -1 | YES | yes |
+| g1-memcheck24 | `-runtime-memory-check-threshold=24` | MATCH | differ | +0 / -0 | +0 / -0 | no | yes |
+| g1-memcheck128 | `-runtime-memory-check-threshold=128` | MATCH | differ | +0 / -0 | +0 / -0 | no | yes |
+| g2-inline325 | `-inline-threshold=325` | MATCH | differ | +3212 / -2280 | +1576 / -670 | YES | yes |
+| g2-inline500 | `-inline-threshold=500` | MATCH | differ | +3674 / -2848 | +1722 / -917 | YES | yes |
+| g2-inline1000 | `-inline-threshold=1000` | MATCH | differ | +4793 / -3562 | +2652 / -1455 | YES | yes |
+| g2-unroll-thr300 | `-unroll-threshold=300` | MATCH | differ | +55 / -2 | +55 / -2 | YES | yes |
+| g2-unroll-thr1000 | `-unroll-threshold=1000` | MATCH | differ | +71 / -29 | +56 / -18 | YES | yes |
+| g2-unroll-max2 | `-unroll-max-count=2` | MATCH | differ | +9 / -9 | +9 / -9 | no | yes |
+| g2-unroll-max8 | `-unroll-max-count=8` | MATCH | differ | +0 / -0 | +0 / -0 | no | yes |
+| g2-unroll-runtime | `-unroll-runtime` | MATCH | differ | +6 / -1 | +6 / -1 | no | yes |
+| g3-loop-distribute | `-enable-loop-distribute` | MATCH | differ | +1154 / -0 | +1154 / -0 | YES | yes |
+| g3-slp-neg20 | `-slp-threshold=-20` | MATCH | differ | +4125 / -1027 | +2876 / -983 | YES | yes |
+| g3-slp-100 | `-slp-threshold=100` | MATCH | differ | +1462 / -1246 | +975 / -1108 | YES | yes |
+| g3-unswitch200 | `-unswitch-threshold=200` | MATCH | differ | +169 / -109 | +99 / -41 | YES | yes |
+| g3-loop-flatten | `-enable-loop-flatten` | MATCH | differ | +0 / -0 | +0 / -0 | no | yes |
+| g3-gvn-hoist | `-enable-gvn-hoist` | MATCH | differ | +362 / -432 | +34 / -107 | YES | yes |
+| g5-count2 | `-unroll-count=2` | MATCH | differ | +957 / -628 | +733 / -404 | YES | yes |
+| g5-count4 | `-unroll-count=4` | MATCH | differ | +676 / -397 | +471 / -192 | YES | yes |
+| g5-max1 | `-unroll-max-count=1` | MATCH | differ | +5 / -31 | +3 / -26 | no | yes |
+| g5-max4 | `-unroll-max-count=4` | MATCH | differ | +5 / -5 | +5 / -5 | no | yes |
+
+**Correctness: all 32 configurations produce byte-identical output on all
+six inputs.** Zero violations, so nothing is excluded from the judgement.
+
+```
+$ for f in artifacts/jaq-headroom/remarks/*.checksums; do
+      diff -q artifacts/jaq-headroom/remarks/baseline.checksums $f >/dev/null || echo "MISMATCH $f"; done
+(no output)
+```
+
+**The `-force-vector-width` family passes the gate on jaq, and the reason is
+weaker than zopfli's.** zopfli passed because the FP-reordering refusal does
+not exist anywhere in its build (section 25). jaq's build has ten of them
+(section 56) --- so the hint *could* change an answer --- but all ten are in
+`libm`'s trigonometric argument reduction, which none of the three cases
+executes. **The correctness gate only covers code the cases run**, so on jaq
+it is passing by workload coverage rather than by structure. A case set that
+called `sin`/`cos` would be the test, and this one is not it. Recorded as a
+gap in the gate, not as a clean pass.
+
+**The `.text` column is uninformative and every configuration was timed.**
+Every entry reads "differ", including the four whose normalised remark set
+is empty of changes (`g1-tfstyle-data`, `g1-memcheck24`, `g1-memcheck128`,
+`g3-loop-flatten`) and `g2-unroll-max8`, because of the mimalloc `__TIME__`
+of section 53. On zopfli this criterion skipped 6 of 32 configurations; here
+it skips none and cannot. The normalised code hash is what answers the same
+question, after the fact, in section 58.
+
+### 58. Timing: 33 configurations, interleaved, training inputs
+
+```
+$ scripts/bench.py run --cpu 4 --warmup 3 --runs 15 --stdout devnull --gap-ms 250 \
+      --label baseline=... (33 labels) \
+      --workload objsearch=... --workload strproc=... --workload readwrite=... \
+      --out artifacts/jaq-headroom/headroom.json --progress
+$ scripts/bench.py stats artifacts/jaq-headroom/headroom.json --base baseline \
+      --seed 20260921 --resamples 10000 --mde 0.04173240105455345
+```
+
+1485 timed samples (33 labels x 3 workloads x 15 rounds), warmup 3, one
+single round-robin invocation, `taskset -c 4`, 250 ms settle gap, **training
+inputs**. Speed ratio = `t_baseline / t_config`; **> 1 means faster than the
+PGO baseline.** Frozen MDE 4.17% (section 55).
+
+| config | aggregate ratio | 95% CI | half-width | abs change | beyond MDE 4.17%? | CI excludes 1 |
+|---|---|---|---|---|---|---|
+| baseline | 1.0000 | --- | 0.00% | 0.00% | no | --- |
+| g3-slp-100 | **1.0208** | [1.0125, 1.0284] | 0.80% | 2.08% | no | yes |
+| g0-align5 | 1.0132 | [1.0075, 1.0194] | 0.59% | 1.32% | no | yes |
+| g3-gvn-hoist | 1.0090 | [1.0007, 1.0159] | 0.76% | 0.90% | no | yes |
+| g3-loop-distribute | 1.0061 | [0.9999, 1.0127] | 0.64% | 0.61% | no | no |
+| g3-loop-flatten | 1.0053 | [0.9994, 1.0118] | 0.62% | 0.53% | no | no |
+| g2-inline1000 | 1.0048 | [0.9973, 1.0125] | 0.76% | 0.48% | no | no |
+| g2-inline325 | 1.0043 | [0.9961, 1.0116] | 0.78% | 0.43% | no | no |
+| g1-memcheck128 | 1.0042 | [0.9973, 1.0122] | 0.74% | 0.42% | no | no |
+| g1-maxbw-vw32 | 1.0039 | [0.9988, 1.0089] | 0.51% | 0.39% | no | no |
+| g2-unroll-max2 | 1.0038 | [0.9950, 1.0126] | 0.88% | 0.38% | no | no |
+| g3-unswitch200 | 1.0031 | [0.9994, 1.0072] | 0.39% | 0.31% | no | no |
+| g1-ic1 | 1.0028 | [0.9958, 1.0094] | 0.68% | 0.28% | no | no |
+| g1-ic2 | 1.0028 | [0.9979, 1.0083] | 0.52% | 0.28% | no | no |
+| g5-max1 | 1.0027 | [0.9932, 1.0114] | 0.91% | 0.27% | no | no |
+| g1-vw32 | 1.0024 | [0.9962, 1.0093] | 0.66% | 0.24% | no | no |
+| g1-vw8 | 1.0018 | [0.9946, 1.0084] | 0.69% | 0.18% | no | no |
+| g5-count2 | 1.0017 | [0.9965, 1.0074] | 0.55% | 0.17% | no | no |
+| g1-ic4 | 1.0012 | [0.9940, 1.0087] | 0.73% | 0.12% | no | no |
+| g2-inline500 | 0.9996 | [0.9924, 1.0071] | 0.74% | 0.04% | no | no |
+| g1-tfstyle-data | 0.9978 | [0.9874, 1.0074] | 1.00% | 0.22% | no | no |
+| g1-vw16 | 0.9977 | [0.9937, 1.0027] | 0.45% | 0.23% | no | no |
+| g2-unroll-max8 | 0.9977 | [0.9893, 1.0062] | 0.84% | 0.23% | no | no |
+| g1-tfstyle-data-and-control | 0.9968 | [0.9882, 1.0052] | 0.85% | 0.32% | no | no |
+| g1-memcheck24 | 0.9961 | [0.9898, 1.0024] | 0.63% | 0.39% | no | no |
+| g1-tailfold-prefer | 0.9955 | [0.9907, 1.0003] | 0.48% | 0.45% | no | no |
+| g5-max4 | 0.9928 | [0.9863, 0.9986] | 0.61% | 0.72% | no | yes |
+| g1-maxbw | 0.9923 | [0.9853, 0.9996] | 0.72% | 0.77% | no | yes |
+| g2-unroll-runtime | 0.9885 | [0.9836, 0.9939] | 0.52% | 1.15% | no | yes |
+| g2-unroll-thr300 | 0.9877 | [0.9817, 0.9926] | 0.55% | 1.23% | no | yes |
+| g2-unroll-thr1000 | 0.9869 | [0.9770, 0.9956] | 0.93% | 1.31% | no | yes |
+| g3-slp-neg20 | 0.9632 | [0.9537, 0.9712] | 0.87% | 3.68% | no | yes |
+| g5-count4 | **0.9497** | [0.9420, 0.9566] | 0.73% | **5.03%** | **YES** | yes |
+
+**Exactly one configuration moves the aggregate past the MDE, and it is a
+regression**: `-unroll-count=4` at **-5.03% [-5.80%, -4.34%]**. The largest
+improvement in the whole matrix is `-slp-threshold=100` at **+2.08%
+[+1.25%, +2.84%]**, half the MDE.
+
+Per-workload crossings of the 4.17% MDE, all four of them regressions:
+
+```
+  - g3-slp-neg20/objsearch -5.07% CI [-6.61%, -4.00%]
+  - g3-slp-neg20/strproc   -4.53% CI [-5.43%, -3.39%]
+  - g5-count4/objsearch    -6.19% CI [-6.80%, -5.52%]
+  - g5-count4/strproc      -5.05% CI [-6.27%, -4.13%]
+```
+
+Crossings of the softer per-case `2 x half-width` thresholds
+(objsearch 4.17%, strproc 1.67%, readwrite 2.80%) that are **improvements**:
+`g3-slp-100/readwrite` +3.38%, `g2-unroll-max2/readwrite` +3.21%,
+`g3-loop-distribute/readwrite` +3.12%, `g5-max4/readwrite` +3.07%,
+`g3-loop-flatten/readwrite` +2.97%, `g3-unswitch200/readwrite` +2.86%,
+`g1-memcheck128/readwrite` +2.80%, plus several strproc readings near 2%.
+Step 3 of the pre-registered rule (section 55) says to check whether the
+code moved. It did not, for most of them.
+
+#### The five-label in-sweep A/A that the sweep produced by accident
+
+`scripts/norm_code_diff.py` against the baseline for all 32 configurations
+(`artifacts/jaq-headroom/norm-code-diff.txt`) finds **five whose normalised
+machine code is identical to the baseline's, symbol for symbol**:
+`g1-memcheck24`, `g1-memcheck128`, `g1-tailfold-prefer`, `g2-unroll-max8`
+and `g3-loop-flatten`. Their raw `.text` hashes all differ (mimalloc,
+section 53); their code does not. **Anything they show that is not 1.0000 is
+noise**, and five labels is a better null than the A/A's two:
+
+| config | objsearch | strproc | readwrite | aggregate |
+|---|---|---|---|---|
+| g1-memcheck24 | 0.9893 | 0.9967 | 1.0023 | 0.9961 |
+| g1-memcheck128 | 0.9912 | 0.9938 | 1.0280 | 1.0042 |
+| g1-tailfold-prefer | 0.9927 | 0.9909 | 1.0031 | 0.9955 |
+| g2-unroll-max8 | 0.9834 | 0.9948 | 1.0150 | 0.9977 |
+| g3-loop-flatten | 0.9936 | 0.9931 | 1.0297 | 1.0053 |
+| **null median** | **0.9912** | **0.9938** | **1.0150** | **0.9977** |
+| null spread | 1.02 pp | 0.58 pp | **2.73 pp** | 0.98 pp |
+
+Three things follow, and they are the most useful numbers in this section.
+
+1. **The aggregate is trustworthy to about 1%** on this target: five
+   binaries that are provably the same code land inside
+   [0.9955, 1.0053].
+2. **A single case is not trustworthy below about 3%.** `g3-loop-flatten`
+   --- identical code --- reads **+2.97% on `readwrite` with a CI of
+   [+1.95%, +4.06%] that excludes 1**. Every one of the seven "improvements"
+   listed above is inside or barely outside that null band. The A/A's
+   readwrite row (0.9675 between two copies of one binary) said the same
+   thing with two labels; this says it with five.
+3. **The bias has a direction, because every ratio shares one baseline
+   binary.** All five nulls read `readwrite` high (median +1.50%) and
+   `objsearch` low (median -0.88%), which means the baseline binary itself
+   happens to be slow on `readwrite` and fast on `objsearch`. That offset is
+   in *every* column of the table above.
+
+Re-expressing every configuration against the null median
+(`artifacts/jaq-headroom/null-corrected.txt`) corrects for that, crudely:
+
+| config | objsearch* | strproc* | readwrite* | geomean* |
+|---|---|---|---|---|
+| g3-slp-100 | 1.0276 | 1.0165 | 1.0185 | **1.0208** |
+| g0-align5 | 1.0342 | 1.0169 | 0.9892 | 1.0132 |
+| g3-gvn-hoist | 1.0113 | 1.0111 | 1.0049 | 1.0091 |
+| g3-loop-distribute | 1.0041 | 0.9987 | 1.0159 | 1.0062 |
+| ... | | | | |
+| g2-unroll-thr1000 | 0.9897 | 0.9960 | 0.9754 | 0.9870 |
+| g3-slp-neg20 | 0.9578 | 0.9607 | 0.9713 | 0.9632 |
+| g5-count4 | 0.9465 | 0.9554 | 0.9472 | **0.9497** |
+
+The correction removes the `readwrite` improvements entirely --- the seven
+configurations listed above collapse to +0.5% to +1.9% --- and leaves the
+ordering of the aggregate untouched. **No configuration's corrected geomean
+reaches 4.17% in the improving direction; two exceed it in the regressing
+direction.**
+
+#### What actually changed, for the configurations that moved
+
+```
+$ scripts/norm_code_diff.py artifacts/jaq-headroom/bin/baseline \
+      artifacts/jaq-headroom/bin/* --profdata pgo/jaq/merged.profdata --top 5
+```
+
+| config | changed symbols | profile share changed | what it did to the hot functions |
+|---|---|---|---|
+| `g5-count4` (-5.03%) | 386 | **26.16%** | `read::parse` 4426 -> **8229** insns, `TermId::run` 6562 -> 6863, `write::write` 2390 -> 2439. Forcing a count on every loop doubles the parser. |
+| `g3-slp-neg20` (-3.68%) | 1785 | **45.52%** | `read::parse` 4426 -> 4579, `num_string_with` 245 -> 279, `write::write` 2390 -> 2486, `parse_string` 1573 -> 1671. SLP inflates everything and pays nowhere. |
+| `g3-slp-100` (+2.08%) | 357 | 18.12% | `read::parse` 4426 -> **4421**, `insert_full` 1007 -> **999**, `parse_string` 1573 -> 1588. The *opposite* direction: less SLP, slightly smaller hot code. |
+| `g0-align5` (+1.32%) | **3602** | **91.21%** | pure padding: `write_until` 42 -> 47 instructions, `ws_tk` 86 -> 96, `read::parse` 4426 -> 4947. Every function gains NOPs and nothing else. |
+| `g3-gvn-hoist` (+0.90%) | --- | 19.52% | --- |
+| `g5-max1`, `g5-max4`, `g2-unroll-max2` | --- | **0.05%** | the unroll cap reaches essentially nothing on jaq |
+| `g2-unroll-runtime`, `g3-loop-distribute` | --- | **0.00%** | code changed, but in no symbol the profile visits |
+
+Two of these deserve a sentence.
+
+**`g0-align5` is the noise probe and it is not inert on jaq.** SPEC.ja.md
+6.3 calls group 0 "noise-floor measurement only, no decision content", and
+that is true of its *decisions* --- the remark set is bit-identical, +0/-0
+--- but `-align-all-nofallthru-blocks=5` inserts alignment padding into
+3602 of 4763 symbols covering 91% of the profile, and it buys **+1.32%
+aggregate, +3.42% on `objsearch` after the null correction**, the single
+largest per-case improvement in the matrix. On a target whose hot loop is 42
+instructions, code alignment is a bigger lever than any vectorizer knob.
+That is a real result about jaq, and it is also a warning about using group
+0 as a noise probe: on this target it measures alignment, not noise. The
+five identical-code configurations above are the honest probe.
+
+**The unroll dimension, which was zopfli's only real lever (+1.59%), is dead
+here.** `-unroll-max-count=1/2/4/8` change **0.05% of the profile's worth of
+symbols** and move the aggregate by 0.23% to 0.72%; `-unroll-count=2/4`
+change 26-33% and cost 0.17% and 5.03%. zopfli's monotone "less unrolling is
+faster" curve does not appear: jaq's hot loops are already minimal
+(`write_until` is 42 instructions) and there is nothing for the unroller to
+undo.
+
+### 59. Stopping rule (SPEC.ja.md 6.3), applied to jaq
+
+> Across groups 1-3, if (a) no configuration's aggregate speed-ratio CI
+> lower bound exceeds the minimum effect size, **and** (b) no configuration
+> improves a single case beyond the minimum effect size, record "this target
+> is flat under the hint method" and swap the target.
+
+**Correctness precondition: satisfied trivially.** All 32 configurations
+produce byte-identical output on all six inputs (section 57), so no
+configuration is excluded and the rule reads on the full set. Evaluated with
+MDE = **4.17%** over the 32 timed configurations of groups 0-3 and 5:
+
+- **(a)** The highest aggregate CI lower bound is **1.0125**
+  (`g3-slp-100`, CI [1.0125, 1.0284]), against the required **1.0417**.
+  **Not satisfied.**
+- **(b)** No configuration improves any single case beyond 4.17%. The
+  largest per-case improvement with a CI excluding 1 is **+3.38%**
+  (`g3-slp-100` on `readwrite`, CI [+1.80%, +4.83%]) --- and section 58's
+  five-label null shows an identical-code configuration reading **+2.97%**
+  on that same case, so most of it is the baseline binary's own offset;
+  corrected, it is +1.85%. The largest corrected per-case improvement in
+  the matrix is `g0-align5` on `objsearch` at **+3.42%**, from alignment
+  padding. **Not satisfied.**
+
+**Outcome for jaq: (a) no and (b) no --- "this target is flat under the hint
+method; swap the target."**
+
+Because (a) is not satisfied, SPEC.ja.md 1.3-1 --- "there exists at least
+one global dimension that moves the aggregate speed ratio by twice the
+minimum effect size" --- is **not met on jaq either**. It is now unmet on
+all three targets measured (toy, zopfli, jaq).
+
+**Group 4 was not swept**, deliberately and for the reason section 57
+gives: section 28 measured it on zopfli as byte-identical code
+(`+prefer-256-bit`) or a small regression, nothing about jaq suggests a
+different answer on an ISA dimension, and the four extra unroll points of
+group 5 were the better use of the build budget. The rule is evaluated over
+groups 0-3 and 5.
+
+**What this outcome is, and what it is not.** As on zopfli it is a statement
+about *global* knobs. Unlike zopfli, though, the per-site case is not merely
+unproven here --- section 56 argues it is closed:
+
+- zopfli's exception was two hot, integer, **cost**-declined loops. jaq has
+  no equivalent. Its three hottest loops (`write_until` 22.52%,
+  `num_string_with` 4.62%, `ws_tk` 4.66%) are refused on **legality /
+  unsupported** grounds, and the 586 `cost` lines sit at shared `core`
+  DebugLocs that carry legality refusals from other inline instances at the
+  same time (section 56).
+- The width family cannot reach those loops even in principle: the
+  refusals are `Loop contains an unsupported switch` and `Incorrect number
+  of successors from early exiting block`, which `llvm.loop.vectorize.width`
+  does not lift (SPEC.ja.md 6.2, established on the toy and now confirmed
+  on the real target).
+- Two of the three cases have an average scan length of 4-6 bytes
+  (section 56), so even a hypothetical legal vectorization of `write_until`
+  would only pay on `strproc`.
+
+**Recommendation** (Stage 0 does not make the swap decision; this is the
+evidence for the spec owner):
+
+> **Record jaq as "flat under global hints, and closed under per-site hints
+> for a structural reason", and do not spend Stage 2 on it.** jaq was the
+> article's intended target and the honest report is that the five hint
+> families cannot reach it: 42.8% of its profile is a JSON lexer built out
+> of `slice::iter().position(..)` early-exit byte scans, which is precisely
+> the shape SPEC.ja.md 6.2 identified on the toy as out of reach on
+> legality grounds. The 70% interpreter gate passed (section 54) and looked
+> for the wrong obstruction.
+>
+> jaq is still worth keeping in the report as the **strongest negative
+> result** the project has: it is the target the article was about, the
+> analysis is complete, the reason is structural rather than statistical,
+> and it names an obstruction (early-exit byte search) that the spec
+> already predicted but had only measured on a toy.
+>
+> If a third transfer target is wanted after zopfli, SPEC.ja.md 6.4's own
+> list points at oxipng (PNG filters are counted byte loops without early
+> exits) rather than at anything jaq-shaped.
+
+### 60. Implications for Stage 1 and Stage 2
+
+**PGO on/off under the frozen recipe**, measured because step 1 of this
+stage asks for the plain build's times (this is *not* reference arm R, which
+would also drop `lto=fat`, `codegen-units=1` and `target-cpu=native`):
+
+```
+$ scripts/bench.py run --cpu 4 --warmup 3 --runs 15 --gap-ms 250 --stdout devnull \
+      --label plain=artifacts/jaq-plain/plain --label pgo=artifacts/jaq-plain/pgo ...
+```
+
+| case | plain ms | PGO ms | PGO / plain |
+|---|---|---|---|
+| objsearch | 1202.9 | 1022.8 | **1.176** |
+| strproc | 1113.5 | 1067.9 | 1.043 |
+| readwrite | 1246.8 | 896.4 | **1.391** |
+| **aggregate** | | | **1.195** [1.185, 1.205] |
+
+**PGO alone is worth +19.5% on jaq** (+39.1% on the read/write case), which
+is 4.7x the MDE and about ten times the largest global knob in the entire
+sweep. Whatever `jev-opt build` ends up claiming on this target, that number
+is the one a user would feel, and none of it comes from a hint.
+
+**What moved anything on jaq, and how it compares with the other two
+targets** (all three columns are aggregate speed ratios):
+
+| knob | jaq | zopfli | toy | keep as a Stage 1 candidate? |
+|---|---|---|---|---|
+| `-slp-threshold=100` | **+2.08%** (best on this target) | +0.09% | --- | **yes** --- first target where raising the SLP threshold helps, and the third different "best knob" in three targets |
+| `-align-all-nofallthru-blocks=5` | **+1.32%** (+3.42% on one case) | -0.13% | noise probe | **yes, as a layout dimension.** It was the noise probe and it is not inert here |
+| `-enable-gvn-hoist` | +0.90% | +0.27% | 0.00% | yes, low priority; positive on both real targets |
+| `-unroll-max-count` 1/2/4/8 | +0.27% / +0.38% / **-0.72%** / -0.23% | **+1.59% / +1.55%** / +0.73% / +0.26% | -0.56% | keep, but the direction is target dependent: zopfli's best knob is inert on jaq (0.05% of the profile's symbols change) |
+| `-unroll-count` 2/4 | +0.17% / **-5.03%** | -2.63% .. -3.94% | --- | **drop.** Worst family on both real targets |
+| `-slp-threshold=-20` | **-3.68%** | -1.01% | -1.03% | keep as a known-negative direction |
+| `-unroll-threshold` 300/1000 | -1.23% / -1.31% | +0.08% / **+0.93%** | -0.69% | keep; sign flips between targets |
+| `-force-vector-width` 8/16/32 | +0.18% / -0.23% / +0.24%, output identical | +0.35% / -0.17% / -0.12%, output identical | output **changed** | keep behind the correctness gate. jaq has ten FP-reorder sites but none on the hot path, so its pass is weaker than zopfli's |
+| `-force-vector-interleave` 1/2/4 | +0.28% / +0.28% / +0.12% | 0.03% / +0.29% / 0.02% | -26.6% / -8.4% / -1.1% | keep; inert on both real targets |
+| `-vectorizer-maximize-bandwidth` | -0.77% | +0.10% | **-18.2%** | keep, direction target dependent |
+| `-inline-threshold` 325/500/1000 | +0.43% / -0.04% / +0.48%; 3212 remark lines move | +0.17% / -1.77% / -0.70% | <= 0.25% | keep; the largest remark mover on all three targets and moves time on none |
+| `-enable-loop-distribute` | +0.61%, 1154 remark lines, **0.00% of profile share changed** | byte-identical `.text` | byte-identical | **drop** |
+| `-runtime-memory-check-threshold`, `-enable-loop-flatten`, `-epilogue-tail-folding-policy` | **normalised code identical** | byte-identical `.text` | byte-identical | **drop.** Three targets, no code change |
+
+Six conclusions to carry forward:
+
+1. **Three targets, three different best knobs, and no overlap**:
+   `-force-vector-interleave` on the toy (catastrophically negative),
+   `-unroll-max-count` on zopfli (+1.59%), `-slp-threshold=100` on jaq
+   (+2.08%). Every one of them is inert or harmful on the other two. This
+   is the strongest form of section 29.1's argument: a hand-written default
+   candidate list cannot exist, and a per-program decision has something
+   real to decide --- even though what it decides is worth less than the
+   noise floor on every target so far.
+2. **The `.text`-hash skip criterion is not portable.** It needs a
+   reproducible build, and a `cc`-built default feature breaks that.
+   `scripts/norm_code_diff.py` should become the criterion, with the raw
+   hash as a fast pre-check.
+3. **The in-sweep null is free and should be mandatory.** Five
+   configurations of this sweep produced code identical to the baseline's,
+   and they measured the noise floor five-label instead of two, exposed a
+   direction-of-bias in the baseline binary, and killed seven spurious
+   per-case "improvements". Every sweep produces such configurations; the
+   harness should identify them (it now can) and report them as a null
+   panel next to the results.
+4. **Group 0 is not a noise probe on a target with small hot loops.**
+   `-align-all-nofallthru-blocks=5` changed 91% of jaq's profile by
+   instruction padding and was one of the two biggest improvements.
+5. **`cost` as the class to feed Jev does not survive contact with a large
+   program.** On zopfli it resolved to two named hot functions (section
+   29.2). On jaq the 586 `cost` lines live at `core::iter` DebugLocs shared
+   by dozens of inline instances, and the hot loops' own DebugLocs carry
+   legality refusals. SPEC.ja.md 7's Stage 1 input is empty here, and the
+   Stage 2 plugin (which reads IR, not DebugLocs) is the only way to ask
+   the question at all.
+6. **The obstruction on the article's target is the one the toy found, not
+   the one the spec gated on.** SPEC.ja.md 6.1-4 gates jaq on the
+   interpreter layer; the interpreter layer is 31-62% and `jaq_core` is
+   5.09%. The thing in the way is a four-line `position()` over bytes with
+   an early exit, at 22.52% of the profile, refused for legality. If the
+   project wants a target the five families can reach, the selection
+   criterion should be "counted loops over contiguous data" and not
+   "no interpreter".
+
+### 61. Deviations, script problems found, and what is not done
+
+**Deviations from the recipe, all deliberate and all listed:**
+
+- `CARGO_PROFILE_RELEASE_STRIP=none` is added for this target, because jaq's
+  workspace sets `strip = true` and every analysis script in this repository
+  needs the symbol table and DWARF (section 50). Frozen and recorded, like
+  panic and debuginfo.
+- `BENCH_CPU=4` instead of 2 (core 2 instead of core 1, SMT sibling idle),
+  so that a second agent measuring oxipng on CPU 2 cannot contend for the
+  same physical core. Comparisons are only ever made within this target.
+- `BENCH_GAP_MS=250` and `--stdout devnull`, both new and both explained in
+  section 55. The defaults are unchanged, so the toy and zopfli commands in
+  the earlier sections still reproduce.
+- **Group 4 was not swept.** Section 28 settled it on zopfli and the budget
+  went to group 5's four extra unroll points instead.
+- `REPRO=1` and `DEBUG0=1` were not run (section 53 says why).
+- Each case names its input file 2-8 times instead of using one large file
+  (section 55). This is a property of the frozen case set, not of the
+  harness.
+
+**Problems found in this repository's own scripts, and what was done:**
+
+1. `TARGET=jaq source scripts/target_common.sh` still does not work
+   (section 31.6's bash behaviour); `export TARGET=jaq` first. The `*)` arm
+   added then did its job here.
+2. `scripts/remark_attribution.py` wrote a **5.4 GB**
+   `remark-attribution.json` on this target --- one record per (remark
+   location x candidate function), and jaq has 46363 locations with large
+   candidate sets. A `--no-dump` flag was added; the printed reports do not
+   use the file.
+3. The same script's DebugLoc -> function attribution is **not usable at
+   this scale**: 34256 of 46363 locations are ambiguous and the per-function
+   report is topped by crates (`regex_automata`, `jiff`, `saphyr_parser`)
+   that execute zero blocks. Section 29.5 flagged this on zopfli; jaq
+   settles it. The working method is the reverse one --- start from the
+   profile's hot symbols, map their instructions to source lines, look up
+   the remarks there --- and `scripts/cost_hot_loops.py` now implements it
+   for the `cost` class.
+4. `scripts/profdata_hotness.py --binary` ran one `objdump` per symbol,
+   which is 5726 processes on this binary. It still completes, but
+   `scripts/interp_share.py` does the same work in a single `objdump` pass
+   (2.5 s) and adds the backedge count, so it is what section 54 uses.
+
+**Two things the spec should say and does not** (reported, not edited):
+
+- **SPEC.ja.md 3's "the build is deterministic"** holds for a pure-Rust
+  target and fails for a target with a `cc`-built dependency. jaq's
+  `.text` hash changes between two builds of the same configuration because
+  mimalloc's C prints `__DATE__ __TIME__`
+  (`libmimalloc-sys-0.1.49/c_src/mimalloc/v*/src/options.c:236`). SPEC.ja.md
+  6.3's `.text` skip criterion therefore needs a normalised fallback, which
+  `scripts/norm_code_diff.py` now provides and which was validated on two
+  builds of one configuration before being used.
+- **SPEC.ja.md 8.5 / section 31.2's trip-count method is unsound.** It reads
+  `Block counts[0]` as the function entry count. This profile says
+  `entry_first = 0`, and on jaq `counts[0]` is demonstrably not the entry
+  block (section 56). The header/backedge derivation should replace it, and
+  zopfli's `<ZopfliHash>::update` figure should be re-derived that way
+  before it is quoted again.
+
+**Not done here:**
+
+- The Stage 2 plugin, and therefore the *real* `total_score` the
+  SPEC.ja.md 6.1-4 gate is defined against. Section 54's numbers are a
+  profile-weight substitute and are labelled as one everywhere.
+- Reference arm R (SPEC.ja.md 9) as a measured arm; section 50 records what
+  its profile would be, and section 59 measures PGO on/off under the frozen
+  recipe instead, which is a different and smaller comparison.
+- Post-hoc attribution with `perf` / `callgrind` (SPEC.ja.md 10): not
+  needed, because no configuration produced a difference worth attributing.
+- A case set that exercises jaq's *filter evaluation* rather than its
+  parser. All three cases here are parse-dominated (`jaq_core` is 5.09% of
+  the profile), which is realistic for `jaq '.' big.json` and unrepresentative
+  of a heavy filter over a small document. If Stage 1 or Stage 2 wants to
+  claim anything about the interpreter, it needs a fourth case, and section
+  54's gate answer would have to be recomputed on it.
+- The `vectorize.width` metadata FP-reassociation question (section 13)
+  remains open, and jaq can answer it where zopfli could not: it has ten
+  `cannot prove it is safe to reorder floating-point operations` sites in
+  `libm`. They are not on the hot path, but they are a test case.
+
 
 ## Stage 0 (oxipng) --- the target whose hot loop is not Rust
 
