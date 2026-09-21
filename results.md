@@ -7334,3 +7334,459 @@ flag, so nothing recorded earlier in this file moves.
   and one empty-plan build measured 0.9875 with a CI that excludes 1.0. At
   `n = 3` that is the noise, not a result; it is recorded only so that
   nobody later reads those numbers as a measurement.
+
+## Sites (jaq) --- resolving the marks and enumerating the loops inside them
+
+Date: 2026-09-22, same machine and pinned toolchain as every section above
+(rustc 1.100.0-nightly bba531001 / LLVM 23.1.1), same jaq submodule commit
+`c866e70303b5dbc37d83a0b0cbacf10e90af9c8c` (v3.1.1). **Sections are
+numbered from 87**, continuing the jaq numbering of "Marks (jaq)".
+
+This is step 1 of SPEC.ja.md 1 (3): turn the fifteen marks of section 85
+into the list of things Jev will be asked about. **No timing was run.** The
+build wall times quoted are build wall times.
+
+New in this section: `scripts/jaq_sites.sh` (the four builds below, plus a
+`flags` subcommand that recovers the exact `CARGO_ENCODED_RUSTFLAGS` out of
+`build_variant` rather than re-listing it) and
+`scripts/jaq_sites_report.py` (mark resolution, the site tables, the oracle
+arithmetic -> `targets/jaq/sites.json`, `targets/jaq/sites.md`).
+
+Reproduce with:
+
+```
+scripts/build_plugin.sh jev
+export TARGET=jaq                                 # NOT `TARGET=jaq scripts/...`
+scripts/jaq_sites.sh all                          # base, dump, allkeys, applydump
+FLAGS=$(scripts/jaq_sites.sh flags)
+scripts/jaq_sites_report.py --reports artifacts/jaq-sites/rep-dump \
+    --marks targets/jaq/jev-marks.txt \
+    --json targets/jaq/sites.json --md targets/jaq/sites.md \
+    "--flags=$FLAGS" --flags-sha "$(printf '%s' "$FLAGS" | sha256sum | cut -d' ' -f1)" \
+    --baseline-text-sha <a> --baseline-norm-hash <b> --dump-text-sha <c> \
+    --outputs artifacts/jaq-sites/correctness-base.txt
+```
+
+### 87. The baseline moves: `-hints-allow-reordering=false` is in the recipe now
+
+Decision 60 (a) and SPEC.ja.md 2 pin
+`-Cllvm-args=-hints-allow-reordering=false` for **every** arm including the
+baseline, and it was not in the jaq build recipe. It is now
+`FIXED_RUSTFLAGS` in the `jaq` arm of `scripts/target_common.sh`, spliced
+into `build_variant`'s fixed list (landed in commit 5e40e87 together with
+the search driver's `-Z` pass-through and duplicate-knob guard).
+
+Adding a flag changes the baseline, so the baseline was rebuilt and
+re-hashed:
+
+```
+========== a. baseline, no plugin, with the pinned -hints-allow-reordering=false ==========
+  .text sha256   6147eba528220b06c1a22b436b1a7301480decb1d6538f159f09e4ba57cb5a94
+train-objects.json 536b38cedb6b6483c654f2a367f82b4b92f4c0f267c6263e421dd1e5007e7127
+train-strings.json f9f67ae87fe136bd2b7cbad5d59c2586467c574b0779f6957e0be900bf1a52b9
+train-ndjson.json  231f15264418df7a96f6c3d64de3e0f85d93e8f7620bdd5f7f750c0e0bf79ed7
+hold-objects.json  a338602a7f3148cbe74d0f9016b386edaf97a832a284a109addb8399090b2b0d
+hold-strings.json  baeb97a8af67ca1d65de1c355e256c8a44abd38ff41ac2c2c1f9c8df83fab443
+hold-ndjson.json   72ff02e47dafe5becb2f652c3fefc383e57765bd442ec12a1713f3f5bcecad37
+```
+
+All six output checksums are byte for byte section 53's. The `.text` hash
+is **not** section 53's `642dd55e…`, and that says nothing: section 53
+established that jaq's `.text` does not reproduce across two builds of the
+same configuration, because mimalloc's C bakes `__TIME__` into `.rodata`.
+The criterion that does work says the flag changed nothing at all:
+
+```
+target-jaq-pgo-use/.../jaq:      4763 symbols, normalised whole-code hash 7ad6d9821bbed2fb
+target-jaq-sites-base/.../jaq:   hash 7ad6d9821bbed2fb  IDENTICAL
+  symbols: 4763 (base 4763), changed 0, only-in-base 0, only-here 0
+  profile share held by the changed symbols: 0.00%
+```
+
+Expected, on reading LLVM: `LoopVectorizeHints::allowReordering()` is
+`HintsAllowReordering && (Force || Width > 1)`, so with no width hint
+anywhere in the baseline the option cannot reach a decision. **The pinned
+flag is a no-op for the baseline and a correctness gate for every hinted
+arm** --- which is the reason it has to be on the baseline too, and now is.
+The normalised code hash `7ad6d9821bbed2fb` is the baseline identity from
+here on; `.text` hashes are recorded but are not comparable.
+
+The `JEV_MODE=dump` build is the same build with the plugin loaded. It has
+to be code-identical, and is:
+
+```
+========== b. JEV_MODE=dump ==========
+  .text sha256   bc8c1abea757de3cbabc86d81051ff6e41b1caddccc648c1f5705eb3d4f9325d
+  reports        10
+========== b2. dump must not perturb codegen ==========
+  hash 7ad6d9821bbed2fb  IDENTICAL   changed 0, only-in-base 0, only-here 0
+  OUTPUTS: MATCH
+```
+
+So `sites.json` describes the baseline binary, not a binary like it. (The
+off-equivalence gate of day 3 5a covered `JEV_MODE=off`; `dump` registers a
+real callback and had not been checked on a target this size.) One build is
+41--44 s, as in section 53.
+
+### 88. Three bugs in the plugin's mark handling, none of which the toy could show
+
+The toy's marks are `toyloops::count_quotes` --- no generics, no trait
+impl, no closure in the name. jaq's fifteen are the opposite, and none of
+the three bugs below can be seen on a mark of the toy's shape.
+
+**(2) and (3) were found before any jaq build**, by replicating the
+plugin's normaliser in Python over `targets/jaq/jev-marks.txt` and printing
+what each mark becomes. **(1) was found by the first dump**, which --- with
+the matcher already fixed --- still resolved only **eleven of fifteen**
+marks and reported the other four unmatched, truncated at a `#`. They are
+numbered in the order they sit in the code.
+
+**(1) `#` was a mid-line comment.** `loadMarks` truncated every line at the
+first `#`. Section 85 says a `#` is a comment only as the first non-space
+character *because* `{closure#3}` contains one; the plugin did not
+implement that. The four marks containing `{closure#N}` became prefixes
+that match nothing, which is what the first dump showed. Fixed: a `#`
+starts a comment only at the start of a line.
+
+**(2) `stripGenerics` destroyed eleven marks.** Matching normalised both
+sides by deleting every balanced `<...>` group. For `foo::bar::<u8>` that
+is right; for a trait-impl path it is fatal, because
+`<jaq_json::Val as core::hash::Hash>::hash` becomes `hash`. Eleven of the
+fifteen marks collapse to a bare method name:
+
+```
+ 1 'jaq_json::read::parse'        9 'jaq_core::path::run'
+ 2 'seq'                         10 'jaq_json::write::write'
+ 3 'str_fold'                    11 'write_str'
+ 4 'write_until'                 12 'fmt'
+ 5 'run'                         13 'reserve_rehash::'
+ 6 'call_once'                   14 'drop_slow'
+ 7 'call_once'                   15 'hash'
+ 8 'call_once'
+```
+
+With the suffix rule ("the mark was written without its crate") mark 5
+would have absorbed every `*::run` in the binary --- including mark 9's
+function, since marks are first-match --- mark 12 every `Display::fmt` and
+mark 15 every `::hash`. Marks 6, 7 and 8 normalised to the *same* string,
+so 7 and 8 could never match anything. Mark 13's turbofish left a path
+ending in `::`, which matches nothing at all. **The resolution would not
+have been wrong by a little; it would have been meaningless**, and the
+failure is silent apart from the two marks that read unmatched.
+
+Fixed by matching the **full** demangled name with the rule section 85
+states for this marks file, which is also what `scripts/perf_hotness.py`
+used to compute the coverage there: equal, or continuing with the mark plus
+`::` (a monomorphization `::<…>`, a closure `::{closure#…}`, any inner
+item), or ending with `::` plus the mark. `stripGenerics` survives only as
+the readable suffix of a site key, where a collision is harmless.
+
+**(3) `fn_attrs` had a fourth rule of its own.** The plan's function matcher
+used equality-or-suffix over stripped names and had **no prefix case**, so
+a plan naming a generic function reached no monomorphization by name ---
+exactly what decision 61 (c) requires it to reach. It now uses the same
+`matchMark` as the marks.
+
+That unification has one recorded consequence on the toy, and it is a
+**retraction**: day 3 section 8 reports the `count_quotes` key under
+`inline(never)` as `55e212187dc9d670--macros.rs-279`. Re-running
+`scripts/plugin_toy_tests.sh` with the fixed matcher gives
+`5465bacda4ffabf9--macros.rs-279`, because `inline(never)` on
+`toyloops::count_quotes` now also lands on `toyloops::count_quotes::{closure#0}`
+(one function before, two now; the report gains an `ambiguous n=2` row
+beside the `consumed` one). Everything else in that suite is unchanged:
+5b's eight keys, 5c, 5d's checksums and alignment, 5e's `attached=8`, and
+5f's verdict that only the changed function's own keys move. **The
+conclusion of day 3 section 8 stands; the key string quoted in it does
+not.**
+
+`targets/jaq/jev-marks.txt` was **not** edited. Every spelling in it was
+right; all three bugs were in the plugin.
+
+A fourth change, additive: each site now carries `marks_in_chain`, every
+mark its inline chain reaches, because on jaq the marked functions are
+inlined into each other and `mark` alone (the owner's) hides that.
+
+### 89. Mark resolution: fifteen of fifteen
+
+`targets/jaq/sites.md` has the full tables; the summary is
+`unmatched_marks = 0` after intersecting across the ten reports, and:
+
+| # | fn rows | distinct linkage names | `loop_in_mark` owned | reached in chain | mark |
+|--:|--:|--:|--:|--:|---|
+| 1 | 23 | 18 | 49 | 49 | `jaq_json::read::parse` |
+| 2 | 8 | 8 | **0** | 34 | `<SliceLexer as token::Lex>::seq` |
+| 3 | 5 | 5 | 4 | 9 | `<SliceLexer as str::LexWrite>::str_fold` |
+| 4 | 9 | 6 | 6 | 9 | `<SliceLexer as write::Write>::write_until` |
+| 5 | 80 | 62 | 15 | 15 | `<jaq_core::compile::TermId>::run` |
+| 6 | 2 | 1 | 6 | 6 | `<jaq_json::funs::base…{closure#3} as FnOnce>::call_once` |
+| 7 | 4 | 2 | 8 | 8 | `<<path::Path<Val>>::run::{closure#0} as FnOnce>::call_once` |
+| 8 | 2 | 1 | 1 | 1 | `<jaq_std::base_run…{closure#7} as FnOnce>::call_once` |
+| 9 | 15 | 12 | 8 | 8 | `jaq_core::path::run` |
+| 10 | 10 | 8 | 22 | 22 | `jaq_json::write::write` |
+| 11 | 2 | 1 | **0** | **0** | `<…Adapter<BufWriter<StdoutLock>> as fmt::Write>::write_str` |
+| 12 | 12 | 7 | 9 | 9 | `<&String as Display>::fmt` |
+| 13 | 3 | 2 | 7 | 7 | `<RawTable<usize>>::reserve_rehash::<…>` |
+| 14 | 2 | 1 | 2 | 2 | `<Rc<IndexMap<Val, Val, RandomState>>>::drop_slow` |
+| 15 | 24 | 20 | 12 | 12 | `<jaq_json::Val as core::hash::Hash>::hash` |
+
+"fn rows" counts `(function, module, stage)` rows: 15 marks resolve to 201
+rows over 154 distinct linkage names. The gap between the two columns is
+per-CGU duplication --- `<&String as Display>::fmt` appears in `bitflags`,
+`saphyr_parser` and `toml_span` as well as jaq's own crates --- and the
+distinct-linkage column is the monomorphization count decision 61 (c) says
+an attribute applies to. Mark 5 is the extreme: **62 monomorphizations**,
+one `fn_attrs` entry.
+
+Two marks are worth reading carefully.
+
+* **Mark 2 (`seq`) owns no loop but is reached by 34.** It has no `lto`
+  function row at all: after fat LTO it is entirely inlined into
+  `jaq_json::read::parse`, so every loop of its body belongs to mark 1.
+  Section 83 said the same thing from the profile's side (`seq` 10.85%
+  reach, 0.07% leaf). `loopIsMarked` attributes a loop to the *owner*
+  first, so those 34 sites are listed under mark 1 and `marks_in_chain`
+  is the only place the relation survives. Marks 3 and 4 are the same
+  story, partly (4 and 6 of their loops kept their own frame).
+* **Mark 11 (`write_str`) has no loop site of any kind.** Its `lto` row is
+  42 instructions with an entry count of 0 --- the out-of-line copy is
+  cold, and the two backedges section 85 counted are in the code it was
+  inlined into. It is a marked function with nothing for the loop half of
+  the vocabulary to attach to; the function-attribute half still applies.
+
+Mark selection was made against `perf`, and this is the first time the two
+views have been put side by side on the same binary: **a mark can be hot,
+resolve perfectly, and still own no loop.**
+
+Pre-existing attributes, read out of the dump, matter for the sweep: LLVM
+and rustc already put `inlinehint` on most of the marked functions,
+`noinline` on `reserve_rehash` (mark 13) and `Rc<IndexMap>::drop_slow`
+(mark 14), and `cold` on several `read::parse` and `write_until`
+instantiations. Some `fn_attrs` candidates are therefore no-ops on their
+mark. **They were not dropped.** SPEC.ja.md 1 (2) forbids narrowing the
+candidate list per site, and a no-op arm is exactly what section 7's
+in-sweep null panel is for: it will show up as a normalised code hash equal
+to the baseline's.
+
+### 90. The loop sites: 149 in fifteen marks, behind 127 keys
+
+`loop_in_mark` only, as decision 61 (a) requires. The 65 `mark_in_loop`
+rows are in `sites.json` and are not sites.
+
+| | |
+|---|--:|
+| `loop_in_mark` sites | **149** |
+| distinct site keys | **127** |
+| keys that resolve to exactly one loop | 114 |
+| already vectorized at the dump | **0** |
+| no profile count on the header | **70** |
+| trip count < 2 | **34** of the 79 that have one |
+| contains a call | **79** |
+| FP reduction | **0** |
+| depth 1 / 2 / 3+ | 103 / 31 / 15 |
+| excluded `mark_in_loop` | 65 |
+
+Three of those numbers are structural and should not be read as findings
+about jaq:
+
+* **`already_vectorized = 0` cannot be anything else.** The dump runs at
+  `VectorizerStartEP`, and under fat LTO that is reached once, in the
+  merged module, immediately before the only LoopVectorize run of the
+  build. Nothing has been vectorized yet when the dump looks. A rule of the
+  form "skip width hints on loops that are already vectorized" is therefore
+  empty at this point in the pipeline; what the baseline actually
+  vectorizes is in the `-pass-remarks` log, not here.
+* **`has_fp_reduction = 0`** is a property of jaq: it is a JSON processor,
+  and the one place FP arithmetic appears is number parsing, not a
+  reduction. The pinned reordering flag is still required, because a width
+  hint authorises reordering whether or not this dump found a reduction.
+* **70 sites with no profile count** are loops the three training workloads
+  never entered. `trip_count`, `header_count` and `hotness` are null/0 for
+  exactly those 70 and for no others.
+
+Distribution is very uneven. `read::parse` owns 49 sites (a third of the
+total) and `write::write` 22; marks 8, 14 own one and two. Nine of the
+fifteen own fewer than ten. Per-mark rows are in `targets/jaq/sites.md`.
+
+The hottest site of all is not in the JSON reader: it is
+`a48529f86e22591a-next-macros.rs-180`, depth 2, trip 32, 36 instructions,
+under `<&String as Display>::fmt` (mark 12) --- the `core::fmt` padding
+loop. The next three are `write::write`'s serialiser loops at
+`core/src/fmt/mod.rs:1653`.
+
+### 91. The site key is not unique on jaq: 13 keys hold 35 loops
+
+SPEC.ja.md 8.3's key is the sha256 of (owner, inline chain, leaf location,
+body fingerprint, depth). On the toy the eight keys were eight loops. On
+jaq **13 of the 127 keys resolve to between 2 and 9 loops**, 35 loops in
+all. The worst is `1ba7fbbfb4242b91-write-mod.rs-1653`: nine loops in
+`jaq_json::write::write` with the same owner, the same four-frame inline
+chain, the same leaf `(fmt/mod.rs, 1653, 12)`, the same 137-instruction
+fingerprint and the same depth 1. They are genuinely different loops ---
+their header counts run from 14 429 343 to 144 539 536 and their hotness
+from 1.98e9 to 1.98e10 --- and the five key inputs cannot tell them apart.
+`write::write` is the recursive serialiser, so the same source loop is
+inlined many times along call paths that leave the same recorded
+`inlinedAt` chain.
+
+That was checked at apply time, not only predicted. A plan naming **all
+192** dumped keys (`plugin_report.py allkeys`, `unroll_count=1`, the
+day-3 5e test on the real target):
+
+```
+   totals: ambiguous+attached=13, attached=179
+   outcome rows: attached 214, ambiguous 13, vanished 0
+   OUTPUTS: MATCH
+```
+
+`vanished = 0`: **every key the dump produced resolved**, which is the
+health metric SPEC.ja.md 8.3 asks for, and 13 is exactly the collision
+count the dump predicted. 214 = 179 + 35: the plugin **attaches the hint to
+every loop a colliding key resolves to** and records the `ambiguous` row
+afterwards, in `finalizeKeyOutcomes`. plugin/README.md said the opposite
+("for a loop key `ambiguous` means nothing was applied") and has been
+corrected.
+
+The consequence for the experiment is not that those sites are lost. It is
+that **a plan entry is an instruction about a key, not about a loop**: on
+those 13 keys one Choice moves 2 to 9 loops together and the sweep cannot
+separate them. The site count that prices the oracle is therefore 127, not
+149.
+
+### 92. A function attribute moves only its own mark's keys --- on jaq too
+
+Day 3 section 8 established on the toy that `inline(never)` on one marked
+function moves that function's loop keys and nothing else, and said
+explicitly that "whether that holds on jaq, where marked functions call
+each other, is not established by this test". It holds.
+
+`JEV_MODE=apply-dump`, plan = `inline: "never"` on `jaq_json::write::write`
+and nothing else (the mark rule also puts `noinline` on its seven closures,
+`write::write::{closure#1,4,5,7,10,11,12}`):
+
+```
+   <&alloc::string::String as core::fmt::Display>::fmt        SAME
+   <<jaq_core::path::Path<Val>>::run::{closure#0} as …>::call_once  SAME
+   <alloc::rc::Rc<indexmap::map::IndexMap<…>>>::drop_slow      SAME
+   <hashbrown::raw::RawTable<usize>>::reserve_rehash::<…>      SAME
+   <hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold SAME
+   <hifijson::SliceLexer as hifijson::write::Write>::write_until SAME
+   <jaq_core::compile::TermId>::run                            SAME
+   <jaq_json::Val as core::hash::Hash>::hash                   SAME
+   <jaq_json::funs::base…{closure#3} as …>::call_once          SAME
+   <jaq_std::base_run…{closure#7} as …>::call_once             SAME
+   jaq_core::path::run                                         SAME
+   jaq_json::read::parse                                       SAME
+   jaq_json::write::write                                      CHANGED
+      only in A: 9 keys        only in B: 8 keys
+```
+
+**Twelve of the thirteen marks that own a site kept every key byte for
+byte** (mark 11 owns none and cannot be compared; mark 2 owns none either).
+Only `write::write` moved: 10 keys before, 9 after, and the whole site list
+went 149 -> 136 with `mark_in_loop` 65 -> 49. The output of all six cases is
+unchanged, so the attribute is correctness-neutral here.
+
+This is the empirical support for decision 61 (b)'s two-phase round on the
+real target: **the blast radius of a function attribute is the marked
+function's own sites**, so phase B's re-dump does not invalidate the rest
+of the round. The caveat from the toy still applies in one direction: this
+tested one attribute on one mark, and `write::write` is a mark nothing else
+in the list is inlined into. A change to `read::parse`, which absorbs marks
+2, 3 and 4, would be the harder case and was not run.
+
+### 93. Oracle sizing: the sweep does not fit, and the cap that makes it fit
+
+SPEC.ja.md 2's oracle is (a) a one-factor sweep --- every site, every
+candidate, one at a time --- plus (b) one combined arm, so
+`Σ(sites × candidates) + 1` builds. With the frozen vocabulary of
+SPEC.ja.md 1 (2): 6 function-attribute candidates
+(`inline`, `inline(never)`, `cold`, `align=16/32/64`) on each marked
+function, 11 loop candidates (`unroll.count=2/4/8`, `unroll.disable`,
+`vectorize.width=2/4/8/16`, `interleave.count=1/2/4`) on each loop site.
+At the brief's planning figures --- 2.5 min for a clean fat-LTO + PGO jaq
+build, 2 min of timing (n = 15, three cases) --- an arm costs 4.5 min.
+
+| rule (cumulative, pre-registered, result-blind) | loop sites | builds | wall clock |
+|---|--:|--:|--:|
+| one arm per loop site (upper bound; unreachable, a plan addresses keys) | 149 | 1730 | 129.8 h |
+| **0.** one arm per distinct site key | 127 | 1488 | **111.6 h** |
+| **1.** drop keys the training profile never entered | 62 | 773 | 58.0 h |
+| **2.** drop keys whose trip count is < 2 | 32 | 443 | 33.2 h |
+| **3.** top 3 by hotness per mark | 16 | 267 | **20.0 h** |
+
+The unreduced sweep is **111.6 h**, 4.6x the ~24 h budget. Note that
+SPEC.ja.md 8's own `[search] max_sites = 40` does not save it either:
+15·6 + 40·11 + 1 = 531 builds = 39.8 h. The cap has to be smaller than the
+spec's.
+
+The three rules are mechanical, decided here before any arm is run, and
+none of them looks at a result:
+
+0. **Per key, not per loop** (section 91). Not a reduction so much as
+   arithmetic: the sweep cannot address the 35 loops behind 13 keys
+   separately, so it must not be priced as if it could.
+1. **No profile count on the header** (70 of 149 loops, 65 of 127 keys).
+   The training workloads never enter these loops, the search cases are
+   those same three workloads, and a hint on a loop that does not execute
+   cannot move a wall time. Dropping them costs nothing measurable and
+   halves the sweep.
+2. **Trip count < 2.** `unroll` and `vectorize` both need iterations to
+   work with; the estimate is the profile's (exits = header − back-edge,
+   decision 36). 30 of the remaining 62 keys have an average trip below 2.
+3. **Top 3 by hotness per mark.** Hotness is `header count × body
+   instructions`, from the profile, computed by the plugin before any arm
+   exists. Per mark rather than overall so that a mark with one warm loop
+   is not crowded out by `read::parse`'s 49.
+
+Rule 3 leaves **16 keys**, and the whole oracle becomes **267 builds,
+20.0 h** --- inside the budget. If the per-mark shape is unwanted (three
+marks own no site at all, so K is spent unevenly), the alternative
+pre-registered form is a single overall cut: top 20 overall = 311 builds =
+23.3 h, top 12 overall = 223 builds = 16.7 h. `sites.json` carries both key
+lists (`oracle.selected_keys_topk_per_mark`,
+`oracle.selected_keys_top20_overall`) so whichever is chosen is frozen
+before the first arm.
+
+**No per-site candidate selection was done**, which SPEC.ja.md 1 (2)
+forbids as optimising: every surviving site gets all 11 candidates,
+including `vectorize.width` on loops with calls and `unroll.count` on the
+one site with a 221-trip loop. The only per-candidate observation on the
+record is section 89's --- some `fn_attrs` candidates restate an attribute
+the compiler already applied --- and it was deliberately not acted on.
+
+The function-attribute half is **90 builds (6.8 h)** whatever the loop cap
+does, and decision 61 (b) makes it phase one. The loop counts above are
+measured on the *baseline* IR; after the attribute phase the keys are
+re-dumped and the count will differ (section 92 suggests it will differ
+only inside the marks whose attribute changed).
+
+### 94. Deviations, and what is not done
+
+- **No timing of any kind.** Four jaq builds, no `bench.py`, no A/A. Every
+  minute figure in section 93 is the brief's planning figure multiplied by
+  a count, not a measurement of this machine.
+- **The plugin changed** (section 88), so its sha256 in
+  `targets/jaq/sites.json` differs from the one the day-3 sections used,
+  and `scripts/plugin_toy_tests.sh` was re-run to confirm the rest of that
+  suite is unaffected. One recorded key in day 3 section 8 is retracted.
+- **`SPEC.ja.md` and `docs/decisions.ja.md` were not edited.** What they
+  should gain from this section: 8.3 must say that a site key is not unique
+  on a target with a recursive marked function and that a colliding key
+  hints every copy (section 91); 1 (1) should say that the plugin resolves
+  the marks and that the rule is section 85's, not a generics-stripped one
+  (section 88); 2 should record the oracle cap actually used (section 93);
+  and 8's `max_sites = 40` is too large for jaq's build cost.
+- **One attribute, one mark** in section 92. The interesting case ---
+  changing `read::parse`, which absorbs three other marks --- was not run.
+- **`mark_in_loop` rows are carried without their inline chains** in
+  `sites.json`, to keep the file under 600 KB. They are excluded from the
+  experiment by decision 61 (a); re-run the dump if the chain is wanted.
+- **`marks_in_chain` is new and unused.** Nothing yet decides which mark a
+  site should be offered under when several reach it; the field only makes
+  the choice possible. On jaq it matters for 34 sites (mark 2) and 5+3
+  more (marks 3, 4).
+- **One profile, one baseline.** All of this describes the PGO baseline
+  built from `merged.profdata` `4e879ce1…`. A different profile changes the
+  70 zero-count sites and the whole hotness ordering, and a different
+  inliner outcome changes the keys.

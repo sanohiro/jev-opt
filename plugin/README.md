@@ -98,7 +98,10 @@ stale plan and a silently mis-hinted build.
 
 ## Marks file
 
-One Rust path per line; `#` starts a comment; blank lines ignored.
+One Rust path per line; blank lines ignored. `#` starts a comment **only
+as the first non-space character of a line** --- it is not a mid-line
+comment marker, because a demangled closure is spelled `{closure#3}` and
+four of jaq's fifteen marks contain one.
 
 ```
 # artifacts/plugin-day3/marks/toy-all.txt
@@ -106,14 +109,28 @@ toyloops::count_quotes
 toyloops::find_special
 ```
 
-Matching is against the **demangled** v0 linkage name, with every `<...>`
-generic-argument group removed from both sides. A mark matches when the
-normalised demangled path
+Matching is against the **full demangled** v0 linkage name, generic
+arguments included. A mark matches when the demangled path
 
 * equals the mark, or
-* ends with `::` + the mark (the mark was written without its crate), or
-* starts with the mark + `::` (an inner item or closure of the marked
-  function, e.g. `toyloops::count_quotes::{closure#0}`).
+* continues with the mark + `::` — a monomorphization
+  (`jaq_json::read::parse::<hifijson::SliceLexer>`), a closure
+  (`toyloops::count_quotes::{closure#0}`) or any other inner item, or
+* ends with `::` + the mark (the mark was written without its crate).
+
+A generic mark therefore reaches every monomorphization of it, and
+`jaq_json::read::parse` does not match `jaq_json::read::parse_string`. This
+is the rule results.md "Marks (jaq)" section 85 states for
+`targets/jaq/jev-marks.txt`.
+
+An earlier version normalised both sides by deleting every balanced `<...>`
+group first. That is wrong for a mark written in trait-impl form: it turns
+`<jaq_json::Val as core::hash::Hash>::hash` into `hash`, which then matches
+every `::hash` in the program. On jaq's 15 marks it collapsed eleven of them
+to a bare method name, three of those to the same string, and one to a path
+ending in `::` that could never match (results.md "Sites (jaq)"). That
+normalisation survives only as the readable suffix of a site key, where a
+collision is harmless.
 
 Marks that matched nothing are listed in `unmatched_marks`, but only in
 reports whose `loop_ep_ran` is true — under fat LTO the pre-link modules never
@@ -163,12 +180,16 @@ A loop is related to a mark in one of two ways, and the dump says which:
 `inline` and `cold`/`hot` remove the opposing attribute first: the verifier
 rejects a function that is both `noinline` and `inlinehint`.
 
-A `fn` that names a **generic** function matches every monomorphization in
-the module. The attribute is applied to all of them, and the report also
-carries an `ambiguous` row saying how many. For a loop key `ambiguous` means
-"nothing was applied"; for a function name it does not. This is untested —
-the toy has no generics — and SPEC.ja.md should settle which behaviour is
-wanted before it is relied on.
+A `fn` is matched by exactly the rule marks use (above), on the full
+demangled name, so a **generic** function name reaches every
+monomorphization and a function name reaches its closures. The attribute is
+applied to all of them and the report also carries an `ambiguous` row saying
+how many. `ambiguous` never means "nothing was applied", for either half. Decision 61 (c) settles the generic half of this.
+
+Until results.md "Sites (jaq)" the `fn_attrs` matcher had a rule of its own
+— equality or `::`-suffix over generics-stripped names, with no prefix case
+— so a generic name reached no monomorphization and no closure. Unifying
+the two moved one recorded toy key; that section says which.
 
 `loop_md` entry:
 
@@ -203,9 +224,17 @@ SPEC.ja.md 8.3: the first 16 hex digits of the sha256 of
 followed by a readable suffix (`<leaf fn>-<file>-<line>`). Sorted, so
 instruction scheduling between dump and apply cannot move the key.
 
-A key that resolves to no loop is reported `vanished`, one that resolves to
-several `ambiguous`. Neither is moved to a different loop: the counts are the
-health metric for the design.
+A key that resolves to no loop is reported `vanished`. One that resolves to
+several is reported `ambiguous` **and the hint is attached to every loop it
+resolved to** --- `finalizeKeyOutcomes` folds the hit counts into the report
+after the fact, it does not undo the attachments, so an `ambiguous` key
+carries one `attached` row per copy as well. Neither outcome moves a hint to
+a different loop, and the counts are the health metric for the design.
+
+That matters on jaq, where 13 of the 127 `loop_in_mark` keys resolve to
+between 2 and 9 loops each (results.md "Sites (jaq)"). A plan entry is
+therefore an instruction about a *key*, not about a loop, and on those 13 it
+hints every copy at once.
 
 ## Report schema
 
@@ -233,7 +262,8 @@ One file per `(module, stage, pid)`:
      "attributes": "noinline,align=64", "self_loops": 1}
   ],
   "sites": [
-    {"key": "...", "mark": "...", "match": "loop_in_mark",
+    {"key": "...", "mark": "...", "marks_in_chain": ["..."],
+     "match": "loop_in_mark",
      "owner_fn": "...", "owner_fn_demangled": "toy::main",
      "inline_chain": ["..."],
      "leaf": {"file": "...", "line": 279, "col": 24},

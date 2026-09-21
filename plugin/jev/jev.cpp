@@ -345,11 +345,10 @@ std::string readFile(const std::string &Path, bool &Ok) {
 // marks: Rust paths matched against demangled v0 linkage names
 //===----------------------------------------------------------------------===//
 
-/// Remove every balanced <...> group. `_RINvNtC..` v0 names demangle with
-/// generic arguments spelled out (`foo::bar::<u8>`, `<A as B>::c`); a mark is
-/// written the way a human writes a path, so both sides are normalised by
-/// dropping the argument lists. What is left of `<A as B>::c` is `::c`, so
-/// the leading `::` is trimmed too.
+/// Remove every balanced <...> group. Used only to build the *readable
+/// suffix* of a site key, where a short name is wanted and collisions do not
+/// matter (the key's identity is the sha256 in front of it). It is
+/// deliberately not used for mark matching --- see `matchMark`.
 std::string stripGenerics(StringRef In) {
   std::string Out;
   int Depth = 0;
@@ -373,6 +372,44 @@ std::string stripGenerics(StringRef In) {
   return Clean;
 }
 
+/// Does the demangled path `D` name the function (or an inner item of the
+/// function) the mark `M` points at?
+///
+/// `M` and `D` are both full demangled v0 paths, generic arguments included.
+/// `stripGenerics` must NOT be used here: dropping every `<...>` group turns
+/// `<jaq_json::Val as core::hash::Hash>::hash` into `hash`, which then
+/// matches every `::hash` in the program. Measured on jaq: 11 of the 15
+/// marks in `targets/jaq/jev-marks.txt` collapse to a bare method name
+/// (`run`, `fmt`, `call_once` three times, ...), three of them to the same
+/// string, and one (`reserve_rehash::<...>`) to a path that ends in `::` and
+/// can never match. results.md "Sites (jaq)".
+///
+/// The rule is the one the marks file was written and validated against
+/// (results.md "Marks (jaq)" section 85):
+///
+///   * `D == M`, or
+///   * `D` continues with `M + "::"` --- a monomorphization (`::<...>`), a
+///     closure (`::{closure#0}`) or any other inner item, or
+///   * `D` ends with `"::" + M` --- the mark was written without its crate.
+///
+/// A generic mark therefore matches every monomorphization of it, which is
+/// what decision 61 (c) asks for, and `jaq_json::read::parse` does not match
+/// `jaq_json::read::parse_string`.
+bool matchMark(StringRef D, StringRef M) {
+  if (M.empty())
+    return false;
+  if (D == M)
+    return true;
+  if (D.size() > M.size() + 2) {
+    if (D.substr(0, M.size()) == M && D.substr(M.size(), 2) == "::")
+      return true;
+    if (D.substr(D.size() - M.size()) == M &&
+        D.substr(D.size() - M.size() - 2, 2) == "::")
+      return true;
+  }
+  return false;
+}
+
 /// rustc's v0 mangling keeps the crate disambiguator in the demangled form
 /// only for `Cs...` hashes, which llvm::demangle already drops. Returns the
 /// input unchanged when it is not a mangled name.
@@ -390,24 +427,13 @@ struct Marks {
   /// under StateMutex --- not here, because this is called from function
   /// passes that the pass manager may run concurrently.
   ///
-  /// Prefix/suffix tolerant: a mark matches when, after dropping generic
-  /// arguments, the demangled path is the mark, ends with `::` + the mark
-  /// (mark written without its crate), or starts with the mark + `::` (an
-  /// inner item or closure of the marked function).
+  /// See `matchMark`. The first mark that matches wins, so a marks file
+  /// whose lines are prefixes of each other attributes a function to the
+  /// earlier line; the CLI is expected to keep the lines disjoint.
   const std::string *match(StringRef Demangled) const {
-    std::string D = stripGenerics(Demangled);
-    for (const std::string &M : Raw) {
-      std::string N = stripGenerics(M);
-      if (N.empty())
-        continue;
-      bool Ok = D == N ||
-                (D.size() > N.size() + 2 &&
-                 D.compare(D.size() - N.size(), N.size(), N) == 0 &&
-                 D.compare(D.size() - N.size() - 2, 2, "::") == 0) ||
-                (D.size() > N.size() + 2 && D.compare(0, N.size(), N) == 0 &&
-                 D.compare(N.size(), 2, "::") == 0);
-      if (Ok) return &M;
-    }
+    for (const std::string &M : Raw)
+      if (matchMark(Demangled, M))
+        return &M;
     return nullptr;
   }
 };
@@ -423,11 +449,15 @@ Marks loadMarks(const std::string &Path) {
   std::istringstream SS(Text);
   std::string Line;
   while (std::getline(SS, Line)) {
-    size_t H = Line.find('#');
-    if (H != std::string::npos) Line = Line.substr(0, H);
     while (!Line.empty() && isspace((unsigned char)Line.back())) Line.pop_back();
     size_t B = Line.find_first_not_of(" \t");
     if (B == std::string::npos) continue;
+    // `#` starts a comment only as the first non-space character of a line.
+    // It cannot be a mid-line comment marker: a v0 demangled closure is
+    // spelled `{closure#3}`, and four of jaq's fifteen marks contain one.
+    // Truncating at the first `#` turned them into prefixes that match
+    // nothing (results.md "Sites (jaq)").
+    if (Line[B] == '#') continue;
     M.Raw.push_back(Line.substr(B));
   }
   return M;
@@ -948,29 +978,52 @@ const char *markRelName(MarkRel R) {
 }
 
 MarkRel loopIsMarked(const Function &F, const Loop &L, const Marks &Mk,
-                     const std::string **Out) {
+                     const std::string **Out,
+                     std::vector<std::string> *Chain = nullptr) {
+  // Every mark the loop's own frame chain reaches, outermost first. On jaq
+  // the marked functions are inlined into one another (the three lexer marks
+  // all end up inside `jaq_json::read::parse`), so `mark` alone --- the
+  // first hit, which is the owner's --- hides the fact that a site is also
+  // inside a second and a third mark. `marks_in_chain` is additive and lets
+  // the CLI decide which mark a site should be offered under.
+  auto note = [&](const std::string &M) {
+    if (!Chain)
+      return;
+    for (const std::string &S : *Chain)
+      if (S == M)
+        return;
+    Chain->push_back(M);
+  };
+
+  const std::string *First = nullptr;
   // (1) the containing function itself is marked
   if (F.getSubprogram())
     if (const std::string *M =
             Mk.match(demangleName(subprogramLinkage(F.getSubprogram())))) {
-      *Out = M;
-      return MarkRel::LoopInMark;
+      First = M;
+      note(*M);
     }
-  if (const std::string *M = Mk.match(demangleName(F.getName()))) {
-    *Out = M;
-    return MarkRel::LoopInMark;
-  }
+  if (!First)
+    if (const std::string *M = Mk.match(demangleName(F.getName()))) {
+      First = M;
+      note(*M);
+    }
   // (2) the loop's own location is inside an inlined copy of a marked
   //     function
   if (DebugLoc DL = loopLoc(L)) {
-    SmallVector<const DISubprogram *, 8> Chain;
-    frameChain(DL.get(), Chain);
-    for (const DISubprogram *SP : Chain)
+    SmallVector<const DISubprogram *, 8> Frames;
+    frameChain(DL.get(), Frames);
+    for (const DISubprogram *SP : Frames)
       if (const std::string *M =
               Mk.match(demangleName(subprogramLinkage(SP)))) {
-        *Out = M;
-        return MarkRel::LoopInMark;
+        if (!First)
+          First = M;
+        note(*M);
       }
+  }
+  if (First) {
+    *Out = First;
+    return MarkRel::LoopInMark;
   }
   // (3) some instruction in the body is
   for (const BasicBlock *BB : L.getBlocks())
@@ -1019,10 +1072,13 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
       Work.append(L->begin(), L->end());
 
       const std::string *Mk = nullptr;
-      MarkRel Rel = loopIsMarked(F, *L, TheMarks, &Mk);
+      std::vector<std::string> InChain;
+      MarkRel Rel = loopIsMarked(F, *L, TheMarks, &Mk, &InChain);
       if (Rel == MarkRel::None)
         continue;
       Hit.insert(*Mk);
+      for (const std::string &S : InChain)
+        Hit.insert(S);
 
       SiteKey K = computeSiteKey(F, *L);
       unsigned Body = 0;
@@ -1048,13 +1104,18 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
       for (size_t I = 0; I < K.InlineChain.size(); ++I)
         Chain += (I ? "," : "") + jstr(K.InlineChain[I]);
 
+      std::string MarksJson;
+      for (size_t I = 0; I < InChain.size(); ++I)
+        MarksJson += (I ? "," : "") + jstr(InChain[I]);
+
       std::ostringstream S;
       S << "{"
         << "\"key\": " << jstr(K.Key)
         << ", \"mark\": " << jstr(*Mk)
+        << ", \"marks_in_chain\": [" << MarksJson << "]"
         << ", \"match\": " << jstr(markRelName(Rel))
         << ", \"owner_fn\": " << jstr(K.OwnerFn)
-        << ", \"owner_fn_demangled\": " << jstr(stripGenerics(demangleName(K.OwnerFn)))
+        << ", \"owner_fn_demangled\": " << jstr(demangleName(K.OwnerFn))
         << ", \"inline_chain\": [" << Chain << "]"
         << ", \"leaf\": {\"file\": " << jstr(K.File) << ", \"line\": " << K.Line
         << ", \"col\": " << K.Col << "}"
@@ -1083,7 +1144,7 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
       std::ostringstream S;
       S << "{"
         << "\"linkage\": " << jstr(F.getName())
-        << ", \"demangled\": " << jstr(stripGenerics(demangleName(F.getName())))
+        << ", \"demangled\": " << jstr(demangleName(F.getName()))
         << ", \"mark\": " << jstr(*Mk)
         << ", \"inst_count\": " << instCount(F)
         << ", \"entry_count\": ";
@@ -1238,14 +1299,10 @@ struct JevApplyFnAttrs : PassInfoMixin<JevApplyFnAttrs> {
     for (Function &F : M) {
       if (F.isDeclaration())
         continue;
-      std::string Dem = stripGenerics(demangleName(F.getName()));
+      std::string Dem = demangleName(F.getName());
       const FnAttrEntry *E = nullptr;
       for (const FnAttrEntry &C : ThePlan.FnAttrs) {
-        std::string N = stripGenerics(C.Fn);
-        if (F.getName() == C.Fn || Dem == N ||
-            (Dem.size() > N.size() + 2 &&
-             Dem.compare(Dem.size() - N.size(), N.size(), N) == 0 &&
-             Dem.compare(Dem.size() - N.size() - 2, 2, "::") == 0)) {
+        if (F.getName() == C.Fn || matchMark(Dem, C.Fn)) {
           E = &C;
           break;
         }
@@ -1367,7 +1424,7 @@ struct JevDumpFnTable : PassInfoMixin<JevDumpFnTable> {
       std::ostringstream S;
       S << "{"
         << "\"linkage\": " << jstr(F.getName())
-        << ", \"demangled\": " << jstr(stripGenerics(demangleName(F.getName())))
+        << ", \"demangled\": " << jstr(demangleName(F.getName()))
         << ", \"mark\": " << jstr(*Mk)
         << ", \"inst_count\": " << instCount(F)
         << ", \"entry_count\": ";

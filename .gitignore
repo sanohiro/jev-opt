@@ -13,6 +13,9 @@ Cargo.lock.bak
 *.profdata
 jev-plan*.json
 sites*.json
+# ...except the one that is a result: the resolved marks and the loop sites
+# of the jaq experiment (results.md "Sites (jaq)").
+!/targets/jaq/sites.json
 apply-report-*.json
 run-manifest.json
 
