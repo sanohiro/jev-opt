@@ -6556,3 +6556,522 @@ code and is what a human would point at; `__rust_alloc`/`__rust_dealloc`
 - **One binary.** All of this describes the PGO baseline. A different
   configuration inlines differently, and the inline-aware table would move
   with it; the self-time table would move less.
+
+## Day 3 (plugin)
+
+Date: 2026-09-22. Same machine and toolchain as day 0 (nightly-2026-09-21,
+rustc 1.100.0-nightly, LLVM 23.1.1, `libLLVM.so.23.1-rust-1.100.0-nightly`
+shared). Scope: the LLVM headers, the probe plugin, the extension-point
+table, the jev plugin, and its acceptance tests on the toy. No timing, and
+none of the real targets.
+
+Reproduce with:
+
+```
+scripts/fetch_llvm_headers.sh      # once; downloads 179 MB, builds no LLVM
+scripts/build_plugin.sh            # -> plugin/build/libjev{probe,plugin}.so
+scripts/plugin_ep_table.sh         # section 2
+scripts/plugin_toy_tests.sh all    # sections 3-8
+```
+
+Outputs land in `artifacts/plugin-day3/` (git-ignored); the transcript this
+section quotes is `artifacts/plugin-day3/tests-all.log`. `plugin/README.md`
+documents the env vars, the marks format, the plan schema and the report
+schema.
+
+### 1. Headers: two corrections to the recipe
+
+SPEC.ja.md 8.2 says to take the upstream tarball and run
+`ninja intrinsics_gen`. Both halves of that are wrong on 23.1.1 and both
+failed loudly rather than silently.
+
+**(a) The ABI-breaking-checks option is `LLVM_ABI_BREAKING_CHECKS`.** The
+spec (and the day-3 brief) name `LLVM_ENABLE_ABI_BREAKING_CHECKS`, which is
+the *generated macro*, not the CMake option. Passing it as `-D` puts the
+string `FORCE_OFF` into the cache; `abi-breaking.h.cmake` uses
+`#cmakedefine01`, which reads any non-empty non-false string as true:
+
+```
+$ grep -iE "ABI_BREAKING|ENABLE_ASSERTIONS" third_party/llvm-build/CMakeCache.txt
+LLVM_ABI_BREAKING_CHECKS:STRING=WITH_ASSERTS
+LLVM_ENABLE_ABI_BREAKING_CHECKS:UNINITIALIZED=FORCE_OFF
+LLVM_ENABLE_ASSERTIONS:BOOL=OFF
+
+$ grep "define LLVM_ENABLE_ABI_BREAKING_CHECKS" \
+      third_party/llvm-build/include/llvm/Config/abi-breaking.h
+#define LLVM_ENABLE_ABI_BREAKING_CHECKS 1
+```
+
+which makes every translation unit reference `llvm::EnableABIBreakingChecks`
+— the symbol the host `libLLVM` does **not** define (day 0 section 2 recorded
+that it defines `DisableABIBreakingChecks`). The plugin would have failed to
+`dlopen` inside rustc. `scripts/build_plugin.sh` has a gate that caught it
+first:
+
+```
+$ scripts/build_plugin.sh probe
+== probe -> .../plugin/build/libjevprobe.so
+FAIL: undefined LLVM symbols not provided by .../libLLVM.so.23.1-rust-1.100.0-nightly:
+llvm::EnableABIBreakingChecks
+```
+
+With `-DLLVM_ABI_BREAKING_CHECKS=FORCE_OFF` the generated header says `0` and
+the check passes. The gate is `nm -u` on the plugin minus `nm -D` on the host
+`libLLVM`, and it is worth keeping: it turns an unreadable `dlopen` failure
+inside rustc into one line at build time.
+
+**(b) `intrinsics_gen` is not the whole header set.**
+`PassBuilder.h → CGSCCPassManager.h → LazyCallGraph.h → TargetLibraryInfo.h`
+includes `TargetLibraryInfo.inc`, which `intrinsics_gen` does not build. The
+targets that do produce every generated header the plugins reach are
+`intrinsics_gen analysis_gen vt_gen target_parser_gen omp_gen acc_gen
+llvm_vcsrevision_h`. None of them pulls an LLVM library into the graph, so
+LLVM itself is still not built; the whole thing is a `llvm-tblgen` build plus
+241 tablegen invocations, about three minutes on 32 cores.
+
+Also: `libc/` has to be extracted from the tarball. `llvm/CMakeLists.txt:725`
+hard-errors (`LLVM libc is not found`) without it, and `FindLibcCommonUtils`
+only ever puts it on an include path.
+
+Other notes:
+
+* `PassPlugin.h` moved: it is `llvm/Plugins/PassPlugin.h` in 23.1, not
+  `llvm/Passes/`.
+* `OptimizationLevel` is a plain `enum class : int` (O0..O3) in 23.1;
+  `getSpeedupLevel()` / `getSizeLevel()` are gone.
+* `Function::getEntryCount()` returns `std::optional<uint64_t>`, not the old
+  `ProfileCount`.
+* `llvm::SHA256` is not exported by the host `libLLVM`, so the plugin carries
+  its own sha256 (with a two-vector known-answer test at startup, because
+  `JEV_PLAN_SHA` is the only thing between a stale plan and a mis-hinted
+  build). `llvm::demangle`, `llvm::Loop::setLoopID`,
+  `llvm::addStringMetadataToLoop`, `BlockFrequencyAnalysis`,
+  `BranchProbabilityInfo::getEdgeProbability` and
+  `llvm::GlobalObject::setAlignment` all are exported.
+* The local `cmake` on PATH is a Windows MSVC 3.19 build; the Debian one is
+  `/usr/bin/cmake` 4.3.4. The script names it explicitly.
+
+### 2. The extension-point table
+
+`plugin/probe/probe.cpp` registers a no-op logging pass on every PassBuilder
+extension point and records the EP, the `ThinOrFullLTOPhase` argument where
+there is one, the module, the function count, the number of loops already
+carrying `llvm.loop.isvectorized`, and whether the module has a
+ProfileSummary. `scripts/plugin_ep_table.sh` runs it over the toy in four
+configurations.
+
+Stage is not readable from the module name: under fat LTO rustc reuses the
+primary CGU's module identifier **and its process** for the merged module.
+What separates them is `FullLinkTimeOptimizationEarly` — everything a process
+logs after it, for that module, is the merged stage. The table below uses
+that rule; `phase_arg` is what LLVM passed the callback.
+
+**lto = off** (`artifacts/plugin-day3/ep-off.tsv`)
+
+| ep | scope | phase_arg | stage | fires | modules | isvec max |
+|---|---|---|---|---|---|---|
+| PipelineStart | module | – | prelink | 2 | 2 | 0 |
+| PipelineEarlySimplification | module | None | prelink | 2 | 2 | 0 |
+| Peephole | function | – | prelink | 2 | 2 | 0 |
+| ScalarOptimizerLate | function | – | prelink | 2 | 2 | 0 |
+| LateLoopOptimizations | loop | – | prelink | 64 | 2 | 0 |
+| LoopOptimizerEnd | loop | – | prelink | 64 | 2 | 0 |
+| VectorizerStart | function | – | prelink | 2 | 2 | 0 |
+| VectorizerEnd | function | – | prelink | 2 | 2 | 3 |
+| OptimizerEarly | module | None | prelink | 2 | 2 | 0 |
+| OptimizerLast | module | None | prelink | 2 | 2 | 3 |
+
+**lto = thin**: the same pre-link set, plus a second, per-module post-link
+pipeline. `PipelineEarlySimplification`, `OptimizerEarly` and `OptimizerLast`
+fire 21 more times with `phase_arg = ThinLTOPostLink`, one per imported
+module; `OptimizerLast` there sees up to 20 vectorized loops.
+`PipelineStart` fires **only** pre-link (2 times).
+
+**lto = fat** and **lto = fat + PGO** (`ep-fat.tsv`, `ep-fatpgo.tsv`)
+
+| ep | scope | phase_arg | stage | fires | modules | isvec max |
+|---|---|---|---|---|---|---|
+| PipelineStart | module | – | prelink | 2 | 2 | 0 |
+| PipelineEarlySimplification | module | ThinLTOPreLink | prelink | 2 | 2 | 0 |
+| Peephole | module-first | – | prelink | 2 | 2 | 0 |
+| ScalarOptimizerLate | module-first | – | prelink | 2 | 2 | 0 |
+| LateLoopOptimizations | loop | – | prelink | 64 (17 with PGO) | 2 | 0 |
+| LoopOptimizerEnd | loop | – | prelink | 64 (17 with PGO) | 2 | 0 |
+| OptimizerEarly | module | ThinLTOPreLink | prelink | 2 | 2 | 0 |
+| OptimizerLast | module | ThinLTOPreLink | prelink | 2 | 2 | 0 |
+| **FullLinkTimeOptimizationEarly** | module | – | **lto** | 1 | 1 | 0 |
+| Peephole | function | – | lto | 24 (25) | 1 | 6 |
+| **VectorizerStart** | function | – | **lto** | 4 | 1 | 0 |
+| VectorizerEnd | function | – | lto | 16 (17) | 1 | 6 |
+| **FullLinkTimeOptimizationLast** | module | – | **lto** | 1 | 1 | 19 |
+
+Four things this settles:
+
+1. **The plugin is loaded in the merged fat-LTO stage.** `-Zllvm-plugins`
+   registers its callbacks for the LTO pipeline too.
+2. **`PipelineStart`, `PipelineEarlySimplification`, `OptimizerEarly` and
+   `OptimizerLast` never see the merged module.** Under fat LTO the module
+   EPs that do fire there are `FullLinkTimeOptimizationEarly` / `…Last` only.
+   Confirmed against the source: `PassBuilderPipelines.cpp`
+   `buildLTODefaultPipeline` (line 2032) invokes
+   `FullLinkTimeOptimizationEarly` (2038) and `VectorizerStart` (2305) and
+   neither `PipelineStart` nor `OptimizerEarly`.
+3. **The pre-link pipeline of a fat-LTO build is the ThinLTO *pre-link*
+   pipeline** (`phase_arg = ThinLTOPreLink`), which stops before the
+   vectorizers: `VectorizerStart` does not fire at all pre-link, and the
+   pre-link `isvectorized` count is 0 everywhere.
+4. **`lto = off` is not "no LTO phases" to rustc.** For a plain `-O`
+   single-file compile the probe records both a `ThinLTOPreLink` and a
+   `ThinLTOPostLink` run; for the toy at `lto = off` the module EPs carry
+   `phase_arg = None`.
+
+**Extension points chosen:**
+
+* **Loop metadata → `VectorizerStartEP`.** SPEC.ja.md 8.2's first candidate,
+  now measured rather than assumed. Under fat LTO it fires only in the merged
+  module, which is where the four toy loops live (all four inline into
+  `toy::main`), and `isvec` is still 0 there, so nothing has been vectorized
+  yet. It is the last point before LoopVectorize.
+* **Function attributes → `PipelineStartEP`.** It fires once per CGU,
+  pre-link only, before any inlining — which is the only place `noinline` can
+  still change the outcome — and because it never fires for the merged module
+  there is no second invocation to be idempotent against.
+
+**ProfileSummary is not available at `PipelineStart`, even with PGO.**
+`PGOInstrumentationUse` attaches it partway through the pre-link pipeline:
+
+```
+ep=PipelineStart               profsummary=0
+ep=PipelineEarlySimplification profsummary=0
+ep=Peephole                    profsummary=0
+ep=ScalarOptimizerLate         profsummary=1
+ep=OptimizerEarly              profsummary=1
+ep=FullLinkTimeOptimizationEarly profsummary=1
+ep=VectorizerStart             profsummary=1
+```
+
+SPEC.ja.md 8.2 says the plugin must stop with an error when the module has no
+ProfileSummary. That rule cannot be applied at the function-attribute
+extension point; see section 9.
+
+### 3. Off-equivalence (5a)
+
+Three arms plus a determinism control, all fat LTO + PGO with the frozen toy
+flags:
+
+```
+arm              text_sha256                                                      output_sha256
+5a-none1         6e07f5abd338bea952afad8129af54c10b58f6fd917e4c8414b6edc23f594668 a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+5a-none2         6e07f5abd338bea952afad8129af54c10b58f6fd917e4c8414b6edc23f594668 a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+5a-off           6e07f5abd338bea952afad8129af54c10b58f6fd917e4c8414b6edc23f594668 a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+5a-applyempty    6e07f5abd338bea952afad8129af54c10b58f6fd917e4c8414b6edc23f594668 a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+
+normalised code diff (scripts/norm_code_diff.py), baseline = 5a-none1:
+  5a-none2       hash 58b3a5764472d6d4  IDENTICAL  symbols: 371 (base 371), changed 0
+  5a-off         hash 58b3a5764472d6d4  IDENTICAL  symbols: 371 (base 371), changed 0
+  5a-applyempty  hash 58b3a5764472d6d4  IDENTICAL  symbols: 371 (base 371), changed 0
+```
+
+`none1` = no `-Zllvm-plugins` at all, `off` = plugin loaded with
+`JEV_MODE=off`, `applyempty` = `JEV_MODE=apply` with
+`{"fn_attrs": [], "loop_md": []}`. Raw `.text` hash, normalised code hash and
+program output all agree. The gate passes.
+
+Worth recording because it was not obvious: putting `-Zllvm-plugins=<path>`
+into `CARGO_ENCODED_RUSTFLAGS` changes cargo's unit hash and therefore the
+crate disambiguator in every v0 symbol, yet `.text` is byte-identical. The
+disambiguator does not reach the code section on this target. (`debug = 1` is
+on in all four.)
+
+`off` registers no callback at all — the plugin returns a
+`PassPluginLibraryInfo` with a null `RegisterPassBuilderCallbacks` — so the
+pipeline rustc builds is literally the same object. An empty plan writes no
+report at all, which is why "apply-empty reports written: 0".
+
+### 4. Dump (5b)
+
+Marks (`artifacts/plugin-day3/marks/toy-all.txt`): the four `toyloops`
+functions. Fat LTO + PGO. Three reports, one per (module, stage, pid); the
+merged-LTO one carries every loop:
+
+```
+-- sites-toy.<hash>-cgu.0-lto-<pid>.json
+   stage=lto loop_ep_ran=True profile_summary=True unmatched_marks=[]
+   key                                        match         mark              depth trip     insts hotness      leaf
+   e46f821f746d117a-spec_next-range.rs-1103   loop_in_mark  sum_indexed       2     1048652  9     22650873822  range.rs:1103
+   8d0b9cbf99f073bc--macros.rs-279            loop_in_mark  count_quotes      2     1047828  10    14680066000  macros.rs:279
+   68a90983bba55bf7-_closure_0_-lib.rs-26     loop_in_mark  find_special      2     1047791  10    14658593440  lib.rs:26
+   42899cdd9cb7b0cc-spec_next-range.rs-1103   loop_in_mark  dot_f64           2     1048514  11    4613463580   range.rs:1103  [fp-reduction]
+   c33f9c24f308dd83-spec_next-range.rs-1103   mark_in_loop  sum_indexed       1     2400     25    60000        range.rs:1103
+   fc6962caf87d0857-spec_next-range.rs-1103   mark_in_loop  find_special      1     1400     32    44800        range.rs:1103
+   434de139f3e2b72f-spec_next-range.rs-1103   mark_in_loop  count_quotes      1     1400     30    42000        range.rs:1103
+   da92d60f8eb8470e-spec_next-range.rs-1103   mark_in_loop  dot_f64           1     400      39    15600        range.rs:1103  [fp-reduction]
+
+-- sites-toyloops.<hash>-cgu.0-prelink-<pid>.json
+   stage=prelink loop_ep_ran=False profile_summary=True unmatched_marks=[]
+   FN  toyloops::count_quotes::{closure#0} inst=4  entry=None  attrs='inlinehint'
+   FN  toyloops::find_special::{closure#0} inst=15 entry=None  attrs='inlinehint'
+   FN  toyloops::count_quotes             inst=16 entry=1400  attrs=''
+   FN  toyloops::find_special             inst=21 entry=1402  attrs=''
+```
+
+Four observations.
+
+**The trip counts are right.** The inner loops report ~1048600, and the toy's
+arrays are `1 << 20` = 1048576; the outer loops report exactly the driver's
+repeat counts (1400 quotes, 1400 special, 2400 sum, 400 dot — `toy/src/main.rs`
+`REP_*`). Decision 36's formula (exits = header count − back-edge count,
+average trip = header count / exits) reproduces the known answer to four
+significant figures without any `Block counts[0]` assumption.
+
+**Eight sites for four marks, and the extra four are the caller's loops.** The
+day-3 brief defines the relation as "any instruction's `DILocation` →
+`inlinedAt` chain reaches the marked function". Taken literally that also
+catches the driver's `for _ in 0..repeats` loop in `toy::run_quotes`, whose
+*body* contains the inlined `count_quotes` but whose own frame chain does not
+mention it. Both are reported and the `match` column says which:
+`loop_in_mark` (the loop inside the function you marked) vs `mark_in_loop`
+(the marked function was inlined into a caller's loop). Without that column a
+plan would silently hint the repeat loop. This is a recommended spec change
+(section 9).
+
+**Only the four `loop_in_mark` rows are the loops a human meant**, and their
+hotness ordering (sum 22.7e9, quotes 14.7e9, special 14.7e9, dot 4.6e9) is
+the ordering the day-0 per-workload times imply.
+
+**`has_fp_reduction` is true exactly for the two `dot_f64` sites.**
+
+The function table is only populated in the pre-link reports, because by the
+merged stage `count_quotes` and `find_special` no longer exist as functions.
+`sum_indexed` never appears in any function table: it is gone before
+`PipelineStart` of either CGU (MIR-inlined). `dot_f64` is instantiated into
+the `toy` CGU, not `toyloops`. Entry counts (1400, 1402) come from `!prof`
+and are only present in the `OptimizerEarly` snapshot, which is why the
+function table is written from two points in the pre-link pipeline.
+
+### 5. Loop metadata (5c)
+
+Plan: `vectorize_width: 8` on the `count_quotes` loop,
+`unroll_count: 4` on the `sum_indexed` loop, both `stage: "lto"`.
+
+```
+   lto  8d0b9cbf99f073bc--macros.rs-279            attached  vectorize.width=8
+   lto  e46f821f746d117a-spec_next-range.rs-1103   attached  unroll.count=4
+   totals: attached=2
+```
+
+Both consumed. New remarks that the baseline does not have:
+
+```
+macros.rs:279:24: vectorized loop (vectorization width: 8, interleaved count: 4)   <- new
+range.rs:1103:12: unrolled vectorized loop by a factor of 4 with run-time trip count <- new
+```
+
+(the baseline's best at `macros.rs:279` is width 4, and it has no "unrolled
+vectorized loop" at `range.rs:1103`).
+
+Two things to note.
+
+* **`unroll.count` reached the *vector* loop, not the scalar one.**
+  LoopVectorize copies the non-`vectorize.*` operands of the loop id onto the
+  vector loop it creates, so `llvm.loop.unroll.count=4` on a loop that then
+  vectorizes unrolls the vectorized body. The remark says so in as many
+  words. A plan that wants the scalar loop unrolled has to disable
+  vectorization on the same site.
+* **Width 8 does not produce `zmm`.** `objdump` of `toy::main` shows only
+  `%ymm`: znver3 has no AVX-512, so VF 8 over i64 is split into two 256-bit
+  operations. The hint was taken; the register width is a target fact.
+
+Program output unchanged (`a58406a7…` in both).
+
+**`-hints-allow-reordering=false` (decision 40), now measured.** Same plan
+shape, `vectorize_width: 8` on the `dot_f64` loop:
+
+```
+  arm                text_sha256         output_sha256
+  5a-none1           6e07f5ab…           a58406a7…
+  5c-dot-guarded     6e07f5ab…           a58406a7…     <- flag on: identical to baseline
+  5c-dot-unguarded   f35029c2…           0dd3060a…     <- flag off: code AND answer change
+  guarded   CantReorderFPOps remarks: 1
+  unguarded CantReorderFPOps remarks: 0
+  guarded   'vectorized loop' at range.rs:1103: 1
+  unguarded 'vectorized loop' at range.rs:1103: 2
+```
+
+With the flag the hint is attached, LoopVectorize still refuses on
+`CantReorderFPOps`, and both `.text` and the program's answer are
+bit-identical to the baseline. Without it the refusal disappears, the loop
+vectorizes, and **the program prints a different number**. This is exactly
+the mechanism SPEC.ja.md 8.1 described from the source and never measured:
+`LoopVectorizeHints::allowReordering()` cannot tell a metadata width hint
+from the command-line option, so a plain width hint on an FP reduction
+silently authorises reassociation. `-Cllvm-args=-hints-allow-reordering=false`
+is pinned for every arm from here on.
+
+### 6. Function attributes (5d)
+
+Plan: `inline: "never"` + `align: 64` on `toyloops::count_quotes`,
+`cold: true` on `toyloops::find_special`.
+
+```
+   prelink  toyloops::count_quotes  consumed  noinline,align=64
+   prelink  toyloops::find_special  consumed  cold
+   totals: consumed=2
+
+-- nm, 5d-apply
+000000000000fa80 t toyloops::count_quotes
+-- nm, baseline: (no such symbol)
+-- address 0xfa80, 64-aligned: True
+
+-- the attributes as they stand in the IR, read back with apply-dump
+   prelink  toyloops::count_quotes  attrs='noinline,align=64'
+   prelink  toyloops::find_special  attrs='cold'
+   lto      toyloops::count_quotes  attrs='noinline,align=64'
+
+-- checksums
+  baseline  a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+  5d-apply  a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+```
+
+`noinline` works: `count_quotes` is inlined away in every other build and
+here survives as its own symbol, at a 64-byte boundary, and the attribute is
+still on it in the merged LTO module. `cold` is applied to the IR but does
+**not** stop `find_special` being inlined — cold lowers the inline bonus, it
+is not a barrier — so there is no symbol to look at in the binary; the IR
+read-back is the evidence. Program output unchanged.
+
+The per-module report needs merging before it means anything: the same plan
+entry is `consumed` in the `toyloops` CGU and `unmatched` in the `toy` CGU,
+because the function is only defined in one of them.
+`scripts/plugin_report.py apply` does that merge, and the CLI will have to.
+
+### 7. Key resolution and unmatched marks (5e)
+
+A plan naming **all eight** keys the 5b dump produced, applied to a fresh
+fat-LTO + PGO build:
+
+```
+   totals: attached=8
+```
+
+`vanished = 0`, `ambiguous = 0`, `already_vectorized = 0`. Every key the dump
+produced resolved to exactly one loop in the apply build. That is the health
+metric SPEC.ja.md 8.3 asks for, and on the toy it is clean — as it should be,
+since dump and apply use identical flags and identical profdata, so inlining
+is identical.
+
+A bogus mark is reported:
+
+```
+  lto       loop_ep_ran=True  unmatched_marks=['toyloops::no_such_function']
+  prelink   loop_ep_ran=False unmatched_marks=[]
+  prelink   loop_ep_ran=False unmatched_marks=[]
+```
+
+`unmatched_marks` is only filled in for reports whose `loop_ep_ran` is true.
+Under fat LTO the pre-link modules never reach the loop extension point, so
+"unmatched there" would be every mark and would mean nothing.
+
+### 8. Key stability when a function attribute changes (5f)
+
+The question the two-phase rule depends on. Answered with a new mode,
+`JEV_MODE=apply-dump`, which applies the `fn_attrs` half of a plan at
+`PipelineStart` and then dumps the loops out of the IR those attributes
+produced — the only way to ask it inside one build, and the shape the CLI
+needs anyway.
+
+Plan: `inline: "never"` on `toyloops::count_quotes` and nothing else.
+
+```
+-- loop keys per mark: 5b (no attributes) vs 5f (count_quotes noinline)
+   toyloops::count_quotes     CHANGED
+      only in A: 8d0b9cbf99f073bc--macros.rs-279
+      only in B: 55e212187dc9d670--macros.rs-279
+   toyloops::dot_f64          SAME
+   toyloops::find_special     SAME
+   toyloops::sum_indexed      SAME
+```
+
+**Only the keys of the function whose attribute changed moved.** The other
+three marks keep their keys byte for byte.
+
+Why that one moved: with `noinline`, `count_quotes` is no longer inlined into
+`toy::main`, so its loop's owner changes from `toy::main` to
+`toyloops::count_quotes`, the inline chain loses two frames, and the depth
+goes 2 → 1 (the loop is no longer nested inside the driver's repeat loop).
+Three of the five key inputs changed; the key had to move. The hotness is
+essentially unchanged (14680063990 vs 14680066000) — it is the same loop.
+
+A second effect: `count_quotes`'s `mark_in_loop` site (the driver's repeat
+loop, `434de139…`) **disappears** in the second dump. With the function no
+longer inlined there, no instruction in that loop reaches the mark, so it is
+correctly no longer attributed to it. Seven sites instead of eight.
+
+The rule this supports: **function attributes are phase one; loop keys must
+be re-dumped from a build that already has them.** But the blast radius is
+narrow — only the marked function's own sites move, so re-dumping does not
+invalidate the rest of an iteration's loop decisions. Whether that holds on
+jaq, where marked functions call each other, is not established by this test.
+
+### 9. Spec changes this section recommends
+
+Not applied — SPEC.ja.md and `docs/decisions.ja.md` were not edited.
+
+1. **8.2, header recipe.** `LLVM_ABI_BREAKING_CHECKS`, not
+   `LLVM_ENABLE_ABI_BREAKING_CHECKS`; the tablegen target list is seven
+   targets, not `intrinsics_gen`; `libc/` must be extracted. Keep the
+   undefined-symbol gate as a named step.
+2. **8.2, ProfileSummary.** "Abort when the module has no ProfileSummary"
+   cannot hold at the function-attribute extension point: with
+   `-Cprofile-use` the summary is still absent at `PipelineStart` (section 2).
+   Make it a per-extension-point rule, or drop it to a warning recorded in
+   the report (`profile_summary` is already a field). Decision 58 also moves
+   the profile to `perf`, so PGO may not be present at all.
+3. **8.2, extension points.** Fix them as measured: `PipelineStartEP` for
+   function attributes, `VectorizerStartEP` for loop metadata, and record
+   that under fat LTO the merged module sees only
+   `FullLinkTimeOptimization{Early,Last}` plus the function EPs.
+4. **8.2, stage detection.** Say explicitly that the module identifier does
+   not distinguish pre-link from merged under fat LTO, and that
+   `FullLinkTimeOptimizationEarly` is the marker. Report file names need
+   `(module, stage, pid)`, which 8.2 already says; the reason is this.
+5. **8.3, site key.** Add the `loop_in_mark` / `mark_in_loop` distinction. The
+   brief's definition of "a loop belongs to a marked function" pulls in the
+   caller's loop whenever the marked function is inlined into one, which on
+   the toy doubles the site count. Both should be reported; only
+   `loop_in_mark` should be offered to Jev by default.
+6. **8.3, two-phase rule.** Record 5f: a function-attribute change moves only
+   that function's own loop keys. A plan's `loop_md` entries should carry
+   `stage`, and the CLI should re-dump after applying `fn_attrs` (the
+   `apply-dump` mode exists for this).
+7. **New: `unroll.count` on a vectorizable loop unrolls the vector loop.**
+   The hint vocabulary should say so, or `unroll.count` and `vectorize` need
+   to be describable as a pair.
+8. **3, fixed flags.** `-Cllvm-args=-hints-allow-reordering=false` is now
+   measured, not argued: without it a `vectorize.width` hint on an FP
+   reduction changes the program's answer (section 5). It belongs in
+   `fixed_rustflags` for every arm, including the baseline.
+9. **8.6, schema.** The implemented plan and report schemas are in
+   `plugin/README.md`; they differ from 8.6 (which is the FP-reassociation
+   shape of v0.4). `fn_attrs` + `loop_md` replace `entries[]`, and the
+   outcome vocabulary gains `attached`, `consumed`, `skipped_empty` and
+   `unmatched`.
+
+### 10. What is not established
+
+* Only the toy. Four loops, all in one merged module, no cross-crate marked
+  functions calling each other, no generics. The `vanished` / `ambiguous`
+  count of 0 in section 7 is a lower bound on the difficulty, not evidence
+  the key survives on jaq.
+* No timing of any kind. Whether width 8 on `count_quotes` is *faster* is not
+  measured here and day 0 section 37's flat result says not to expect much.
+* `thin` LTO is handled but barely exercised. The stage tracker takes the
+  merged fat-LTO stage from `FullLinkTimeOptimizationEarly` and the ThinLTO
+  post-link stage from the `ThinOrFullLTOPhase` argument of
+  `PipelineEarlySimplification`; a `lto=thin` dump of the toy labels 12
+  imported modules `thinlto` and finds the same 8 sites, but in the post-link
+  copy of the `toy` CGU, with 2 more in the post-link `toyloops` module. 16
+  report files instead of 3. None of the acceptance tests ran under thin.
+* `hot` is implemented but untested.
+* An empty plan writes no report. An auditable "I applied nothing" file would
+  be better.
