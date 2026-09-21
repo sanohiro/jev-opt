@@ -7158,3 +7158,179 @@ Not applied — SPEC.ja.md and `docs/decisions.ja.md` were not edited.
   it yet.
 * An empty plan writes no report. An auditable "I applied nothing" file would
   be better.
+
+## Search driver (smoke)
+
+`scripts/jev_search.py` --- the loop of SPEC.ja.md 1(3) as a Python driver
+(decision 62) --- with `scripts/jev_vocab.py` (the frozen vocabulary and the
+frozen candidate wording), `jev-opt.toml` (the values SPEC.ja.md 8 freezes
+that the driver owns) and `docs/search-driver.md` (usage, acceptance rule,
+state format, file layout).
+
+**These runs are smoke tests**: the toy, one or two rounds, `n = 3`,
+`warmup = 1`. They exist to show that the loop closes --- plan applies,
+output matches, statistics come out --- and **no speed claim may be read out
+of them**. The toy was flat under hints on day 0 (section 37) and `n = 3` is
+below any usable precision anyway.
+
+### 1. What was run
+
+```
+scripts/jev_search.py --target toy --marks artifacts/plugin-day3/marks/toy-all.txt \
+    --proposer random --rounds 1 --n 3 --warmup 1 --smoke \
+    --out artifacts/toy-search/smoke-random
+scripts/jev_search.py --target toy --marks artifacts/plugin-day3/marks/toy-all.txt \
+    --proposer jev --rounds 1 --n 3 --warmup 1 --smoke \
+    --baseline-dir artifacts/toy-search/smoke-random/baseline \
+    --out artifacts/toy-search/smoke-jev
+scripts/jev_search.py ... --proposer random --rounds 2 --resume ...   # resume
+scripts/jev_search.py ... --proposer oracle --dry-run ...             # arm list
+scripts/jev_search.py ... --print-state ...                           # state, no HTTP
+```
+
+A whole round is 28 s on the toy: two clean fat-LTO builds, one correctness
+run and one `bench.py` run of 3 repetitions over 4 cases and 3 labels.
+
+### 2. Site resolution
+
+The baseline is one `JEV_MODE=dump` build, which yields the baseline binary
+and the site list together (SPEC.ja.md 8.2). On the four toy marks:
+
+```
+3 function sites, 4 loop sites, 0 build site
+  fn     fn:toyloops::count_quotes        (2 linkage names: the fn and its closure)
+  fn     fn:toyloops::dot_f64
+  fn     fn:toyloops::find_special
+  loop   toyloops::sum_indexed@range.rs:1103:12#d2
+  loop   toyloops::count_quotes@macros.rs:279:24#d2
+  loop   toyloops::find_special@lib.rs:26:32#d2
+  loop   toyloops::dot_f64@range.rs:1103:12#d2
+```
+
+`toyloops::sum_indexed` has **no function of its own** in the module --- the
+day-3 guess that MIR inlined it away, now confirmed from the other side ---
+but its loop is still attributed to the mark. So a mark can resolve to a
+loop without resolving to a function, and the "a mark that resolves to
+nothing is an error" rule of SPEC.ja.md 1(1) has to test both. The first
+version of the driver tested only the function table and stopped on a
+perfectly good mark.
+
+### 3. The plan applies
+
+Round 1 of the random arm (five `fn_attrs` entries, because two marks fan out
+to two linkage names each, and four `loop_md` entries), merged over the
+per-module reports:
+
+```
+phase A (JEV_MODE=apply-dump)         phase B (JEV_MODE=apply)
+  ..._8toyloops12count_quotes   consumed cold        8d0b9cbf...-macros.rs-279     attached unroll.count=8
+  ..._8toyloops12count_quotes0B3_ consumed cold      68a90983...-lib.rs-26         attached unroll.count=2
+  ..._8toyloops12find_special   consumed align=16    e46f821f...-range.rs-1103     attached interleave.count=2
+  ..._8toyloops12find_special0B3_ consumed align=16  42899cdd...-range.rs-1103     attached unroll.count=2
+  ..._8toyloops7dot_f64         consumed align=64    + the five fn rows again, consumed
+```
+
+`vanished` 0, `ambiguous` 0, `unmatched` 0, `skipped_empty` 0. Output hashes
+match the baseline on all four cases.
+
+Three things this settles that were open:
+
+* **The plugin tolerates unknown plan fields.** The plan carries `basis`,
+  `vocab_version`, and `jev_site_id` / `jev_choice` / `answer_ref` per entry;
+  `loadPlanOnce` only `get`s the keys it knows, and the build is unaffected.
+  That was read out of the source in the morning and is now measured.
+* **`apply-dump` with an empty `fn_attrs` still dumps the loops.** The Jev
+  arm chose `KEEP_DEFAULT` everywhere, so phase A applied nothing, and phase
+  B still got its four refreshed sites. The fallback to the baseline dump
+  that the driver carries for this case was not needed.
+* **The refreshed keys really are different keys.** `dot_f64`'s loop is
+  `e46f821f...` in the baseline dump and `42899cdd...` after the attributes
+  of round 1; the site key moves with inlining exactly as decision 61 says,
+  which is why the driver keys its history on the coarser `site_id`
+  (`<mark>@<file>:<line>:<col>#d<depth>`) and never on the key.
+
+### 4. One real Jev call per phase
+
+`--proposer jev`, round 1, two HTTP requests (`artifacts/toy-search/smoke-jev/jev-log/`):
+
+```
+ts                                r phase  q  status  latency_ms  in    out  cost
+2026-09-22T06:43:10.720136+09:00 r1 A     3  200     1036.3      5973  234  0.00000000
+2026-09-22T06:43:14.687721+09:00 r1 B     4  200      703.3      9397  607  0.00000000
+# 2 requests, 7 choice questions, 1.74 s total latency, 15370 + 841 tokens,
+# $0.00000000 billed ($0.00065 at list price), 7.36% of the run's wall clock
+```
+
+Jev answered `KEEP_DEFAULT` to all seven, with high confidence and the
+probability mass concentrated there:
+
+```
+q0 (count_quotes, function attribute)  KEEP_DEFAULT conf 0.86
+   KEEP_DEFAULT 0.89  inline 0.11  inline_never 0  cold 0  align_16/32/64 0
+q0 (the count_quotes loop, macros.rs:279)  KEEP_DEFAULT conf 0.85
+   KEEP_DEFAULT 0.87  vectorize_width_4 0.06  vectorize_width_8 0.04
+   unroll_count_8 0.02  unroll_disable 0.01  everything else 0
+```
+
+Consistent with `docs/jev-samples/01-*`, where the same loop with "LLVM
+already vectorized this at VF=4 IC=4" in the state also came back
+`keep_default`. The state of this driver says the same thing in the
+`already vectorized` and remark lines. Nothing here says whether the answer
+is *right* --- that needs jaq and real rounds --- but the arm runs, the empty
+plan is a legal outcome, and it costs nothing.
+
+### 5. Resume, oracle, state
+
+* `--resume` on the 1-round run with `--rounds 2` read `rounds.jsonl`,
+  reported `1 rounds already recorded, best = baseline (1.0000)`, ran only
+  round 2, and rewrote `summary.md`. Re-running it with `--rounds 2` again
+  ran no round at all.
+* `--proposer oracle --dry-run` enumerated **62 one-factor arms + 1
+  combination** for the toy (3 function sites x 6 candidates + 4 loop sites x
+  11 candidates), without building anything. That is the arm count
+  SPEC.ja.md 2 wants recorded before the sweep starts; on jaq it is what
+  `[search] max_sites` exists to bound.
+* `--print-state` prints both phases' state without making a request. Round 1
+  on the toy is 13.3 KB for 3 function questions and 17.8 KB for 4 loop
+  questions. `[search] max_state_chars` (120 KB) is what splits a round into
+  several requests, and the split is recorded as phase `A.1` / `B.1`.
+
+### 6. Two build-recipe changes, and why they are safe
+
+`scripts/target_common.sh`'s `build_variant` gained two things:
+
+* **`-Z` is passed through** like `-C`. Without it `-Zllvm-plugins=<abs>`
+  became `-Cllvm-args=-Zllvm-plugins=<abs>` and the plugin was never loaded.
+* **An extra knob equal to a fixed flag, or repeated, is dropped.** An LLVM
+  `cl::opt` is `cl::Optional`, so passing the same `-Cllvm-args` option twice
+  aborts rustc. This matters for `-Cllvm-args=-hints-allow-reordering=false`,
+  which SPEC.ja.md 2 pins for every arm: the jaq branch now sets it through
+  `FIXED_RUSTFLAGS` and the search driver also passes it, and the build gets
+  exactly one copy either way.
+
+Checked by replaying `build_variant` with a stub `cargo`: with no extra
+knobs the encoded rustflags are identical to the pre-change ones flag for
+flag, so nothing recorded earlier in this file moves.
+
+### 7. What is not established
+
+* **Only the toy.** No jaq run, no timing worth the name, no oracle sweep
+  and no holdout measurement have been made with this driver.
+* **`basis` is enforced by the driver, not by the plugin.** SPEC.ja.md 8.4
+  asks the plugin to stop the build on a mismatch; the plugin ignores the
+  field. In-round the check is tautological (the same attribute set wrote
+  both plans); it only bites on `--resume` and on a hand-edited plan.
+* **The confidence threshold is off.** SPEC.ja.md 6 wants low-confidence
+  answers replaced by `KEEP_DEFAULT` but fixes no threshold, and the one
+  sample response answered decisively at confidence 0.47, so
+  `[jev] min_confidence = 0` is the frozen default rather than an invented
+  number.
+* **Source excerpts are found by a heuristic.** The dump gives a source
+  location for loops but not for functions, so the marked function's source
+  is found by searching the vendored tree for `fn <last identifier>`. A mark
+  defined outside the vendored tree gets no excerpt, and the state says so
+  rather than guessing.
+* **The in-run A/A was 0.28% to 1.74% half-width** across these smoke runs,
+  and one empty-plan build measured 0.9875 with a CI that excludes 1.0. At
+  `n = 3` that is the noise, not a result; it is recorded only so that
+  nobody later reads those numbers as a measurement.

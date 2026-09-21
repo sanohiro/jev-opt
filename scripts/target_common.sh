@@ -41,6 +41,14 @@ TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
 #                 produce merged.profdata (SPEC.ja.md 3). Disjoint from the
 #                 holdout by construction.
 # CORRECTNESS_IN  every input whose output is checksummed by run_correctness.
+#
+# FIXED_RUSTFLAGS  flags every build of this target carries, the baseline
+#                 included (SPEC.ja.md 8 `[project] fixed_rustflags`). Empty
+#                 for a target that has never needed one. build_variant adds
+#                 them to its own fixed list, so they are deduplicated
+#                 against a caller that passes the same flag as a knob.
+FIXED_RUSTFLAGS=()
+
 case "$TARGET" in
   toy)
     MANIFEST="${MANIFEST:-$REPO/targets/toy/Cargo.toml}"
@@ -68,6 +76,14 @@ case "$TARGET" in
   jaq)
     # A cargo workspace: build the `jaq` bin package only.
     MANIFEST="${MANIFEST:-$REPO/targets/jaq/src/jaq/Cargo.toml}"
+    # SPEC.ja.md 2 and decision 60 (a): pinned for every jaq arm, the
+    # baseline included. `LoopVectorizeHints` cannot tell a
+    # `vectorize.width` metadata hint from the command-line option, so
+    # without this a width hint on an FP reduction also authorises
+    # reordering the additions and the program's answer changes (results.md
+    # "Day 3 (plugin)" 5c). Pinning it moves the baseline, so the baseline
+    # was rebuilt with it and re-hashed: results.md "Sites (jaq)" 87.
+    FIXED_RUSTFLAGS=('-Cllvm-args=-hints-allow-reordering=false')
     BIN_NAME="${BIN_NAME:-jaq}"
     CARGO_EXTRA=(--locked)
     # The workspace's own [profile.release] sets `strip = true`, which would
@@ -228,19 +244,40 @@ enc() { local out="$1"; shift; for a in "$@"; do out="$out$(printf '\x1f')$a"; d
 # through untouched, which is what SPEC.ja.md 6.3 group 4 needs
 # (-Ctarget-feature, -Ctarget-cpu); rustc takes the last occurrence of a
 # repeated -Ctarget-cpu, so a group-4 value overrides the baseline's =native.
+# `-Z` is passed through the same way, for -Zllvm-plugins (SPEC.ja.md 3).
+#
+# An extra knob that is already among the fixed flags, or that a caller passes
+# twice, is dropped: an LLVM cl::opt is `cl::Optional`, so giving -Cllvm-args
+# the same option twice aborts rustc with "may only occur zero or one times".
+# That matters for -Cllvm-args=-hints-allow-reordering=false, which
+# SPEC.ja.md 2 pins for every arm and which more than one caller may add.
+# Exact string equality only, so nothing that is not literally a duplicate is
+# affected.
 #
 # Clean build every time: cargo does not rebuild on an environment-variable
 # change alone (SPEC.ja.md 4). Returns non-zero if the build fails; the caller
 # decides whether that is fatal (a knob that cannot build is a result).
 build_variant() {
   local td="$1" log="$2"; shift 2
+  local fixed=('-Ctarget-cpu=native' '-Csymbol-mangling-version=v0'
+               "-Cprofile-use=$PROFDATA"
+               '-Cllvm-args=-pgo-warn-missing-function'
+               '-Cllvm-args=-pass-remarks=.*'
+               '-Cllvm-args=-pass-remarks-missed=.*'
+               '-Cllvm-args=-pass-remarks-analysis=.*')
+  fixed+=(${FIXED_RUSTFLAGS[@]+"${FIXED_RUSTFLAGS[@]}"})
   local extra=()
-  local a
+  local a f x dup
   for a in "$@"; do
     case "$a" in
-      -C*) extra+=("$a") ;;
-      *)   extra+=("-Cllvm-args=$a") ;;
+      -C*|-Z*) f="$a" ;;
+      *)       f="-Cllvm-args=$a" ;;
     esac
+    dup=0
+    for x in "${fixed[@]}" ${extra+"${extra[@]}"}; do
+      [ "$x" = "$f" ] && { dup=1; break; }
+    done
+    [ "$dup" = 1 ] || extra+=("$f")
   done
   rm -rf "$td"
   CARGO_PROFILE_RELEASE_OPT_LEVEL=3 \
@@ -249,13 +286,7 @@ build_variant() {
   CARGO_PROFILE_RELEASE_DEBUG=1 \
   CARGO_PROFILE_RELEASE_PANIC=unwind \
   CARGO_TARGET_DIR="$td" \
-  CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=v0' \
-      "-Cprofile-use=$PROFDATA" \
-      '-Cllvm-args=-pgo-warn-missing-function' \
-      '-Cllvm-args=-pass-remarks=.*' \
-      '-Cllvm-args=-pass-remarks-missed=.*' \
-      '-Cllvm-args=-pass-remarks-analysis=.*' \
-      "${extra[@]}")" \
+  CARGO_ENCODED_RUSTFLAGS="$(enc "${fixed[@]}" ${extra+"${extra[@]}"})" \
     cargo build --manifest-path "$MANIFEST" --release --target "$TRIPLE" \
       "${CARGO_EXTRA[@]}" >"$log" 2>&1
 }

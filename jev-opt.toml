@@ -1,0 +1,60 @@
+# jev-opt configuration (SPEC.ja.md 8).
+#
+# Only the values the search driver owns are here. The build recipe --- the
+# cargo profile environment, the fixed rustflags, the workload lists, the
+# pinned core, the settle gap and the per-case output hashes --- stays in
+# scripts/target_common.sh, so that there is exactly one copy of it and a
+# change to it is visible to every script at once. `scripts/jev_search.py`
+# reads that file through bash rather than duplicating it.
+#
+# Everything in this file is frozen before round 1 of a run and its sha256 is
+# recorded in the run's run-manifest.json. Changing a value invalidates the
+# comparison with runs made before the change.
+
+[search]
+# Rounds per --proposer jev|random run. The oracle ignores this: its arm
+# count is sum(sites x candidates) + 1 combination.
+rounds = 5
+
+# Hard ceiling on the number of Choice questions in one round, counting both
+# phases. It exists to keep the oracle's build count finite (SPEC.ja.md 2).
+# Exceeding it is an error, not a warning.
+max_sites = 40
+
+# The `__build__` pseudo-site of SPEC.ja.md 1(2) row 4 / 6: one compiler
+# setting for the whole build, chosen once per round. Each entry is passed to
+# build_variant exactly as written (a value starting with -C or -Z is a rustc
+# flag, anything else is wrapped in -Cllvm-args=). Empty means the
+# `__build__` question is not asked at all, which is the frozen default until
+# a knob list is chosen from llvm-knobs.json and recorded here.
+build_knobs = []
+
+# Split a round's questions into several HTTP requests when the state would
+# be larger than this. SPEC.ja.md 6 allows splitting only if it is recorded;
+# the split shows up as phase `A.1`, `B.1`, ... in the Jev logs.
+max_state_chars = 120000
+
+# SPEC.ja.md 8: function-attribute and loop rounds are separated. The
+# two-phase round of decision 61(b) is what the driver implements.
+stage = "separate"
+
+[evaluation]
+repetitions = 15
+warmup = 3
+seed = 20260921
+resamples = 10000
+
+[jev]
+base_url = "https://ai-gateway.vercel.sh/typesafe"
+endpoint = "/v1/systemone"
+model = "typesafe-ai/jev"
+api_key_env = "AI_GATEWAY_API_KEY"
+request_timeout_s = 60
+retries = 3
+# Below this confidence a Choice answer is replaced by KEEP_DEFAULT and the
+# reason is recorded (SPEC.ja.md 6). 0 disables the rule: the spec asks for a
+# threshold but fixes no value, and the one sample response in
+# docs/jev-samples answered decisively at confidence 0.47, so any non-zero
+# default would have been invented rather than measured.
+min_confidence = 0.0
+api_cost_budget_usd = 5.0
