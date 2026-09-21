@@ -319,3 +319,13 @@
 - **知見**: 既存の計測・profile・dump 処理はすべて Python / bash スクリプトで揃っている。Rust の CLI を書き直すのは実験には不要な工数。
 - **判断**: 実験用の探索ループ(`scripts/jev_search.py`: マーク解決 → dump → Jev に聞く → plan → ビルド → 測る → 結果を返す → 次ラウンド、`--proposer jev|random|oracle`)を Python で作る。Rust の `jev-opt` バイナリは製品化するときに検討。「今作っているものは捨ててもよい」の範囲。
 - **影響**: spec §4、§8。
+
+### 63. jaq の site は 149(127 key)。oracle は事前登録の機械的な上限で 16 loop key + 15 関数に絞る
+- **知見**: 15 マークは全部解決(plugin のマーク照合に 3 件のバグがあり修正: `#` の行中コメント扱い、generic の全削除で名前が潰れる、`fn_attrs` が単相化に当たらない)。`loop_in_mark` は 149 site / 127 key、分布は極端(`read::parse` 49、`write::write` 22、9 マークは 10 未満)。ホットで解決できるがループを持たないマークが 2 つある。oracle を素直に回すと 1488 ビルド / 112 時間。`results.md` §87〜§94。
+- **判断**: 結果を見ない機械的規則を事前登録して絞る: (1) 訓練 profile のカウントが入らない key を落とす → (2) trip count < 2 を落とす → (3) マークごとに hotness 上位 3。残り 16 loop key + 関数属性 15 マーク = 31 site、oracle は 267 ビルド / 約 20 時間。**Jev / random / oracle の 3 提案者はすべてこの同じ site 集合を使う。** site ごとの候補絞り込みはしない(spec §1(2))。
+- **影響**: spec §2(oracle の規模)、§8 `[search]`。
+
+### 64. site key は jaq では一意でない。plan のエントリは「key への指示」
+- **知見**: 127 key のうち 13 が 2〜9 個のループに解決(最悪は再帰シリアライザ `write::write` の 9 重。owner・inline chain・leaf・fingerprint・depth がすべて同一で、header count だけが桁違い)。plugin は衝突 key の全コピーにヒントを付けた上で `ambiguous` を報告する。
+- **判断**: `ambiguous` は失敗ではなく件数として記録する(失敗は `vanished` と `unmatched`)。key に header count を混ぜると PGO の値に依存して不安定になるので、key の定義は変えない。
+- **影響**: spec §5、plugin README(訂正済み)。
