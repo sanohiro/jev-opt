@@ -7,6 +7,3 @@
 [submodule "targets/oxipng/src"]
 	path = targets/oxipng/src
 	url = https://github.com/oxipng/oxipng
-[submodule "targets/llama2rs/src"]
-	path = targets/llama2rs/src
-	url = https://github.com/danielgrittner/llama2-rs
