@@ -1,0 +1,29 @@
+# Rust / cargo
+/target/
+/target-*/
+**/target/
+Cargo.lock.bak
+
+# jev-opt artifacts
+/artifacts/
+/pgo/
+/remarks/
+/reports/
+*.profraw
+*.profdata
+jev-plan*.json
+sites*.json
+apply-report-*.json
+run-manifest.json
+
+# LLVM plugin build
+/plugin/build/
+*.so
+*.o
+
+# local
+.env
+*.log
+
+# working notes (not tracked)
+/work/
