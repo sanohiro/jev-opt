@@ -304,3 +304,18 @@
 - **知見**: sudo 無しでも `apt-get download` + `dpkg-deb -x` で perf を私設 prefix に置けば動く(`scripts/perf_local.sh`)。PMU は本物(cycles と cpu-clock が一致)。ただしコールチェーンは取れない(フレームポインタ無し、DWARF 展開も 2 割しか解けない)。同じバイナリでも profdata の上位と perf の上位はほぼ別物: `write_until` は fat LTO で `read::parse` にインライン化されてシンボルとして消え(22.5% → self 0%)、`read::parse` は 7% → 29%、mimalloc(C)は 4% → **23%**(Rust の計装に映らない)。block count は小さくて超高頻度の本体を過大評価する。`results.md` §80〜§86。
 - **判断**: マーク先の選定は perf の self / reach で行う(決定 6 の「hotness は PGO 分岐重みから」は plugin 内のループ順位付けの話で、マーク選定には使わない)。jaq のマークは 15 関数(read 経路 4、filter / interpreter 5、write 経路 3、object 機構 3)、バイナリ内 user cycles の 61%、Rust 部分の 79% を覆う。残りの大半は mimalloc の C で plugin が触れる IR が無い。マークにヒントの示唆は書かない。
 - **影響**: spec §1(1)、§8 `doctor` / `mark`。
+
+### 60. plugin は動く。EP は関数属性 = PipelineStart、ループ = VectorizerStart で確定
+- **知見**: toy で実測。fat LTO のマージ後段で plugin はロードされるが、発火するモジュール EP は `FullLinkTimeOptimization{Early,Last}` だけで、pre-link は ThinLTO pre-link 相当でベクトル化前に止まる。ループ metadata は `VectorizerStartEP`(マージ後段)で consumed、関数属性は `PipelineStartEP`(pre-link、CGU ごと 1 回)で consumed。off 等価性(未ロード / off / 空 plan)は `.text` と出力がビット一致。`-hints-allow-reordering=false` を付けると `dot_f64` に幅ヒントを載せても出力不変、付けないと出力が変わる(決定 40 の実測確認)。dump の trip count は既知の正解を再現。`results.md` Day 3。
+- **判断**: (a) `-Cllvm-args=-hints-allow-reordering=false` を基準含む全アームに固定。(b) ヘッダ生成は `LLVM_ABI_BREAKING_CHECKS`(変数名の罠)、tablegen 7 ターゲット、`libc/` 展開、未定義シンボルゲート付き(`scripts/build_plugin.sh`)。(c) ProfileSummary の有無で止めない(PipelineStart には無い)。
+- **影響**: spec §3、§5。
+
+### 61. site の帰属は `loop_in_mark` だけを Jev に渡す。関数属性は先、ループは属性適用後に取り直す。ジェネリックは全単相化に適用
+- **知見**: 「ループ内の命令の inlinedAt 鎖がマーク関数に届く」だけだと、マーク関数がインラインされた**呼び出し側のループ**(driver の繰り返し)も拾い、site が倍になる。`inline(never)` を入れるとその関数のループ key だけが変わり、他のマークの key は不変(toy)。`unroll.count` はベクトル化後のループに載る。
+- **判断**: (a) Jev に渡すのは `loop_in_mark`(マーク関数の中のループ)のみ、`mark_in_loop` は除外。(b) ラウンドは 2 段: 関数属性のラウンド → 属性を適用した IR から `apply-dump` でループを取り直し → ループのラウンド。(c) ジェネリック関数名のマークは全単相化に適用する(人の意図に合わせる。`ambiguous` は報告のみ)。(d) 語彙の注記: スカラループを unroll したいときは同じ site でベクトル化を止める(`vectorize.width=1` 相当)必要がある。
+- **影響**: spec §1(2)(3)、§5、§6。
+
+### 62. 探索ループの実装は Python で先に作る
+- **知見**: 既存の計測・profile・dump 処理はすべて Python / bash スクリプトで揃っている。Rust の CLI を書き直すのは実験には不要な工数。
+- **判断**: 実験用の探索ループ(`scripts/jev_search.py`: マーク解決 → dump → Jev に聞く → plan → ビルド → 測る → 結果を返す → 次ラウンド、`--proposer jev|random|oracle`)を Python で作る。Rust の `jev-opt` バイナリは製品化するときに検討。「今作っているものは捨ててもよい」の範囲。
+- **影響**: spec §4、§8。
