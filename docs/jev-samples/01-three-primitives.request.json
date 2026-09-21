@@ -1,0 +1,30 @@
+{
+  "model": "typesafe-ai/jev",
+  "state": "Target: Rust function in an rlib, compiled with -Copt-level=3 -Ctarget-cpu=native (znver3, AVX2, no AVX-512) -Clto=fat -Ccodegen-units=1 -Cprofile-use.\n\nSource:\n    pub fn count_quotes(bytes: &[u8]) -> usize {\n        bytes.iter().filter(|&&b| b == b'\"').count()\n    }\n\nProfile: hottest loop in the program (about 25% of total cycles). Typical input length 64 KiB, JSON text, quote density about 3%.\n\nLLVM decision on this loop: vectorized with VF=4, IC=4 (accumulator is i64, so 4 lanes per 256-bit register; 16 bytes per iteration).\nLLVM remark: 'vectorized loop (vectorization width: 4, interleaved count: 4)'.\n\nCandidate hints are loop metadata only; legality checks stay with LLVM.",
+  "questions": {
+    "hint": {
+      "type": "choice",
+      "instructions": "Which loop-vectorization hint should the build apply to this loop?",
+      "criteria": {
+        "keep_default": "Leave the LLVM cost-model decision unchanged (VF=4, IC=4).",
+        "width_16": "Set llvm.loop.vectorize.width=16 so the byte compare runs on 16 lanes; accumulator widening moves out of the inner loop.",
+        "width_32": "Set llvm.loop.vectorize.width=32 (maximize bandwidth for i8 data); 32 bytes per vector op.",
+        "width_32_interleave_2": "Set llvm.loop.vectorize.width=32 and llvm.loop.interleave.count=2 to add a second independent accumulator chain."
+      }
+    },
+    "expected_gain": {
+      "type": "score",
+      "instructions": "How much faster is this loop likely to get with the best candidate above, compared with keep_default?",
+      "criteria": [
+        "No measurable change (under 3%).",
+        "Small gain (3-10%).",
+        "Clear gain (10-50%).",
+        "Large gain (more than 50%)."
+      ]
+    },
+    "worth_touching": {
+      "type": "noul",
+      "instructions": "Is this loop worth spending a hint on at all, given its share of total cycles and the available candidates?"
+    }
+  }
+}

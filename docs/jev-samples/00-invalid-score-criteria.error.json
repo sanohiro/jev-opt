@@ -1,0 +1,4 @@
+{
+    "message": "questions.expected_gain.criteria: Invalid input: expected array, received object",
+    "error_type": "invalid_request"
+}
