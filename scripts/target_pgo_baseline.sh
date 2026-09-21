@@ -72,6 +72,27 @@ run_training() {
       done
       rmdir "$scratch"
       ;;
+    jaq)
+      # One run per case; TRAIN_ARGS holds a tab-separated argv each.
+      local spec argv
+      for spec in "${TRAIN_ARGS[@]}"; do
+        IFS=$'\t' read -r -a argv <<< "$spec"
+        "$bin" "${argv[@]}" > /dev/null
+        echo "  trained on $(basename "${argv[-1]}")"
+      done
+      ;;
+    oxipng)
+      scratch="$(mktemp -d)"
+      for f in "${TRAIN_ARGS[@]}"; do
+        base="$(basename "$f")"
+        cp "$f" "$scratch/in.png"
+        rm -f "$scratch/out.png"
+        "$bin" -o 2 --out "$scratch/out.png" "$scratch/in.png" >/dev/null 2>&1
+        echo "  trained on $base -> $(stat -c%s "$scratch/out.png") bytes"
+      done
+      rm -f "$scratch/in.png" "$scratch/out.png"
+      rmdir "$scratch"
+      ;;
   esac
 }
 
@@ -104,9 +125,22 @@ SRC_DIR="$(dirname "$MANIFEST")"
 echo "\$ cargo tree -e normal | grep -iE 'memchr|simd|wide|std_detect'"
 (cd "$SRC_DIR" && cargo tree -e normal "${CARGO_EXTRA[@]}" \
   | grep -iE 'memchr|simd|wide|std_detect') || echo "(no match)"
-echo "\$ grep -rlE 'core::arch|_mm_|_mm256|target_feature' $SRC_DIR/src"
-(grep -rlE 'core::arch|_mm_|_mm256|target_feature' "$SRC_DIR"/src \
-  "$SRC_DIR"/*/src 2>/dev/null) || echo "(no match)"
+echo "\$ grep -rlE 'core::arch|_mm_|_mm256|target_feature' $FILTER_SRC_ROOT/src $FILTER_SRC_ROOT/*/src"
+(grep -rlE 'core::arch|_mm_|_mm256|target_feature' "$FILTER_SRC_ROOT"/src \
+  "$FILTER_SRC_ROOT"/*/src 2>/dev/null) || echo "(no match)"
+# Third check, added for oxipng (results.md "Stage 0 (oxipng)" section 42).
+# SPEC.ja.md 6.1-2's two greps are blind to a dependency that compiles C: the
+# crate name need not contain "simd", and the C sources live in the cargo
+# registry, not under the target's src/. Such code is invisible to
+# -Cllvm-args, to -Ctarget-cpu and to -Cprofile-generate at the same time, so
+# it is the strongest possible form of "out of reach".
+# `-e build` alone lists only the root package's own build-dependencies and
+# does not descend, so it reports nothing for a C dependency two levels down.
+# `-e normal,build` is what actually finds it.
+echo "\$ cargo tree -e normal,build | grep -iE 'cc v|-sys v|cmake v|bindgen v'"
+(cd "$SRC_DIR" && cargo tree -e normal,build "${CARGO_EXTRA[@]}" \
+  | grep -iE 'cc v|-sys v|cmake v|bindgen v' | sed 's/^[^a-zA-Z]*//' | sort -u) \
+  || echo "(no match)"
 
 # ---------------------------------------------------------------------------
 # 0. Plain (non-PGO) release build. Reference checksums come from this one.

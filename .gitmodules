@@ -1,3 +1,9 @@
 [submodule "targets/zopfli/src"]
 	path = targets/zopfli/src
 	url = https://github.com/zopfli-rs/zopfli
+[submodule "targets/jaq/src"]
+	path = targets/jaq/src
+	url = https://github.com/01mf02/jaq
+[submodule "targets/oxipng/src"]
+	path = targets/oxipng/src
+	url = https://github.com/oxipng/oxipng

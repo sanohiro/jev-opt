@@ -2390,3 +2390,1779 @@ the function silently did nothing. `export TARGET=zopfli` first. A `*)` arm
 that returns an error was added to `run_correctness` so it can never fail
 quietly again. The `scripts/toy_*.sh` and `TARGET=x scripts/target_*.sh`
 forms were never affected (those set the variable in a child process).
+
+## Stage 0 (jaq) --- the article's intended target
+
+Date: 2026-09-21/22, same machine and same pinned toolchain as the toy and
+zopfli sections (rustc 1.100.0-nightly bba531001 / LLVM 23.1.1). This covers
+SPEC.ja.md 13 day-0 items 2-6 for jaq plus **SPEC.ja.md 6.1-4's 70%
+interpreter-layer gate**, which SPEC.ja.md 13 item 16 puts at the entrance to
+jaq and which was never applied to the toy or to zopfli.
+
+Sections are numbered from 50 to leave room for the oxipng work running
+beside this one.
+
+Reproduce with:
+
+```
+python3 targets/jaq/workloads/gen.py                # six inputs, fixed seeds
+export TARGET=jaq                                   # NOT `TARGET=jaq source` (section 31.6)
+REUSE_PROFDATA=0 REPRO=0 DEBUG0=0 scripts/target_pgo_baseline.sh
+scripts/interp_share.py pgo/jaq/merged.profdata \
+    --binary target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+    --top 20 --crates --tsv artifacts/jaq-day0/interp-share-all.tsv
+scripts/remark_attribution.py \
+    --bin target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+    --log remarks/jaq/baseline-build.log \
+    --src-prefix targets/jaq/src --out artifacts/jaq-attr --top 30
+scripts/target_aa.sh 15 3
+BENCH_SET=training ONLY='^(g[0-3]-|g5-(max1|max4|count2|count4)$)' \
+    RUNS=15 WARMUP=3 scripts/target_headroom.sh
+```
+
+**New in this stage.** `scripts/interp_share.py` (the 6.1-4 gate's arithmetic
+without the plugin: profile weight, a trip proxy, instruction and
+vector-register counts and a machine-code backedge count per symbol) and
+`scripts/norm_code_diff.py` (whole-binary normalised code comparison, needed
+because jaq's `.text` hash is not reproducible --- section 53).
+`scripts/target_common.sh` gained a `jaq` arm plus three target-independent
+knobs used by it: `BENCH_SET=holdout|training` (SPEC.ja.md 7 puts the sweep on
+the training inputs), `BENCH_STDOUT=pipe|devnull` and `BENCH_GAP_MS`.
+`scripts/bench.py` gained the matching `--stdout` and `--gap-ms`. All four
+default to the toy/zopfli behaviour, so every command quoted in the earlier
+sections still runs unchanged.
+
+### 50. The target: vendored jaq v3.1.1, driven entirely from the environment
+
+```
+$ git submodule add https://github.com/01mf02/jaq targets/jaq/src
+$ cd targets/jaq/src && git checkout c866e70303b5dbc37d83a0b0cbacf10e90af9c8c
+$ git log -1 --format='%H %ci' && git describe --tags
+c866e70303b5dbc37d83a0b0cbacf10e90af9c8c 2026-08-05 09:34:37 +0200
+v3.1.1
+```
+
+Pinned to the **v3.1.1** tag (the latest release), commit
+`c866e70303b5dbc37d83a0b0cbacf10e90af9c8c`. It is a cargo **workspace**:
+`jaq-core` (the interpreter), `jaq-json` (the `Val` type and the JSON
+reader/writer), `jaq-std`, `jaq-fmts`, `jaq-all` and the `jaq` bin. The bin
+package is built on its own (`--manifest-path targets/jaq/src/jaq/Cargo.toml`)
+with its default features, which include **`mimalloc`**; that choice is what
+a user gets from `cargo install jaq` and it has consequences recorded in
+sections 53 and 54.
+
+**Nothing in the submodule is edited.** Everything is driven from the
+environment exactly as the product path will drive it:
+`CARGO_PROFILE_RELEASE_{OPT_LEVEL=3,LTO=fat,CODEGEN_UNITS=1,DEBUG=1,PANIC=unwind}`,
+`CARGO_ENCODED_RUSTFLAGS`, `RUSTUP_TOOLCHAIN=nightly-2026-09-21`, explicit
+`--target x86_64-unknown-linux-gnu`, a separate `CARGO_TARGET_DIR` per
+variant, and `--locked`. `git status` in the submodule stays clean across
+every build below.
+
+**One extra profile override this target needs.** jaq's workspace
+`[profile.release]` is
+
+```
+$ sed -n '/^\[profile\.release\]/,$p' targets/jaq/src/Cargo.toml
+[profile.release]
+strip = true
+codegen-units = 1
+```
+
+`strip = true` would remove the symbol table and DWARF from every build,
+which silently breaks every analysis script in this repository at once (`nm`
+returns nothing, so `profdata_hotness.py --binary` reports every function
+"inlined away"; `addr2line` answers `??`, so `remark_attribution.py` and
+`loop_body_insns.py` attribute nothing). The `jaq` arm of
+`scripts/target_common.sh` therefore exports
+**`CARGO_PROFILE_RELEASE_STRIP=none`** alongside the other profile
+overrides, and the binaries are stripped by the harness before timing, as on
+the other targets. This is recorded as a frozen build dimension
+(SPEC.ja.md 3).
+
+Reference arm R (SPEC.ja.md 9) --- the effective release profile if
+`jev-opt` overrode nothing --- is therefore **opt-level 3, `lto` unset
+(off/"thin-local"), `codegen-units` 1, `strip = true`, `debug` unset (=0), no
+`target-cpu=native`, no PGO**. Unlike zopfli, this crate does set
+`codegen-units`, so arm R already has one of the three global settings.
+
+### 51. Disqualification filter (SPEC.ja.md 6.1-2): memchr, and a C allocator the filter cannot see
+
+```
+$ cd targets/jaq/src/jaq && cargo tree -e normal --locked | grep -iE 'memchr|simd|wide|std_detect'
+│   │   │   └── memchr v2.8.3
+│   │   │   ├── memchr v2.8.3
+│   ├── memchr v2.8.3
+$ grep -rlE 'core::arch|_mm_|_mm256|target_feature' targets/jaq/src/src targets/jaq/src/*/src
+(no match)
+```
+
+`memchr` enters three times --- through `aho-corasick` and `bstr` (both used
+by `jaq-std`'s regex and string builtins, and by `jaq-fmts`) and directly
+through `rustyline`. **None of jaq's own workspace crates contains a line of
+hand-written SIMD**, and neither does `hifijson`, the JSON lexer that turns
+out to hold the hottest loop in the program (section 54).
+
+Judged by profile share rather than by name (results.md section 20's rule):
+
+```
+$ scripts/profdata_hotness.py pgo/jaq/merged.profdata --grep memchr
+8102 function records, total block count 3438334653
+functions matching 'memchr': 50, summed block count 0 (0.000000% of the total)
+$ scripts/profdata_hotness.py pgo/jaq/merged.profdata --grep aho_corasick
+functions matching 'aho_corasick': 403, summed block count 0 (0.000000% of the total)
+$ scripts/profdata_hotness.py pgo/jaq/merged.profdata --grep hifijson
+functions matching 'hifijson': 66, summed block count 1473121794 (42.844049% of the total)
+```
+
+**Verdict: jaq is not disqualified.** Neither `memchr` nor `aho-corasick`
+executes a single instrumented block on these workloads --- the JSON path
+does not go through them at all. What it does go through is `hifijson`, at
+**42.8%** of all block executions, and `hifijson` has no SIMD: its lexer is
+plain `slice::iter().position(..)` (section 54). Recorded as a filter hit with the number
+that overrides it.
+
+**A third check this target forces, and the filter as written misses it.**
+
+```
+$ cd targets/jaq/src/jaq && cargo tree -e normal,build --locked | grep -iE 'cc v|-sys v'
+│       └── cc v1.4.0
+│   └── dirs-sys v0.5.0
+│   └── libmimalloc-sys v0.1.49
+$ ls target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/build/libmimalloc-sys/*/out/libmimalloc.a
+```
+
+jaq's default features pull in **mimalloc**, which is C compiled by `cc` into
+`libmimalloc.a` and linked in. That code is invisible to `-Cllvm-args`, to
+`-Ctarget-cpu`, to `-Cprofile-generate` and to the remark stream, all at
+once. The consequence for everything below is concrete: `__rust_alloc` and
+`__rust_dealloc` appear in the profile as **one-instruction jump thunks**
+(2.06% and 2.00% of block counts, section 54), so the profile records how
+*often* jaq allocates and nothing at all about how *long* that takes. Every
+"interpreter-layer share" in section 54 therefore **under**-counts the
+allocation part of that layer. The same blindness was found
+independently by the oxipng work running beside this one, whose section adds
+the third check to `scripts/target_pgo_baseline.sh`:
+`cargo tree -e build | grep -iE 'cc v|-sys v|cmake v|bindgen v'`. The
+SPEC.ja.md 6.1-2 filter as written has two greps and neither can see a C
+dependency: the crate name need not contain "simd" and the C sources live in
+the cargo registry, not under the target's `src/`.
+
+`serde_json` is **not** in the dependency tree (it is a dev-dependency of
+`jaq-core`/`jaq-json` only), so the question SPEC.ja.md asks about it does
+not arise.
+
+### 52. Workloads: three input kinds, three article filters, two disjoint splits
+
+`targets/jaq/workloads/gen.py` (Python standard library only, no network,
+fixed seeds). Each input kind is paired with the article workload whose
+filter fits it; training and holdout differ only in seed.
+
+| case | filter | input kind | file | repeats per run |
+|---|---|---|---|---|
+| `objsearch` | `.[] \| select(.k == "v") \| .id` | one large array of records with nested fields | 20 MiB | 4 |
+| `strproc` | `[.[] \| .name \| ascii_downcase \| length] \| add` | array of records whose `name` is a long string with `\"`, `\\`, `\n`, `\t`, `\uXXXX` and raw UTF-8 | 24 MiB | 8 |
+| `readwrite` | `-c '.'` | many small newline-delimited documents | 24 MiB | 2 |
+
+```
+$ python3 targets/jaq/workloads/gen.py
+411233554e3f25e2a1b25e422af6e0b49905d353a4d36271b9f723e99cfbb9b2   25165849  hold-ndjson.json   seed=20260921303
+a15c30c1ea13944338fd9c43e53226ce150f5831a99dc53ca72a781c9db9b65b   20971644  hold-objects.json  seed=20260921301
+40888824d1c18de96db05877b5f92a4ede10d04b5ae8ccb233ab9bce4011feca   25165859  hold-strings.json  seed=20260921302
+ea80825e8e024d99f9a0baf06c43437dbe30476006450391af550d77f0956ca0   25165903  train-ndjson.json  seed=20260921203
+dc8364b13bda8fa004a1d91634f623f3f03aceef3a83f50fdc392fdb7bb0eb45   20971722  train-objects.json seed=20260921201
+5568fdbcc786e17e555961d33becbf2d6afac6e3c8746017b57e89aa35ec1c63   25166034  train-strings.json seed=20260921202
+```
+
+**Why each case names its file several times** rather than using one big
+file: see section 55. The short version is that a single 72 MiB array makes
+jaq hold 1.2 GiB resident and turns the wall time bimodal; the repeat form
+does the same total work with a few hundred MiB resident and a measurable
+wall time.
+
+**Correctness is the sha256 of stdout**, taken outside the timing run by
+`run_correctness` in `scripts/target_common.sh`; the timed runs send stdout
+to `/dev/null` (`bench.py --stdout devnull`), which is what SPEC.ja.md 10
+means by "discard stdout the same way in both variants and keep the
+correctness check separate from the timing". Piping tens of megabytes of
+re-serialised JSON into the harness would otherwise be inside the timed
+window. The output is deterministic:
+
+```
+========== 0b. output determinism (same binary, same inputs, twice) ==========
+OUTPUT DETERMINISM: MATCH
+```
+
+One property worth noting: `-c '.'` on the ndjson input reproduces the input
+**byte for byte**, so that case's correctness hash is the input's own hash.
+
+### 53. PGO baseline (SPEC.ja.md 3, 13 day-0 items 2-3), and a `.text` hash that does not reproduce
+
+```
+$ export TARGET=jaq
+$ REUSE_PROFDATA=0 REPRO=0 DEBUG0=0 scripts/target_pgo_baseline.sh
+```
+
+Instrumented build -> training run on the **three training cases only** ->
+`llvm-profdata merge` with the pinned toolchain's tool:
+
+```
+========== b. training run (instrumented) ==========
+  trained on train-objects.json
+  trained on train-strings.json
+  trained on train-ndjson.json
+training run wall time: 5574 ms
+-rw-r--r-- 1 hiro hiro 1642352 default_15401585175505616370_0.profraw
+========== c. llvm-profdata merge ==========
+4e879ce11687fa3c56c720c8b33dd7d0546e0d5c7d9b7c612fef903de9f3a4e5  pgo/jaq/merged.profdata
+Instrumentation level: IR  entry_first = 0  instrument_loop_entries = 0
+Total functions: 8102
+Maximum function count: 176281976
+Maximum internal block count: 251372258
+Total number of blocks: 108875
+Total count: 3438334653
+```
+
+**`merged.profdata` sha256 =
+`4e879ce11687fa3c56c720c8b33dd7d0546e0d5c7d9b7c612fef903de9f3a4e5`.** Every
+arm and every sweep configuration below uses this one file; the training run
+is not repeated after this section. jaq is 31x zopfli's program by function
+count (8102 records against 259) and 46x by instrumented blocks.
+
+PGO baseline build, with `-pgo-warn-missing-function` and the three
+`-pass-remarks*` flags:
+
+```
+========== d. PGO baseline build (-Cprofile-use) + remarks ==========
+--- remark lines total ---            228248
+--- hash mismatch ---                 0
+--- no profile data available for function --- 0
+--- all warning: lines ---            0
+--- .text sha256 ---
+642dd55ea3c831132b4adf006464d9f1ef924ccb9918557e5f3c751355f72b4c
+```
+
+**Zero profile-use warnings of any kind on a 67-crate dependency graph**, which is
+the strongest version of this check the project has run (toy: one crate;
+zopfli: five). 228248 remark lines, 7.2x zopfli's 31764.
+
+Correctness, plain release vs PGO baseline --- all six inputs:
+
+```
+========== e. checksum comparison (plain release vs PGO baseline) ==========
+train-objects.json 536b38cedb6b6483c654f2a367f82b4b92f4c0f267c6263e421dd1e5007e7127
+train-strings.json f9f67ae87fe136bd2b7cbad5d59c2586467c574b0779f6957e0be900bf1a52b9
+train-ndjson.json  231f15264418df7a96f6c3d64de3e0f85d93e8f7620bdd5f7f750c0e0bf79ed7
+hold-objects.json  a338602a7f3148cbe74d0f9016b386edaf97a832a284a109addb8399090b2b0d
+hold-strings.json  baeb97a8af67ca1d65de1c355e256c8a44abd38ff41ac2c2c1f9c8df83fab443
+hold-ndjson.json   72ff02e47dafe5becb2f652c3fefc383e57765bd442ec12a1713f3f5bcecad37
+CHECKSUMS: MATCH
+```
+
+Builds cost 38-42 s each (zopfli: 4.4-6.3 s), `.text` is 2628530 bytes
+(zopfli: 333884) and the unstripped binary is 33 MB.
+
+#### The `.text` hash is not reproducible on jaq, and SPEC.ja.md 6.3's skip criterion dies with it
+
+zopfli's whole sweep rested on "the build is deterministic, so a
+configuration whose `.text` is bit-identical to the baseline's needs no
+timing" (section 22). On jaq that premise is false. Four builds of the
+**same** configuration, same flags, same profdata:
+
+```
+$ source scripts/target_common.sh     # after `export TARGET=jaq`
+$ build_variant target-jaq-det1 /tmp/d1.log; text_hash .../det1/.../jaq
+61ab0b9c1375b1db2ab722af12c13315909b3718199f75afbbbe672ea17ae91b
+$ build_variant target-jaq-det2 /tmp/d2.log; text_hash .../det2/.../jaq
+97f3cd036feac13638e6a5beadf4bdeec639a7d20c4e4324c1577642195a80bb
+$ # and twice into the SAME target directory, to rule the path out:
+ccdbc9261194dd488e95b1a4d7c30e022ffb34f7b7d4d1a1eebf28645eefc0b8
+28911f609b17dd455c7e85b6e2c447038dcfb3650bfd906b5f8d6a2deb7ea5f8
+```
+
+The cause was established rather than guessed. Two such builds have
+**identical section sizes, identical symbol order and identical symbol
+sizes**, and differ in 11351 bytes:
+
+```
+  .note.gnu.build-id   20
+  .rela.dyn           481
+  .rodata           10530
+  .text               260      (spread over 148 symbols, a few bytes each)
+  .debug_info/.debug_loc 60
+```
+
+The `.rodata` difference is a single contiguous 5.6 KB run, and the two
+sides differ by the presence of a **wall-clock time string**:
+
+```
+  A: ... invalid DTD at . cause .0.00:36:40.show_errors.show_stats. ...
+  B: ... invalid DTD at . cause .0.show_errors.show_stats. ...
+$ strings -a det1 | grep -E '^[0-9]{2}:[0-9]{2}:[0-9]{2}$'  ->  00:36:40
+$ strings -a det2 | grep -E '^[0-9]{2}:[0-9]{2}:[0-9]{2}$'  ->  00:37:21
+```
+
+00:36:40 and 00:37:21 are the two builds' clock times, and the neighbouring
+strings (`show_errors`, `show_stats`) are **mimalloc option names**: this is
+mimalloc's C `__TIME__`, recompiled by `cc` on every clean build. The string
+shifts the constants after it inside a fixed-size region, and the 148
+instructions that reference those constants change their immediates. That is
+the whole of the `.text` difference --- **no optimisation decision moved**.
+
+Consequences, all of which the sweep below lives with:
+
+1. **Every configuration is timed.** `scripts/target_headroom.sh` adds a
+   configuration to the timing set when its `.text` differs from the
+   baseline's, which on jaq is always. Nothing is skipped and nothing can be.
+   The 6-of-32 saving zopfli got from this criterion (section 25) is zero
+   here.
+2. **The normalised remark diff is the only cheap decision signal left**, and
+   section 27 already showed it under-reports scalar unrolling. Both of the
+   two checks SPEC.ja.md 6.3 relies on are therefore weaker on jaq than on
+   zopfli, in opposite ways.
+3. `scripts/norm_code_diff.py` was written to restore a code-level criterion:
+   it disassembles every symbol, replaces any hex literal of four or more
+   digits with `A` (func_code_diff.py's rule) and hashes what is left, per
+   symbol and for the whole binary. That comparison **is** stable across
+   rebuilds of the same configuration and is what section 58 uses to say
+   whether a knob changed code.
+4. SPEC.ja.md 3's "the build is deterministic, so the same recipe gives the
+   same `.text`" needs the qualifier "for a pure-Rust target". Any target
+   with a `cc`-compiled dependency may fail it, and mimalloc is a common
+   default feature.
+
+`REPRO=1` was **not** run: section 22 already established that the profdata
+file's only irreproducible part is the binary id, and the cause does not
+change per target. `DEBUG0=1` was not run either: SPEC.ja.md 3 records that
+debuginfo changes `.text` on this toolchain and that the check is therefore
+not performed.
+
+### 54. The interpreter-layer share (SPEC.ja.md 6.1-4's 70% gate)
+
+This is the gate SPEC.ja.md 13 item 16 puts at jaq's entrance, and the only
+one of its kind in the spec. It asks for the share of `total_score` held by
+functions with no loop, or dominated by indirect calls, reference counting,
+`IndexMap`/`BTreeMap` lookup and allocation, and says to consider replacing
+the target above 70%.
+
+**The measurement is a substitute and is labelled as one.** The spec sources
+`total_score` from the Stage 2 plugin dump (profile count x loop-body
+instruction count); the plugin does not exist. `scripts/interp_share.py`
+uses the same profile with the weight results.md section 31.5 used for the
+equivalent zopfli question --- the sum of a function's PGO block counts ---
+and adds, per symbol, the machine-code facts that make the (a)/(b) split
+checkable: instruction count, how many instructions use a vector register,
+and **how many backedges the symbol's own machine code contains**. A symbol
+with zero backedges has no loop, so no loop hint can reach it; that part of
+the classification needs no judgement.
+
+```
+$ scripts/interp_share.py pgo/jaq/merged.profdata \
+      --binary target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+      --top 20 --crates --tsv artifacts/jaq-day0/interp-share-all.tsv
+7951 function records, total weight 3438334653
+```
+
+| # | share | insns | vec | backedges | function | class |
+|---|---|---|---|---|---|---|
+| 1 | **22.52%** | 42 | 0 | 2 | `<hifijson::SliceLexer as hifijson::write::Write>::write_until::<...str_fold::string_end>` | **(a)** byte scan |
+| 2 | 7.26% | 4426 | 150 | 259 | `jaq_json::read::parse::<hifijson::SliceLexer>` | mixed host |
+| 3 | 5.73% | 432 | 98 | 14 | `<jaq_std::base_run<..>::{closure#7} as FnOnce<..>>::call_once` | **(b)** dispatch |
+| 4 | 4.66% | 86 | 0 | 7 | `jaq_json::read::ws_tk::<hifijson::SliceLexer>` | **(a)** byte scan |
+| 5 | 4.62% | 245 | 0 | 15 | `<hifijson::SliceLexer as hifijson::num::LexWrite>::num_string_with` | **(a)** byte scan |
+| 6 | 4.33% | 2390 | 22 | 179 | `jaq_json::write::write` | mixed host |
+| 7 | 3.32% | 1573 | 33 | 117 | `jaq_json::read::parse_string::<hifijson::SliceLexer>` | **(a)** byte scan |
+| 8 | 2.22% | 240 | 0 | 13 | `core::ptr::drop_glue::<jaq_json::Val>` | **(b)** refcount/drop |
+| 9 | 2.06% | **1** | 0 | **0** | `__rustc::__rust_alloc` | **(b)** allocation (thunk into C) |
+| 10 | 2.00% | **1** | 0 | **0** | `__rustc::__rust_dealloc` | **(b)** allocation (thunk into C) |
+| 11 | 1.93% | 6562 | 549 | 236 | `<jaq_core::compile::TermId>::run::<jaq_all::data::DataKind>` | **(b)** interpreter dispatch |
+| 12 | 1.92% | 1007 | 143 | 33 | `<indexmap::IndexMap<Val, Val, foldhash>>::insert_full` | **(b)** map insert |
+| 13 | 1.85% | 290 | 6 | 26 | `<jaq_json::num::Num>::from_str_radix` | **(a)** digit loop |
+| 14 | 1.70% | 320 | 0 | 14 | `<alloc::raw_vec::RawVecInner>::finish_grow` | **(b)** allocation |
+| 15 | 1.56% | 41 | 0 | 2 | `<...Adapter<BufWriter<StdoutLock>> as fmt::Write>::write_str` | **(b)** io glue |
+| 16 | 1.56% | 229 | 0 | 16 | `<BufWriter<StdoutLock> as io::Write>::write_fmt` | **(b)** io glue |
+| 17 | 1.54% | 888 | 0 | 56 | `<alloc::raw_vec::RawVecInner>::grow_amortized` | **(b)** allocation |
+| 18 | 1.36% | 29 | 0 | **0** | `drop_glue::<Box<dyn Iterator<Item = Result<Val, Exn<Val>>>>>` | **(b)** dyn drop |
+| 19 | 1.21% | 77 | 0 | 5 | `<bstr::utf8::Chars as Iterator>::count` | (a) short loop |
+| 20 | 1.10% | 198 | 0 | 10 | `<alloc::vec::Vec<u8>>::reserve` | **(b)** allocation |
+
+These 20 hold **74.44%** of the weight. Adding the classes up:
+
+- **(b) glue, hand-classified, inside the top 20: 24.68%**
+  (5.73 + 2.22 + 2.06 + 2.00 + 1.93 + 1.92 + 1.70 + 1.56 + 1.56 + 1.54 + 1.36 + 1.10)
+- (a) loop-bearing, inside the top 20: **38.18%**
+- two fat-LTO inline hosts that are genuinely both (`read::parse` and
+  `write::write`, 11.59%) --- section 31.5 hit the same problem with
+  `lz77_optimal` and the answer is the same: function-level classification
+  is meaningless for an inline host.
+- the tail below the top 20 is 25.56%, of which the machine-code check puts
+  **6.29%** in symbols with no backedge at all.
+
+```
+weight in symbols with NO machine-code backedge: 11.71%
+weight in symbols with no vector-register instruction: 60.09%
+weight in profdata records with no symbol in this binary: 2.81%
+```
+
+**Gate result: the interpreter layer is 31.0% at the floor and at most
+61.8% at the ceiling** (floor = the hand-classified 24.68% plus the tail's
+6.29% of loopless symbols; ceiling = that plus both mixed hosts plus the
+entire unclassified tail). **Both numbers are below 70%, so jaq passes
+SPEC.ja.md 6.1-4 and is not swapped out on this criterion.**
+
+Two qualifications on that pass, and they matter more than the number:
+
+1. **It is an under-count by construction.** mimalloc is C (section 51), so
+   the 4.06% that `__rust_alloc` and `__rust_dealloc` contribute is the cost
+   of two `jmp` instructions, not the cost of allocating. The real
+   allocation share is larger by an unknown amount, and allocation is
+   squarely in class (b).
+2. **Passing the gate does not mean the hints can reach the rest.** The
+   38.18% classified (a) is not 38% of opportunity: every one of those
+   loops is an early-exit, data-dependent byte scanner in the JSON lexer,
+   and section 56 shows the vectorizer refuses all of them on *legality*,
+   not on cost. jaq clears the gate the spec wrote and then fails for the
+   reason the spec wrote about the **toy's** `find_special` (SPEC.ja.md
+   6.2). The gate as written looks for the wrong obstruction on this target.
+
+#### Where the cycles are: crates, and the bin
+
+```
+$ scripts/interp_share.py pgo/jaq/merged.profdata --crates   (leading crate of the demangled name)
+   27.61%  hifijson          2.63%  bytes
+   24.25%  jaq_json          1.70%  bstr
+   14.56%  core              1.15%  hashbrown
+    8.85%  alloc             1.15%  (unattributed)
+    5.73%  jaq_std           0.14%  jaq          <-- the bin itself
+    5.09%  jaq_core          0.11%  jaq_fmts
+    4.15%  __rustc           0.08%  foldhash
+    2.80%  indexmap
+```
+
+Grouped: **jaq's own workspace crates 35.3%** (jaq_json 24.25, jaq_std 5.73,
+jaq_core 5.09, jaq_fmts 0.11, jaq 0.14), **third-party 36.0%** (hifijson
+27.61, indexmap 2.80, bytes 2.63, bstr 1.70, hashbrown 1.15, foldhash 0.08),
+**std 27.6%** (core 14.56, alloc 8.85, `__rustc` 4.15). **The bin crate is
+0.14%**; everything that matters is in dependencies, and the single largest
+dependency is `hifijson`, a crate nobody would think to look at from the
+name "jaq". Measured the other way --- any record whose mangled name
+mentions `hifijson`, which adds the `jaq_json` functions generic over
+`hifijson::SliceLexer` --- the JSON lexer accounts for **42.8%**.
+
+`jaq_core`, the interpreter proper, is **5.09%**. That is the single most
+surprising number in this section: the hypothesis behind the 70% gate was
+that jaq would be dominated by its interpreter, and it is dominated by its
+*parser* instead. The three cases here parse far more JSON than they
+evaluate filter terms, which is what jq is normally used for; a workload
+built around a heavy filter over a small document would move this share a
+lot, and that is a limitation of this case set, not a property of jaq.
+
+#### Per case, because the mix decides the answer
+
+```
+$ scripts/interp_share.py pgo/jaq/per-case/<case>.profdata --binary <bin> --top 10 --crates
+```
+
+| | `objsearch` | `strproc` | `readwrite` |
+|---|---|---|---|
+| hottest function | `write_until` 13.78% | `write_until` **37.68%** | `jaq_json::write::write` 16.45% |
+| 2nd | `read::parse` 11.62% | `base_run` closure 13.37% | `read::parse` 9.81% |
+| 3rd | `num_string_with` 7.38% | `bstr::Chars::count` 2.82% | `write_until` 8.06% |
+| no-backedge weight | 15.79% | 10.86% | 8.21% |
+| no-vector weight | 62.01% | 62.19% | 54.41% |
+| leading crate | jaq_json 29.1% | hifijson 40.0% | jaq_json 42.8% |
+
+The gate's answer depends on the mix exactly as expected: `strproc` is
+dominated by one byte-scan loop and `objsearch` has the largest loopless
+share. No case comes near 70%.
+
+### 55. Measuring jaq at all: the resident set, the settle gap, and the A/A floor
+
+zopfli's A/A had a worst per-case half-width of **0.29%** (section 24). The
+first jaq A/A, run with the obvious workload shape --- one 72 MiB array per
+case, one invocation per sample --- gave this:
+
+| workload | half-width |
+|---|---|
+| objsearch | **13.02%** |
+| strproc | 6.09% |
+| readwrite | 3.92% |
+| aggregate | 4.77% |
+
+**MDE = max(2 x 13.02%, 3%) = 26.05%.** That is not a measurement. Three
+things were found and fixed, in this order.
+
+**(i) The resident set makes the wall time bimodal.** jaq materialises a
+whole JSON array as `Rc`-counted `Val`s: a 72 MiB array is 1.2 GiB resident.
+The raw samples alternate between two modes ~35% apart on the *same binary
+and the same input*:
+
+```
+objsearch A1    932   1281   1073   1268    933   1273    932   1254 ...
+objsearch A2   1321    927   1289    953   1272   1046   1235    947 ...
+```
+
+and back-to-back runs of one binary do the same (`1312 1249 965 965 934 982
+1331 931`). Transparent huge pages are `[madvise]` on this machine, and the
+mode a process lands in appears to depend on what the *previous* process
+left behind. Sizing the array down and naming the file several times on the
+command line --- same filter, same total bytes, a few hundred MiB resident
+--- removes it:
+
+```
+10 MiB x8:  1202  1055  1046  1023  1027  1005  1023  1046
+20 MiB x4:  1156  1014  1060  1022  1033  1067  1067  1039
+40 MiB x2:  1136  1022  1015  1017  1031  1071  1030  1026
+```
+
+That is what `targets/jaq/workloads/gen.py`'s `REPEATS` is, and it is frozen
+with the case set.
+
+**(ii) The next process pays for the last one's pages.** Even at 20 MiB x 4
+the A/A showed a clean position effect: whichever label ran *first* in a
+round was ~8% faster. `bench.py` rotates the label order by round, so with
+15 rounds and 2 labels one label gets 8 first-positions and the other 7 ---
+which is exactly the **1.8% aggregate bias between two byte-identical
+binaries** that run showed. A settle gap outside the timed window removes
+most of it (`bench.py --gap-ms`, `BENCH_GAP_MS=250` in the `jaq` arm):
+within-binary spread fell from ~8% to ~1%.
+
+**(iii) What is left is real, and it is what the A/A is for.** Four
+byte-identical copies of the stripped baseline at four paths, measured in
+randomised order with a 0.30 s gap
+(`artifacts/jaq-day0/four-copy-experiment.txt`):
+
+```
+A1:   983   991   993   984   994   988   989   999   mean  990
+A2:  1015  1016  1012  1017  1009  1002  1024  1008   mean 1013
+A3:   995   994   995  1011  1030   990  1013   990   mean 1002
+A4:  1051  1012  1016  1061  1053  1069  1006  1009   mean 1035
+```
+
+4.5% between identical binaries, each internally stable to ~1.6%. Re-copying
+the files and repeating three times does not reproduce a fixed per-path
+offset --- the offsets move --- so this is a slowly drifting machine state
+(page placement / THP / page cache) that is constant over tens of seconds
+and different between binaries measured tens of seconds apart. **It is
+exactly the thing the A/A protocol exists to price, and on jaq it prices at
+2-3%, an order of magnitude above zopfli.**
+
+The A/A that the sweep's MDE comes from, with the final case set and
+`BENCH_GAP_MS=250`:
+
+```
+$ export TARGET=jaq && scripts/target_aa.sh 15 3
+$ sha256sum artifacts/jaq-aa/A1 artifacts/jaq-aa/A2
+31499f93537d43604e6a13443663b383d81795ab7eabfd12544dd984d581f732  A1
+31499f93537d43604e6a13443663b383d81795ab7eabfd12544dd984d581f732  A2
+```
+
+90 timed samples (2 labels x 3 workloads x 15 rounds), warmup 3,
+`taskset -c 4` (core 2; its SMT sibling CPU 5 is left idle, and CPU 2 is
+left to the oxipng work running beside this):
+
+| workload | A1 mean ms | A2 mean ms | ratio A1/A2 | 95% CI | half-width |
+|---|---|---|---|---|---|
+| objsearch | 1043.0 | 1038.0 | 1.0049 | [0.9846, 1.0264] | **2.09%** |
+| strproc | 1073.8 | 1065.4 | 1.0078 | [0.9986, 1.0153] | **0.83%** |
+| readwrite | 862.8 | 891.8 | 0.9675 | [0.9539, 0.9819] | **1.40%** |
+| **aggregate (geomean)** | | | 0.9932 | [0.9842, 1.0019] | **0.88%** |
+
+**Noise floor = worst per-workload half-width 2.09%; aggregate 0.88%.**
+**MDE = max(2 x 2.09%, 3%) = 4.17%**, and the no-floor value **2 x
+half-width = 4.17%** --- unlike the toy and zopfli, **the 3% floor does not
+bind on jaq; the measured noise does.** That is the first target in this
+project where that happens.
+
+Note the `readwrite` row: 0.9675 is a **3.3% difference between two copies
+of the same bytes**, with a CI that excludes 1. Any single per-case reading
+below about 3.5% on this target should be read as noise even when its CI
+looks tight, and the aggregate is the more trustworthy statistic here.
+
+Another run of the machine's environment is recorded in the log:
+`lscpu -e` shows 32 logical CPUs sharing one L3 (WSL2 hides the 5950X's two
+CCDs, as section 9 recorded), ASLR is on, and the whole sweep and A/A ran
+while a second agent was building and timing oxipng on CPU 2. That
+contention is inside the A/A number, which is the honest place for it.
+
+### 56. The loop landscape (SPEC.ja.md 6.2's real-target check, second target)
+
+```
+$ scripts/remark_attribution.py \
+    --bin target-jaq-pgo-use/x86_64-unknown-linux-gnu/release/jaq \
+    --log remarks/jaq/baseline-build.log --src-prefix targets/jaq/src \
+    --out artifacts/jaq-attr --top 30
+remarks parsed: declined=3975, reason=18636, slp=23814, vectorized=46
+symbols walked: 5726 (2578971 bytes of .text)
+instructions:   619279
+unattributed remark locations: 7228 of 46363
+ambiguous (DebugLoc resolving to >1 function): 34256
+remarks whose file path matched >1 DWARF file: 2075
+```
+
+Out of 228248 remark lines: **46 loops vectorized, 3975 loops refused**,
+18636 reason lines and 23814 SLP lines. Both remark forms are present, and
+the standalone cost-model form that section 23 warned about
+(`the cost-model indicates that ... is not beneficial`, with no
+`loop not vectorized:` prefix) accounts for **all 586** of jaq's `cost`
+lines --- a parser reading only the prefixed form would again report zero.
+
+#### VF/IC distribution of the 46 vectorized loops
+
+| VF | IC | count |
+|---|---|---|
+| 4 | 1 | 12 |
+| 4 | 2 | 7 |
+| 4 | 4 | 8 |
+| 8 | 1 | 11 |
+| 16 | 1 | 2 |
+| 32 | 1 | 5 |
+| 32 | 2 | 1 |
+
+#### Reasons, with the SPEC.ja.md 4 classification
+
+| count | class | reason string |
+|---|---|---|
+| 5180 | unsupported | `call instruction cannot be vectorized` |
+| 2869 | unsupported | `value that could not be identified as reduction is used outside the loop` |
+| 1784 | legality | `Cannot vectorize early exit loop` |
+| 1636 | **unknown** | `instruction cannot be vectorized` |
+| 1265 | unsupported | `could not determine number of loop iterations` |
+| 875 | unsupported | `loop induction variable could not be identified` |
+| 844 | **unknown** | `Loop contains an unsupported terminator` |
+| 755 | unsupported | `Control flow cannot be substituted for a select` |
+| 399 | **unknown** | `Cannot vectorize early exit loop with complex writes to memory` |
+| 392 | legality | `Incorrect number of successors from early exiting block` |
+| 389 | unsupported | `loop control flow is not understood by vectorizer` |
+| 383 | unsupported | `instruction return type cannot be vectorized` |
+| 329 | **unknown** | `Cannot vectorize uncountable loop` |
+| 308 | **cost** | `the cost-model indicates that interleaving is not beneficial` |
+| 295 | legality | `Loop contains an unsupported switch` |
+| 278 | **cost** | `the cost-model indicates that vectorization is not beneficial` |
+| 157 | **unknown** | `Cannot vectorize early exit loop with reductions or recurrences` |
+| 154 | **unknown** | `unable to calculate the loop count due to complex control flow` |
+| 135 | legality | `cannot identify array bounds` |
+| 64 | **unknown** | `Cannot vectorize early exit loop with strided fault-only-first load` |
+| 40 | **unknown** | `Early exit loop with store but no supported condition load` |
+| 32 | **unknown** | `Early exit loop contains operations that cannot be speculatively executed` |
+| 22 | legality | `unsafe dependent memory operations in loop...` |
+| 13 | **unknown** | `runtime pointer checks needed...` |
+| 11 | **unknown** | `Auto-vectorization of early exit loops requiring a scalar epilogue is unsupported` |
+| 10 | legality | `cannot prove it is safe to reorder floating-point operations` |
+| 8 | **unknown** | `read with atomic ordering or volatile read` |
+| 4 | **unknown** | `Load for uncountable exit not guaranteed to execute` |
+| 3 | **unknown** | `Store instruction cannot be vectorized` |
+| 1 | **unknown** | `integer loop induction variable could not be identified` |
+| 1 | **unknown** | `runtime SCEV checks needed...` |
+
+Totals by class: **unsupported 11716, unknown 3696, legality 2638, cost 586**
+(18636 reason lines, 31 distinct strings). **`cost` is 3.1% of the reason
+lines** --- on zopfli it was 9.7%.
+
+**Four reason strings are new** relative to the 26 zopfli produced, all left
+`unknown` under section 23's rule: `Load for uncountable exit not guaranteed
+to execute`, `Store instruction cannot be vectorized`, `integer loop
+induction variable could not be identified`, `runtime SCEV checks needed...`.
+`REASON_CLASS` in `scripts/remark_attribution.py` now covers 14941 of 18636
+lines seen here.
+
+**`cannot prove it is safe to reorder floating-point operations` appears on
+jaq, 10 times** --- zopfli had none, which is what let zopfli's
+`-force-vector-width` configurations pass the correctness gate (section 25).
+On jaq every one of the ten is in `libm`:
+
+```
+$ grep 'cannot prove it is safe to reorder floating-point' ... | cut -d: -f2-3 | sort | uniq -c
+      5 src/math/rem_pio2_large.rs:281
+      1 src/math/rem_pio2_large.rs:440
+      1 src/math/rem_pio2_large.rs:435
+      1 src/math/rem_pio2_large.rs:417
+      1 src/math/rem_pio2_large.rs:371
+      1 src/math/jn.rs:138
+```
+
+i.e. trigonometric argument reduction and Bessel functions, reachable from
+jaq's `sin`/`cos`/`significand` builtins and **not executed by any of the
+three cases**. So the width family can in principle change jaq's answers,
+and **the correctness gate would not catch it here**, because the gate only
+covers code the cases execute. That is a limitation of the gate worth
+writing down (section 61).
+
+#### SPEC.ja.md 7's DebugLoc attribution does not survive this scale
+
+34256 of 46363 decision locations resolve to more than one function (zopfli:
+1328 of 6067). The per-function report is unusable: every function that
+inlines a `core::iter` loop shows the same shared verdicts, and the top of
+the report is `regex_automata`, `jiff` and `saphyr_parser` --- crates with
+no executed block at all --- simply because they contain the most loops.
+The run also wrote a **5.4 GB** `remark-attribution.json` (46363 locations x
+their candidate sets), which is a scaling bug in its own right; it was
+deleted, and section 61 records the fix that is needed.
+
+**The usable method on a target this size is the reverse one**: start from
+the profile's hot symbols, map their instructions to source lines with
+`addr2line -i`, and look up the remarks at those lines. That is how the
+three loops below were identified.
+
+#### jaq's three hottest loops, and what LLVM said about each
+
+**1. `hifijson::write::write_until::<string_end>` --- 22.52% of all block
+executions, 37.68% on `strproc`.** 42 instructions, **0 vector registers**,
+2 backedges. The source is four lines:
+
+```rust
+// hifijson-0.5.0/src/write.rs:33-38
+fn write_until(&mut self, bytes: &mut Self::Bytes, stop: impl FnMut(u8) -> bool) {
+    let pos = self.slice.iter().copied().position(stop);
+    ...
+}
+// hifijson-0.5.0/src/str.rs:193-195, the `stop` that is inlined into it
+fn string_end(c: u8) -> bool {
+    matches!(c, b'\\' | b'"' | 0..=0x1F)
+}
+```
+
+This is **the toy's `find_special` verbatim** --- SPEC.ja.md 6.2's
+"`position(|c| c == b'"' || c == b'\\' || c < 0x20)` type byte-search loop"
+--- and it is the hottest loop in the article's intended target. The
+verdict is the same as the toy's, on the real target:
+
+```
+$ grep 'remark: src/str.rs:194:' remarks/jaq/baseline-build.log | sort | uniq -c
+     14 loop not vectorized: value that could not be identified as reduction is used outside the loop
+      7 loop not vectorized: Loop contains an unsupported switch
+      7 loop not vectorized: Incorrect number of successors from early exiting block
+      7 loop not vectorized
+```
+
+**Legality, not cost.** The toy predicted exactly these two strings
+(SPEC.ja.md 6.2, results.md section 6) and no hint family lifts them.
+
+Its trip count, derived from the profile's block counts rather than from
+`counts[0]` (see below):
+
+```
+write_until block counts: [2073520, 18028220, 251372258, 233344038, 233344038, 18028220, 0, 0, 18028220]
+                                               ^header      ^backedge                    ^exit
+```
+
+251372258 / 18028220 = **13.9 bytes scanned per call** overall, and per case
+46143208/7947912 = **5.8** (`objsearch`), 182824008/4469488 = **40.9**
+(`strproc`), 22405042/5610820 = **4.0** (`readwrite`). So even if the
+legality obstruction were lifted, a width of 32 would be pointless on two of
+the three cases; only `strproc`'s 41-byte average strings would pay.
+
+**2. `hifijson::num::num_string_with` --- 4.62%.** 245 instructions, **0
+vector registers**, 15 backedges. Its hot line is the number-lexer state
+machine `Num::num_part` (`hifijson-0.5.0/src/num.rs:94`), a `match (self.read, c)`
+over byte ranges:
+
+```
+$ grep 'remark: src/num.rs:94:' ... | sort | uniq -c
+     10 loop not vectorized: value that could not be identified as reduction is used outside the loop
+      2 loop not vectorized: Loop contains an unsupported switch
+      2 loop not vectorized: Cannot vectorize early exit loop with reductions or recurrences
+      2 loop not vectorized
+```
+
+Again legality/unsupported. Trip count from its block counts:
+31719484 / 5692288 = **5.6 digits per number**, which matches the inputs
+(4-6 digit integers). A 5-iteration loop is not width-hint material even if
+it were legal.
+
+**3. `jaq_json::read::ws_tk` --- 4.66%.** 86 instructions, **0 vector
+registers**, 7 backedges: `lexer.eat_whitespace()` followed by
+`peek_next()`, i.e. another early-exit byte scan.
+
+Below those, `jaq_json::read::parse` (7.26%) and `jaq_json::write::write`
+(4.33%) are fat-LTO inline hosts holding the recursive-descent parser and
+the serialiser; `<jaq_core::compile::TermId>::run` (1.93%) is the
+interpreter's dispatch loop over an indirect-call graph. None of those is a
+vectorizable loop.
+
+#### Cost-declined hot loops: there are effectively none
+
+SPEC.ja.md 7 feeds the `cost` class to Jev, and section 31.2 already warned
+that a `cost` classification is not evidence of an opportunity. On jaq the
+problem is one step earlier: **the 586 cost lines sit at 37 distinct
+DebugLocs, and the ones that overlap hot code are shared `core` locations**
+(`library/core/src/slice/iter/macros.rs:180`,
+`library/core/src/iter/traits/iterator.rs:2503`) that dozens of functions
+inline. Weighting each (location, hot symbol) pair by the symbol's profile
+share and the fraction of its instructions at that line
+(`scripts/cost_hot_loops.py`, output in
+`artifacts/jaq-day0/cost-declined-hot.txt`), the largest is **~2.1%** and it
+is `iterator.rs:2503` inside `write_until` --- the same
+DebugLoc that also carries 363 `Cannot vectorize early exit loop` lines from
+other inline instances. The remark text cannot say which instance the cost
+verdict belongs to, and the machine code says the answer anyway: the loop is
+42 scalar instructions with a legality refusal at its own DebugLoc.
+
+**So the Stage 2 candidate list that section 29.2 built for zopfli ---
+"hand Jev the functions whose loops got a `cost` remark" --- returns nothing
+usable on jaq.**
+
+#### A trip-count caveat that also applies backwards to zopfli
+
+Section 31.2 computed `<ZopfliHash>::update`'s average trip count as
+`loop body count / counts[0]`, treating **`Block counts[0]` as the function
+entry count**. On jaq that is demonstrably wrong: `write_until`'s
+`counts[0]` is 2073520 while its loop is *entered* 18028220 times, and
+`counts[0]` is **0** in the `objsearch` and `readwrite` profiles even though
+the function runs millions of times there. The profile header says why:
+
+```
+Instrumentation level: IR  entry_first = 0
+```
+
+With `entry_first = 0` LLVM's MST-based IR instrumentation does not
+guarantee that counter 0 is the entry block, and `llvm-profdata`'s
+"function count" inherits the same assumption. **The reliable method is the
+one used above: find the loop header count and the backedge count among the
+blocks, and take exits = header - backedge.** Section 31.2's zopfli figure
+is probably still right (151050803 is plausible as the call count of
+`update` for 4.2 MB of input at 15 squeeze iterations, and 2.3 M is not),
+but it was obtained by a method that does not hold in general and should be
+redone with the header/backedge form before it is quoted again.
+
+#### Pre-registered reading of the sweep, written before the timing table existed
+
+Because the A/A produced a 3.3% per-case "effect" between byte-identical
+binaries, a per-case crossing of the MDE in a 32-configuration sweep is
+likely to happen by noise alone. Fixed here, before the numbers were read
+(the rule itself is SPEC.ja.md 6.3's and is not being changed; this is how
+its inputs are read):
+
+1. **Correctness first**, as always: a configuration whose output checksums
+   differ on any of the six inputs is recorded as a violation and excluded
+   from the judgement.
+2. **Flag two thresholds, not one**: the frozen MDE (4.17%) and the
+   per-case `2 x half-width` from the A/A above --- objsearch **4.17%**,
+   strproc **1.67%**, readwrite **2.80%**, aggregate **1.76%**. Every
+   crossing of either is reported.
+3. **A crossing is evidence only if the code moved.** For any configuration
+   that crosses, `scripts/norm_code_diff.py` must show changed machine code
+   in symbols holding profile share, and the raw 15 samples must not show
+   the single-outlier-round pattern that produced two false flags on zopfli
+   (section 26). A crossing that fails either check is reported as a
+   crossing and attributed to noise, not to the knob.
+4. `g0-align5` is the in-sweep noise probe: if it sits outside the A/A
+   band, the whole table inherits that caveat.
+
+`scripts/norm_code_diff.py` was validated first, on two independent builds
+of the *same* configuration --- the pair whose raw `.text` hashes differ for
+the mimalloc reason of section 53:
+
+```
+$ scripts/norm_code_diff.py target-jaq-pgo-use/.../jaq artifacts/jaq-headroom/bin/baseline \
+      --profdata pgo/jaq/merged.profdata
+target-jaq-pgo-use/.../jaq: 4763 symbols, normalised whole-code hash 7ad6d9821bbed2fb
+artifacts/jaq-headroom/bin/baseline: hash 7ad6d9821bbed2fb  IDENTICAL
+  symbols: 4763 (base 4763), changed 0, only-in-base 0, only-here 0
+```
+
+so the normalised hash **is** stable across rebuilds where the raw `.text`
+hash is not, which is what makes it usable as the code-change criterion.
+
+## Stage 0 (oxipng) --- the target whose hot loop is not Rust
+
+Date: 2026-09-21, same machine and same pinned toolchain as every section
+above (rustc 1.100.0-nightly bba531001 / LLVM 23.1.1). oxipng is SPEC.ja.md
+6.4's "replacement / transfer candidate" row, run as a numeric candidate for
+SPEC.ja.md 1.3-1: does *any* target have headroom for loop hints over
+`O3 + target-cpu=native + fat LTO + PGO`?
+
+**Sections are numbered 40-49.** The jaq Stage 0 was written concurrently by
+another agent and took 50 onwards, so the two blocks do not collide even
+though the jaq block appears earlier in this file. The two runs shared the
+machine, which section 44 records as a measurement caveat.
+
+Reproduce with:
+
+```
+python3 targets/oxipng/workloads/gen.py            # the six inputs, fixed seeds
+export TARGET=oxipng                               # `TARGET=x source` does not work (section 31.6)
+REUSE_PROFDATA=0 REPRO=1 scripts/target_pgo_baseline.sh
+cc -O2 -fPIC -shared -o /tmp/ipsample.so scripts/ipsample.c
+scripts/ipsample.py --binary target-oxipng-pgo-use/x86_64-unknown-linux-gnu/release/oxipng /tmp/s-*.txt
+scripts/profdata_hotness.py pgo/oxipng/merged.profdata --top 20 \
+    --binary target-oxipng-pgo-use/x86_64-unknown-linux-gnu/release/oxipng
+scripts/remark_attribution.py --bin target-oxipng-pgo-use/x86_64-unknown-linux-gnu/release/oxipng \
+    --log remarks/oxipng/baseline-build.log \
+    --src-prefix targets/oxipng/src/src --sym-filter oxipng --out artifacts/oxipng-attr
+scripts/target_aa.sh 15 3
+BENCH_SET=training RUNS=15 WARMUP=3 scripts/target_headroom.sh
+```
+
+New this section: `scripts/ipsample.c` + `scripts/ipsample.py` (an LD_PRELOAD
+`ITIMER_PROF` instruction-pointer sampler, because SPEC.ja.md 10's `perf` and
+`callgrind` are both absent and `gdb -p` cannot attach at
+`ptrace_scope=1`), `targets/oxipng/workloads/gen.py`, an `oxipng` branch in
+`scripts/target_common.sh` and `scripts/target_pgo_baseline.sh`, and a third
+disqualification-filter check (`cargo tree -e normal,build`).
+
+### 40. The target: vendored oxipng, and a feature set that cannot be satisfied
+
+```
+$ git submodule add https://github.com/oxipng/oxipng targets/oxipng/src
+$ cd targets/oxipng/src && git checkout v9.1.5
+$ git log -1 --format='%H %ci' && git describe --tags
+c7d462f909e9c6ebc8d32820d83a6119b681cad6 2025-04-26 01:19:57 +0200
+v9.1.5
+```
+
+Pinned to the **v9.1.5** tag, commit
+`c7d462f909e9c6ebc8d32820d83a6119b681cad6`, the latest release. Nothing in the
+submodule is edited; everything is driven by `CARGO_PROFILE_RELEASE_*`,
+`CARGO_ENCODED_RUSTFLAGS`, the repository's `rust-toolchain.toml`, an explicit
+`--target`, a per-variant `CARGO_TARGET_DIR` and `--locked`.
+
+**The brief for this run said "default features minus anything that pulls C
+SIMD". That is not satisfiable on oxipng 9.1.5.** From its `Cargo.toml`:
+
+```
+[dependencies]
+libdeflater = "1.23.1"          # NOT optional
+zopfli = { version = "0.8.2", optional = true, ... }
+
+[features]
+default = ["binary", "parallel", "zopfli", "filetime"]
+system-libdeflate = ["libdeflater/dynamic"]
+freestanding = ["libdeflater/freestanding"]
+```
+
+- `libdeflater` is an unconditional dependency. `libdeflate-sys` builds the
+  vendored libdeflate **C** sources with the `cc` crate. `system-libdeflate`
+  only switches static linking for dynamic and `freestanding` only removes
+  libc; neither removes the C.
+- The `zopfli` feature is the **pure-Rust** zopfli crate (the previous
+  target), not a C library, and it is selected only by `--zopfli` at runtime,
+  so it is dead code at `-o 2`.
+
+So the only pure-Rust deflate oxipng can use is the crate this study already
+measured flat, at `--zopfli` speeds. **SPEC.ja.md 6.4's oxipng row, "turn off
+the libdeflate feature and pin rayon to a single thread", is factually wrong
+for 9.1.5: there is no libdeflate feature to turn off.**
+
+Features actually used, and why:
+
+```
+--locked --no-default-features --features binary,filetime
+```
+
+| feature | state | reason |
+|---|---|---|
+| `binary` | on | `[[bin]] required-features`; without it there is no CLI |
+| `filetime` | on | kept from the default set; inert without `--preserve` |
+| `parallel` | **off** | oxipng ships its own single-threaded shim in `src/rayon.rs` for exactly this build, so the binary is single-threaded *by construction*. Note the consequence: **`--threads` only exists when `parallel` is on**, so there is no flag to pass |
+| `zopfli` | **off** | dead code at `-o 2`; including it would add its loops to the remark landscape for nothing |
+
+Reference arm R (SPEC.ja.md 9) --- the effective release profile if `jev-opt`
+overrode nothing:
+
+```
+$ sed -n '/^\[profile\.release\]/,/^\[/p' targets/oxipng/src/Cargo.toml
+[profile.release]
+lto = "fat"
+strip = "symbols"
+panic = "abort"
+```
+
+So arm R is **opt-level 3, lto fat, codegen-units 16, panic abort, stripped,
+no `target-cpu=native`, no PGO** --- a much stronger arm R than zopfli's.
+`strip = "symbols"` has to be overridden (`CARGO_PROFILE_RELEASE_STRIP=none`,
+set in the `oxipng` branch of `scripts/target_common.sh`), because a stripped
+binary has no symbol table and no DWARF and every analysis script here would
+silently find nothing.
+
+### 41. Workloads: three kinds, two disjoint splits, one generator
+
+`targets/oxipng/workloads/gen.py` (standard library only, no network, fixed
+seeds). Training and holdout differ only in the seed.
+
+```
+$ python3 targets/oxipng/workloads/gen.py
+8f35c0e2d9b871734948f264e78d3c9152ba13d0fa062d1c9ae7ba5840d6069d   10248623  train-photo.png    2048x2048 seed=20260921201
+12f61332a615b8e794b5d10cf0fe6cf4be31c5b67168884ffeab57084d237e05   10721871  train-alpha.png    3072x3072 seed=20260921202
+bd9de2d9bccb6a2a2fbad69bca9cc42c40697bb4106f0e56793d00bbef0a2eea    6195385  train-palette.png  3072x3072 seed=20260921203
+5f6e730a8b89b4745aacfad2ba9a1cb0f8818b02c6b0b727340c644d35db96d8   10248287  hold-photo.png     2048x2048 seed=20260921301
+829b0371b4bbeee1062f475ac4ecd1b47adb9b5bc278484b6cb27d0f4fa9da94   10721716  hold-alpha.png     3072x3072 seed=20260921302
+a655d7f52ec32b67aeaee2714fd71052504df30103ca171907bb26d2932c2a7e    6194710  hold-palette.png   3072x3072 seed=20260921303
+```
+
+| kind | content | colour type | PGO-baseline wall time (`-o 2`) |
+|---|---|---|---|
+| photo | RGB8 gradient plus 3-bit noise, nearly incompressible | 2 | 1.43 s |
+| alpha | RGBA8, a 64x64 repeated tile plus an alpha ramp | 6 | 1.48 s |
+| palette | indexed 8-bit, 256-entry PLTE, structured indices | 3 | 1.97 s |
+
+Every case clears SPEC.ja.md 10's one-second floor. The sizes were chosen for
+that: **1024x1024 RGB at `-o 2` takes 247 ms**, far too short, and raising the
+preset instead (`-o 4` on 1024x1024 is 753 ms) would have shifted even more of
+the time into the C compressor, which section 42 shows is the whole problem.
+
+Two generator traps worth recording, both hit here:
+
+- **The noise must not touch the per-row filter byte.** The first version
+  XOR-ed noise over the whole zlib stream including each row's filter-type
+  byte, which produced filter types 5-7. Those do not exist, and oxipng
+  rejected the file in 45 ms with exit code 1 --- a "workload" that measures
+  nothing. `add_filter_bytes()` now inserts the filter bytes after the noise.
+- **oxipng writes no output file when it finds no improvement.** The inputs
+  are deflated at zlib level 6 so that oxipng always improves them, and
+  `run_correctness` records `NO-OUTPUT` (rather than silently hashing
+  nothing) if the file is missing.
+
+**Correctness is the sha256 of the produced PNG.** oxipng prints only
+progress on stderr, so `bench.py`'s `stdout_mismatches` is vacuously empty
+here and must not be read as a correctness pass, exactly as for zopfli.
+Output is deterministic:
+
+```
+========== 0b. output determinism (same binary, same inputs, twice) ==========
+OUTPUT DETERMINISM: MATCH
+```
+
+### 42. The disqualification filter passes oxipng, and it is wrong to
+
+SPEC.ja.md 6.1-2's two checks, run by `scripts/target_pgo_baseline.sh`:
+
+```
+========== disqualification filter (hand-written SIMD) ==========
+$ cargo tree -e normal | grep -iE 'memchr|simd|wide|std_detect'
+(no match)
+$ grep -rlE 'core::arch|_mm_|_mm256|target_feature' targets/oxipng/src/src targets/oxipng/src/*/src
+(no match)
+```
+
+**Both pass. Both are wrong**, and the profile-share override that rescued
+zopfli in section 20 cannot correct them here, because it is blind in the same
+place. What the binary actually contains:
+
+```
+$ nm --defined-only target-oxipng-pgo-use/.../oxipng | grep -iE ' [tT] .*(avx|sse|pclmul|vnni|bmi)'
+adler32_x86_avx2                    crc32_x86_pclmulqdq
+adler32_x86_avx2_vnni               crc32_x86_pclmulqdq_avx
+adler32_x86_avx512_vl256_vnni       crc32_x86_vpclmulqdq_avx2
+adler32_x86_avx512_vl512_vnni       crc32_x86_vpclmulqdq_avx512_vl256
+adler32_x86_sse2                    crc32_x86_vpclmulqdq_avx512_vl512
+deflate_decompress_bmi2             ... plus memchr::arch::x86_64 (from std)
+$ nm -S --defined-only <bin>  # split by the v0 mangling prefix
+rust text symbols:      1265,  733394 bytes
+non-rust text symbols:    61,   99236 bytes
+```
+
+Three separate blind spots, each worth a spec change:
+
+1. **The `cargo tree` grep looks for the wrong names.** The C arrives as
+   `libdeflater -> libdeflate-sys -> cc`, and none of `memchr|simd|wide|
+   std_detect` matches any of those three.
+2. **The source grep looks in the wrong directory.** libdeflate's C lives in
+   `~/.cargo/registry/src/.../libdeflate-sys-1.23.1/libdeflate/lib/x86/`, not
+   under the target's `src/`.
+3. **A dependency can also arrive through the prebuilt `std` rlibs**, which
+   `cargo tree` on the target does not list at all. That is where the
+   `memchr::arch::x86_64::...::find_sse2` symbol above comes from (std's
+   backtrace machinery). Harmless here --- it is never hot --- but it is a
+   fourth way for hand-written SIMD to enter a binary unnoticed.
+
+A third check was added to the script for this:
+
+```
+$ cargo tree -e normal,build | grep -iE 'cc v|-sys v|cmake v|bindgen v'
+cc v1.2.19
+libdeflate-sys v1.23.1
+linux-raw-sys v0.9.4          # a false positive: pure Rust
+```
+
+**`-e build` alone does not work** --- it lists only the root package's own
+build-dependencies and does not descend, so it printed `(no match)` for a C
+dependency two levels down. `-e normal,build` is what finds it. The first
+version of this check in `target_pgo_baseline.sh` had exactly that bug.
+
+### 43. The profile-share override cannot see the problem, and says the opposite
+
+Section 20 rescued zopfli from a filter hit by checking the profile share of
+the flagged crates. Doing the same here gives a **confidently wrong answer**,
+and that is the most transferable finding in this section.
+
+```
+$ scripts/profdata_hotness.py pgo/oxipng/merged.profdata --top 20 --binary <baseline>
+1592 function records, total block count 2312803624
+  max=     346030080  sum=    1064108056  (46.01%)  <oxipng::png::PngImage>::filter_image      [1612 insns, 161 vector]
+  max=     188676096  sum=    1205214655  (52.11%)  <oxipng::filters::RowFilter>::filter_line  [1134 insns,  54 vector]
+  max=       9437184  sum=       9439494  ( 0.41%)  oxipng::reduction::palette::reduced_palette
+  max=       9437183  sum=       9445877  ( 0.41%)  oxipng::reduction::palette::sorted_palette
+  max=       4718593  sum=      23592970  ( 1.02%)  oxipng::reduction::alpha::reduced_alpha_channel
+  ...
+these 20 functions hold 100.00% of the total block count
+```
+
+Read at face value: two pure-Rust byte-filter functions hold **98.1%** of the
+profile, oxipng is an ideal loop-hint target, proceed. That reading is an
+artefact. **`-Cprofile-generate` instruments Rust only.** The `cc`-built
+objects carry no counters, so a profdata share is a share *of the Rust code*,
+normalised to 100%, no matter how little of the program's time the Rust code
+holds. The denominator is wrong and nothing in the output says so.
+
+What the machine actually spends its time on, measured by sampling the
+instruction pointer (`scripts/ipsample.c`, `ITIMER_PROF`, 500 us, three runs
+per case, 1040-1448 samples each, symbols classified by the `_R` v0-mangling
+prefix):
+
+| workload | Rust | C (libdeflate) | outside the exe (libc) | mean wall |
+|---|---|---|---|---|
+| photo | **11.39%** | 84.59% | 4.01% | 1.43 s |
+| alpha | **28.02%** | 63.92% | 8.06% | 1.48 s |
+| palette | **9.63%** | 87.45% | 2.92% | 1.97 s |
+| wall-time-weighted over the three | **15.7%** | 80.1% | 4.2% | |
+
+```
+=== photo ===                                 === alpha ===
+ 38.56%  [c   ] deflate_compress_lazy          24.78%  [c   ] deflate_compress_near_optimal
+ 19.79%  [c   ] deflate_compress_near_optimal  23.03%  [c   ] deflate_compress_lazy
+ 16.43%  [c   ] deflate_find_min_cost_path     18.48%  [rust] <RowFilter>::filter_line
+  8.22%  [rust] <RowFilter>::filter_line        9.19%  [rust] <PngImage>::filter_image
+  5.60%  [c   ] deflate_flush_block             6.57%  [c   ] deflate_find_min_cost_path
+  3.17%  [rust] <PngImage>::filter_image        2.71%  [c   ] deflate_decompress_bmi2
+
+=== palette ===
+ 44.61%  [c   ] deflate_compress_lazy      5.83%  [rust] <RowFilter>::filter_line
+ 21.10%  [c   ] deflate_compress_near_optimal
+ 16.73%  [c   ] deflate_find_min_cost_path 3.42%  [rust] <PngImage>::filter_image
+```
+
+Every sample above is from the **PGO baseline binary under test**, three runs
+per case. (A first pass on a plain release build of the same source gave
+10.19 / 27.41 / 9.05% --- the same picture.)
+
+An independent cross-check that needs no profiler at all: rebuild with the
+**Rust** code at a lower opt-level while forcing the C to stay at `-O3`
+(`CARGO_PROFILE_RELEASE_OPT_LEVEL=1 CFLAGS=-O3`), and verify with
+`scripts/func_code_diff.py` that the C is byte-identical:
+
+```
+## deflate_compress_lazy2
+  rust-O3 build   2296 insns,  416 vector, code adc5a45794ce66f3
+  rust-O1 build   2296 insns,  416 vector, code adc5a45794ce66f3   <- identical
+## crc32_x86_vpclmulqdq_avx2
+  rust-O3 / rust-O1    377 insns, 171 vector, code 3510cb230b5b05dd (both)
+
+wall time, 2048x2048 RGB, -o 2, three runs each:
+  rust-O3   1016 / 1003 /  986 ms
+  rust-O1   1054 / 1049 / 1039 ms      +4.5%
+  rust-O0   9219 / 8924 / 9550 ms      9.4x
+```
+
+**Dropping every Rust optimisation from O3 to O1 costs 4.5% of the wall
+time.** (`cc` takes its `-O` level from cargo's `OPT_LEVEL`, so `CFLAGS=-O3`
+is required to hold the C fixed; the hashes above are the evidence that it
+worked.)
+
+**The two measurements are consistent, which is weaker than agreement, and
+the difference is worth being precise about.** They do not measure the same
+quantity:
+
+- The sampler measures a share of **CPU time** (`ITIMER_PROF` counts
+  user+sys, not wall). On a single-threaded process that spends 1-2% in the
+  kernel this is within noise of a wall share, but it is not one by
+  definition.
+- The O1 differential measures **wall time** and bounds nothing on its own:
+  if Rust is share `S` and O1 code is `k` times slower than O3 code, the
+  observed 4.5% is `S(k-1)`. `k = 1.3` implies `S = 15%`, `k = 2` implies
+  `S = 4.5%`, `k = 3` implies `S = 2.3%`. `k` was not measured, so the
+  differential cannot pin `S` down by itself.
+
+What it does is rule out the only way the sampler could be badly wrong ---
+if the sampler had missed a large block of Rust time, O1 would have cost far
+more than 4.5%. Every plausible `k` puts `S` inside the sampler's 9-28%
+band. Taken together: **the part of oxipng that any rustc or LLVM flag can
+touch is a single-digit to low-twenties percentage of its runtime.**
+
+**This is a stronger form of "out of reach" than anything earlier in this
+study.** jaq's interpreter layer (SPEC.ja.md 6.1-4) and zopfli's
+data-dependent byte scans (section 31.5) are at least *visible* to the
+compiler; a loop hint simply has nothing to offer them. libdeflate is invisible
+to `-Cllvm-args`, to `-Ctarget-cpu`, to `-Cprofile-generate` and to the LLVM
+pass plugin that Stage 2 will add, all at once, and it is already
+hand-vectorised with AVX-512 kernels.
+
+### 44. PGO baseline (SPEC.ja.md 3, 13 day-0 items 2-3)
+
+```
+$ export TARGET=oxipng
+$ REUSE_PROFDATA=0 REPRO=1 scripts/target_pgo_baseline.sh
+========== b. training run (instrumented) ==========
+  trained on train-photo.png -> 5656844 bytes
+  trained on train-alpha.png -> 902346 bytes
+  trained on train-palette.png -> 3581565 bytes
+training run wall time: 5101 ms
+========== c. llvm-profdata merge ==========
+b4abad926d1becd7f77f9cfc3c369f8faa8a28f24d265ecb47ef41e3dff9e3bc  pgo/oxipng/merged.profdata
+Instrumentation level: IR  entry_first = 0  instrument_loop_entries = 0
+Total functions: 1592          Total number of blocks: 20903
+Maximum function count: 334261 Total count: 2312803624
+Maximum internal block count: 346030080
+========== d. PGO baseline build (-Cprofile-use) + remarks ==========
+--- remark lines total ---            68359      (12802 unique after sort -u)
+--- hash mismatch ---                 0
+--- no profile data available for function --- 0
+--- all warning: lines ---            0
+--- .text sha256 ---
+5b2bd442736f24c377d0f230ba107ecced4c35dd9e2b7fb51881fc0f708f8ed7
+========== e. checksum comparison (plain release vs PGO baseline) ==========
+CHECKSUMS: MATCH
+========== f. .text hash, debug=1 vs debug=0 ==========
+TEXT HASH: DIFFER        debug=0 checksums: MATCH
+```
+
+**`merged.profdata` sha256 =
+`b4abad926d1becd7f77f9cfc3c369f8faa8a28f24d265ecb47ef41e3dff9e3bc`**, used by
+every arm and every sweep configuration below. **Zero profile-use warnings of
+any kind** on a program with 1592 instrumented functions across 22 crates ---
+a third target, and the strongest instance yet, of SPEC.ja.md 3's "the same
+profdata fits both arms". Section 5's debuginfo finding reproduces: `.text`
+differs between debug=1 and debug=0 while the output does not. Builds are
+cheap: 14-18 s each, `.text` 842678 bytes.
+
+**Profdata reproducibility fails, and for a new reason.** zopfli's failure
+(section 22) was cosmetic --- the counters were identical and only the
+embedded build-id differed. oxipng's counters themselves differ:
+
+```
+========== c2. profdata reproducibility (second training run, separate directory) ==========
+b4abad926d1becd7f77f9cfc3c369f8faa8a28f24d265ecb47ef41e3dff9e3bc  merged.profdata
+223b65cee1a50190c9339067c66435c5b5e8746d33f6e69018bf6b029f7b3163  merged-repro.profdata
+PROFDATA REPRODUCIBLE: NO --- the two merges differ
+```
+
+23 of 523288 bytes differ; `llvm-profdata show --all-functions --counts`
+diffs to **12 lines in three functions**, all of them `indexmap` internals:
+
+```
+<IndexMapCore<rgb::Rgba<u8>, ()>>::insert_full   Block counts: [154, 12032, ...]
+                                                              [160, 12032, ...]
+<IndexMap<oxipng::filters::RowFilter, ()>>::insert_full  [1, 0, 0, 20, ...]
+                                                         [0, 0, 0, 20, ...]
+Total count: 2312803624  vs  2312803629
+```
+
+Cause: `indexmap`'s default hasher is `RandomState`, seeded per process, so
+the probe sequence --- and therefore the block counts of `insert_full` ---
+differs from run to run. Re-running the **same** instrumented binary twice
+reproduces the failure (2 bytes differ), which rules out the rebuild as the
+cause and pins it on the process-level seed. The program's **output is
+unaffected** (`OUTPUT DETERMINISM: MATCH`, `CHECKSUMS: MATCH`): the map is
+insertion-ordered, only the probing is not.
+
+**Consequence for the spec.** SPEC.ja.md 3 says "profdata reproduces; if it
+does not, record the cause and move on", and SPEC.ja.md 8.4 makes
+`basis.pgo_profile_sha` equality the evidence that both arms used the same
+profile. For a target with a randomly-seeded hasher, that sha is reproducible
+only within one training run; it still proves "both arms used *this* profile",
+which is what the check is for, but it can never prove "this profile is the
+one the recipe produces". Two targets in a row now fail the check for two
+unrelated reasons, so the check should be restated as a same-run identity,
+not a recipe identity.
+
+**Measurement caveat for everything from here on.** A second agent was
+running the jaq Stage 0 on this machine at the same time, pinned to core 2
+(CPU 4); oxipng is pinned to core 3 (CPU 6, SMT sibling CPU 7 idle). The two
+never share a physical core, but they do share the chip, the memory
+controller and the L3, and the other run's `cargo build -j` bursts are not
+synchronised with anything here. The A/A below measures the noise floor under
+exactly those conditions, and every configuration is round-robin interleaved
+against the baseline within one `bench.py` invocation, which is what that
+design is for --- but the earlier sections' numbers were taken on an idle
+machine and these were not.
+
+### 45. The loop landscape: the one Rust loop worth hinting is already at byte width
+
+```
+$ scripts/remark_attribution.py --bin target-oxipng-pgo-use/.../oxipng \
+    --log remarks/oxipng/baseline-build.log \
+    --src-prefix targets/oxipng/src/src --sym-filter oxipng \
+    --out artifacts/oxipng-attr --top 25
+remarks parsed: declined=1289, reason=5099, slp=7036, vectorized=22
+symbols walked: 315 (213449 bytes of .text)
+instructions:   47544
+unattributed remark locations: 6444 of 13446
+ambiguous (DebugLoc resolving to >1 function): 5400
+remarks whose file path matched >1 DWARF file: 320
+```
+
+Out of 68359 remark lines: **22 loops vectorized, 1289 refused**, 7036 SLP
+lines out of reach of every loop-metadata family. The reason classes,
+re-using section 23's table (26 of the 27 strings were already known; the new
+one, `Store instruction cannot be vectorized`, stays `unknown`):
+
+| class | lines |
+|---|---|
+| unsupported | 2995 |
+| unknown | 1202 |
+| legality | 622 |
+| **cost** | **280** (143 interleave, 137 vectorization) |
+
+(2995 + 1202 + 622 + 280 = 5099 reason lines, 27 distinct strings. 26 were
+already in `scripts/remark_attribution.py`'s table from section 23; the one
+new string, `Store instruction cannot be vectorized`, stays `unknown`.)
+
+#### The 22 vectorized loops, and the attribution problem at its worst
+
+```
+$ grep -E 'vectorized loop \(' remarks/oxipng/baseline-build.log | sort | uniq -c | sort -rn
+      7 library/core/src/slice/iter/macros.rs:279:24: vectorized loop (width: 4, interleave: 4)
+      3 library/core/src/slice/iter/macros.rs:279:24: vectorized loop (width: 4, interleave: 2)
+      2 library/core/src/iter/range.rs:1103:12:        vectorized loop (width: 32, interleave: 4)
+      2 <unknown>:0:0:                                  vectorized loop (width: 16, interleave: 1)
+      1 library/core/src/slice/mod.rs:2165:12:          vectorized loop (width: 8, interleave: 1)
+      1 library/core/src/slice/iter/macros.rs:279:24:   vectorized loop (width: 32, interleave: 4)
+      1 library/core/src/slice/iter/macros.rs:279:24:   vectorized loop (width: 32, interleave: 1)
+      1 library/core/src/slice/iter/macros.rs:180:28:   vectorized loop (width: 4, interleave: 2)
+      1 library/core/src/slice/iter/macros.rs:180:28:   vectorized loop (width: 4, interleave: 1)
+      1 library/core/src/iter/range.rs:1145:12:         vectorized loop (width: 4, interleave: 4)
+      1 library/alloc/src/vec/into_iter.rs:381:19:      vectorized loop (width: 8, interleave: 2)
+      1 <unknown>:0:0:                                  vectorized loop (width: 8, interleave: 1)
+```
+
+**Not one of the 22 has a DebugLoc in oxipng's own sources.** Every vectorized
+loop in this binary is an inlined `core` iterator, and 5400 of 13446 decision
+lines resolve to more than one function --- worse than zopfli's 1328 of 6067,
+on a binary with four times as many crates. `remark_attribution.py`'s
+per-function report is therefore unusable on oxipng: the top ten functions all
+report the same shared set of `slice::iter` loops. Section 29-5's conclusion
+("the SPEC.ja.md 7 DebugLoc -> function attribution degrades badly at scale")
+holds a fortiori. A second path-collision hazard shows up here too --- 320
+remark paths matched more than one DWARF file, because `src/lib.rs`,
+`src/parser/...`, `src/raw/mod.rs` and `src/control/bitmask.rs` belong to
+clap, hashbrown and bitvec, not to oxipng.
+
+So the landscape has to be read from the machine code instead.
+
+#### What the two hot Rust functions actually contain
+
+```
+$ objdump -d <filter_line> | grep '%[xyz]mm' | histogram of mnemonics
+     36 vmovdqu
+     18 vpsubb        (32 ymm operands, 40 xmm operands)
+```
+
+The static histogram has more `xmm` than `ymm` operands, which would be the
+wrong thing to conclude from. The loop body settles it:
+
+```
+   337a0: vmovdqu (%rdx,%rax,1),%ymm0        337b7: vpsubb (%r8,%rax,1),%ymm0,%ymm0
+   337a5: vmovdqu 0x20(%rdx,%rax,1),%ymm1    337bd: vpsubb 0x20(%r8,%rax,1),%ymm1,%ymm1
+   337ab: vmovdqu 0x40(%rdx,%rax,1),%ymm2    337c4: vpsubb 0x40(%r8,%rax,1),%ymm2,%ymm2
+   337b1: vmovdqu 0x60(%rdx,%rax,1),%ymm3    337cb: vpsubb 0x60(%r8,%rax,1),%ymm3,%ymm3
+                        ... four 32-byte stores, then the backward branch
+   338c0: vmovdqu 0x60(%rdx,%rsi,1),%xmm0    <- the 16-byte REMAINDER loop
+   338c6: vpsubb 0x60(%r8,%rsi,1),%xmm0,%xmm0
+   338d3: add $0x10,%rsi ; cmp %rsi,%r9 ; jne 338c0
+```
+
+`<oxipng::filters::RowFilter>::filter_line` is the PNG row filter, and its Sub
+and Up cases are `data.iter().skip(bpp).zip(data.iter()).map(|(cur, last)|
+cur.wrapping_sub(*last))` fed to `Vec::extend`. **The main loop is four
+`vpsubb` on `ymm` per iteration: VF 32, interleave 4, 128 bytes of filtering
+per backward branch.** All the `xmm` instructions are the 16-byte epilogue and
+its unrolled peel; they run a handful of times per row against ~30 iterations
+of the `ymm` loop. 32 bytes is the widest byte operation this CPU has (no
+AVX-512, SPEC.ja.md 3), so the width family has literally nothing left to
+ask for. This is the exact loop SPEC.ja.md 6.4 named when it
+listed oxipng ("PNG filters are pure byte loops with obvious vectorize
+room"), and the prediction is **wrong in the most complete way possible**: the
+room is not there because the baseline already took all of it.
+
+It is worth contrasting with the toy (section 15). The toy's `count_quotes`
+was stuck at VF 4 because its accumulator was `i64`, and forcing VF 32 made it
+2.2x *slower* by adding a three-stage widening tree. Here the operation is
+byte-in / byte-out with no accumulator, so there is no type to widen and VF 32
+is simply what the cost model picks. **"Byte loop" is not the property that
+predicts width headroom; "byte loop whose result type is wider than a byte" is
+the one that predicted the toy's trap, and neither predicts an opportunity.**
+
+`<oxipng::png::PngImage>::filter_image` (161 vector instructions of 1612) is
+the filter-selection heuristic --- `vpsadbw`, `vpshufb`, `vpcmpeqb`,
+`vpmovmskb`, `vpaddd` --- i.e. the entropy and bigram estimators, also already
+vectorised, largely by SLP (7036 SLP remark lines) rather than by the loop
+vectorizer.
+
+#### Trip counts (SPEC.ja.md 8.5, with section 31.2's caveat)
+
+Section 31.2 found a `cost`-declined zopfli loop whose average trip count was
+below 1, i.e. a loop where the cost model was simply right. oxipng has the
+opposite shape, and it does not help:
+
+```
+$ grep -A3 '9RowFilter11filter_line:' artifacts/oxipng-day0/profdata-functions.txt
+    Block counts: [..., 188676096, 128974848, ..., 46080, ..., 128928768, 46080, ...]
+$ grep -A3 '8PngImage12filter_image:' artifacts/oxipng-day0/profdata-functions.txt
+    Block counts: [0, 57615360, ..., 8192, 0, 298885120, 10485760, ..., 346030080, ...]
+```
+
+Without the Stage 2 plugin there is no way to say which counter is a given
+loop's header (section 31.2 had the same limitation), so these are ratios, not
+trip counts. But the orders of magnitude are unambiguous. In `filter_image`
+the counter **8192** is exactly the number of scan lines in the three training
+images (2048 + 3072 + 3072), and the hot block next to it runs **346030080**
+times, a ratio of 42240. That is far more than a scan line has bytes (at most
+12288), so the block is not "the row loop": at `-o 2` each row is filtered and
+scored for four candidate filters, and the entropy and bigram estimators then
+walk a 256-entry histogram, so 42240 is a product of several nestings. The
+point here is only the order of magnitude, which is thousands, not the
+factorisation. In `filter_line` the
+smallest non-zero counter is **46080** against a hot block of **188676096**,
+about 4094 to one. Either way these are long, countable, byte-typed loops with
+nothing like zopfli's `src/hash.rs:150` problem (average trip count below 1,
+section 31.2) --- **and the vectorizer has already taken them.** A large trip
+count is a necessary condition for width headroom, not a sufficient one:
+zopfli failed the necessary condition on one of its two candidate loops, and
+oxipng passes it on both while still having nothing to gain.
+
+### 46. A/A noise floor and the minimum detectable effect
+
+```
+$ export TARGET=oxipng && scripts/target_aa.sh 15 3
+$ sha256sum artifacts/oxipng-aa/A1 artifacts/oxipng-aa/A2
+06714b8d17e996c2b6178ceda923eb599f85acdc7f7cf9e833612ee14364a369  A1
+06714b8d17e996c2b6178ceda923eb599f85acdc7f7cf9e833612ee14364a369  A2
+```
+
+Build determinism holds: `target_aa.sh` rebuilt the PGO baseline from scratch
+in a different target directory and got the same `.text` hash
+`5b2bd442...` as section 44. 90 timed samples (2 labels x 3 workloads x 15
+rounds), warmup 3, `taskset -c 6` (SMT sibling CPU 7 idle), holdout inputs:
+
+| workload | A1 mean ms | A2 mean ms | ratio A1/A2 | 95% CI | half-width |
+|---|---|---|---|---|---|
+| photo | 1430.4 | 1452.6 | 0.9847 | [0.9655, 0.9995] | **1.70%** |
+| alpha | 1477.8 | 1480.1 | 0.9985 | [0.9900, 1.0061] | **0.80%** |
+| palette | 1971.1 | 1971.9 | 0.9996 | [0.9960, 1.0035] | **0.38%** |
+| **aggregate (geomean)** | | | 0.9942 | [0.9862, 1.0004] | **0.71%** |
+
+**Noise floor = worst per-workload half-width 1.70%; aggregate 0.71%.**
+**MDE = max(2 x 1.70%, 3%) = 3.40%.**
+
+Two things to read out of this that the earlier targets did not show.
+
+- **The 3% floor does not bind here.** On the toy it bound at 1.22% and on
+  zopfli at 0.29%; oxipng's 1.70% pushes the MDE above the floor for the first
+  time in this study. The cause is visible in `photo`: mean 1452.6 against
+  median 1420.8 for A2, i.e. a right tail, on cases of 1.4-2.0 s that should
+  be as quiet as zopfli's 1.6-2.7 s ones.
+- **The A/A aggregate CI very nearly excludes 1** ([0.9862, 1.0004] for two
+  byte-identical copies of one binary). Six times noisier than zopfli's
+  [0.9995, 1.0023]. The difference is the machine, not the target: a second
+  Stage 0 (jaq) was running on core 2 throughout, with `cargo build -j`
+  bursts. That is what an A/A is for --- the noise it measures is the noise
+  the sweep will see --- but it is the reason the MDE below is 3.40% and not
+  something near 1%.
+
+### 47. Headroom sweep: 38 builds, zero correctness violations, nothing faster
+
+```
+$ export TARGET=oxipng
+$ BENCH_SET=training RUNS=15 WARMUP=3 scripts/target_headroom.sh
+```
+
+Baseline plus 37 configurations, each the SPEC.ja.md 3 recipe --- same
+`-Cprofile-use=pgo/oxipng/merged.profdata`, same
+`-Ctarget-cpu=native -Csymbol-mangling-version=v0`, same
+`CARGO_PROFILE_RELEASE_{OPT_LEVEL=3,LTO=fat,CODEGEN_UNITS=1,DEBUG=1,PANIC=unwind,STRIP=none}`,
+same three `-pass-remarks*` flags, explicit `--target`, own
+`CARGO_TARGET_DIR`, `--locked`, clean build --- plus that configuration's
+knobs. Groups 0-5, i.e. zopfli's group 0-4 list plus the group 5 unroll
+dimension section 31.3 added. Build time 14.3-15.2 s each, 38 builds in about
+9 minutes. **No configuration failed to build.**
+
+**Unlike every earlier sweep in this file, this one ran on the TRAINING
+inputs** (`BENCH_SET=training`), which is what SPEC.ja.md 7 asks for and what
+section 30 recorded as a deviation for zopfli. The holdout is untouched by the
+sweep; the A/A in section 46 is the only thing that has seen it.
+
+**Correctness: all 37 configurations produce byte-identical output on all six
+inputs.** Zero violations, so the full set enters the judgement.
+
+```
+$ awk -F'\t' 'NR>1 && $3!="MATCH"' artifacts/oxipng-headroom/summary.tsv
+(no output)
+```
+
+Only **two** configurations were skipped for timing on a bit-identical
+`.text`: `g1-tailfold-prefer` and `g1-memcheck24`. Both were skipped on zopfli
+too. Note the divergences from zopfli's skip list, all of which mean *more*
+code motion on oxipng: `g3-loop-distribute` (+544 remark lines) and
+`g3-loop-flatten` and `g4-prefer256` all change `.text` here, and
+`g1-memcheck128` changes `.text` while `g1-memcheck24` does not.
+`g4-prefer256` changing the code at all is new --- on zopfli it was
+byte-identical, confirming znver3's 256-bit preference; oxipng's f32/u16
+mixed code gives it something to do.
+
+#### 47.1 The n=15 run is outlier-contaminated, and the contamination is in the base
+
+1665 timed samples (37 labels x 3 workloads x 15 rounds), one interleaved
+invocation. The raw aggregate table flags **16 of 36 configurations as
+"+3.5 to +4.7% on `photo`", beyond the 3.40% MDE.** That cannot be real ---
+the 16 include knobs that contradict each other --- and the raw samples say
+what happened:
+
+```
+baseline  photo    1424.3 1442.7 1427.9 1439.1 1687.8 1459.7 1464.3 1427.3
+                   1474.0 1488.8 1438.7 1497.1 1430.1 2010.0 1518.0
+baseline  palette  ... 2603.2 ...   (median 2023.2)
+```
+
+**Two of the baseline's fifteen `photo` rounds are 16% and 38% slow, and one
+`palette` round is 29% slow.** A single label's outliers bias all 36 ratios
+against it in the same direction. Machine-wide the run is not drifting (the
+per-round mean over all 37 labels goes 1418 -> 1470 ms and stays there); the
+outliers are scattered, and the base label simply drew three of them.
+Across the whole run **52 of 1665 samples sit more than 15% above their own
+(label, workload) median** --- 3.1%, against zero such samples in zopfli's
+A/A. This is the concurrent jaq run on core 2, and it is the second time this
+file has had to say that `bench.py stats`'s mean-based statistic is not robust
+enough for this machine (section 29-4).
+
+The median cross-check that section 26 introduced for exactly this
+(`artifacts/oxipng-headroom/median-crosscheck.txt`, ratio =
+median(baseline) / median(config)) puts **every** configuration in
+**[0.9834, 1.0151]** on the geomean, with max |per-case change| 3.52% (a
+regression, `g5-count4` on `alpha`). Top and bottom:
+
+| config | photo | alpha | palette | geomean |
+|---|---|---|---|---|
+| g2-inline325 | 1.0158 | 1.0225 | 1.0070 | **1.0151** |
+| g2-inline500 | 1.0164 | 1.0178 | 1.0090 | 1.0144 |
+| g3-gvn-hoist | 1.0197 | 1.0070 | 1.0041 | 1.0103 |
+| g3-slp-100 | 1.0186 | 1.0081 | 1.0040 | 1.0102 |
+| g1-maxbw | 1.0164 | 1.0124 | 1.0012 | 1.0100 |
+| ... | | | | |
+| g5-max1 | 1.0122 | 0.9866 | 0.9993 | 0.9993 |
+| g5-count2 | 1.0036 | 0.9934 | 0.9945 | 0.9972 |
+| g3-slp-neg20 | 0.9908 | 0.9969 | 0.9951 | 0.9943 |
+| g5-count4 | 0.9957 | 0.9648 | 0.9901 | **0.9834** |
+
+Even this still carries the artefact: the baseline's `photo` median (1459.7
+ms) is above almost every configuration's (about 1440 ms), so the whole
+`photo` column reads about +1.3% for reasons that have nothing to do with the
+knobs.
+
+#### 47.2 Confirmation at n=25: nothing improves oxipng, and two knobs hurt
+
+Six labels --- the baseline, the three best on the median check and the two
+worst --- re-measured in one interleaved invocation, n=25 warmup 3, 450
+samples, same binaries, same pinning, same training inputs:
+
+| config | aggregate ratio | 95% CI | half-width | photo | alpha | palette |
+|---|---|---|---|---|---|---|
+| g2-inline325 | 1.0048 | [0.9999, 1.0096] | 0.49% | +0.99% | +0.74% | -0.28% |
+| g3-gvn-hoist | 0.9972 | [0.9919, 1.0019] | 0.50% | +0.02% | -0.67% | -0.19% |
+| g1-maxbw | 0.9951 | [0.9894, 1.0006] | 0.56% | -0.33% | -0.51% | -0.64% |
+| **g5-max1** | **0.9885** | **[0.9821, 0.9943]** | 0.61% | +0.01% | -3.07% | -0.37% |
+| **g5-count4** | **0.9763** | **[0.9724, 0.9805]** | 0.41% | -0.71% | -4.93% | -1.41% |
+
+The machine was quiet for this pass (half-widths 0.4-1.3%, comparable to
+zopfli's A/A), and the picture is unambiguous:
+
+- **`g2-inline325`, the best configuration in the whole study on this target,
+  is +0.48% with a CI of [0.9999, 1.0096] --- it does not even exclude 1.**
+  The +1.51% from the median cross-check was the baseline artefact.
+- `g1-maxbw` and `g3-gvn-hoist` are indistinguishable from the baseline.
+- The only two **real** effects are **regressions**: `-unroll-count=4` at
+  -2.37% [-1.95%, -2.76%] and `-unroll-max-count=1` at -1.15%.
+- The one per-workload figure beyond the 3.40% MDE in this run is
+  `g5-count4` on `alpha` at **-4.93%** [-5.55%, -4.40%]. A regression.
+
+**`-unroll-max-count=1` is worth a line on its own: it was the single best
+knob on zopfli (+1.59%, section 31.3) and it is a 1.15% regression here.**
+That is a fourth entry for section 29-1's "the candidate set must not be one
+list".
+
+#### 47.3 A process note: do not edit a bash script while it is running
+
+`scripts/target_headroom.sh` aborted after writing `headroom.json` with
+
+```
+scripts/target_headroom.sh: line 240: unexpected EOF while looking for matching `"'
+```
+
+Bash reads a script incrementally, by byte offset, so the concurrent jaq
+agent's edit to the same shared file changed what this already-running
+instance read next. No data was lost --- the 1665 samples were already on
+disk --- and the statistics above were produced by running the same
+`scripts/bench.py stats` invocation the script would have run. Worth a rule
+if this repository is ever driven by more than one agent again: **a shared
+script must be edited by copy-and-rename, not in place, while a run is
+outstanding.**
+
+### 48. Stopping rule, and what oxipng says about the project
+
+> Across groups 1-3, if (a) no configuration's aggregate speed-ratio CI lower
+> bound exceeds the minimum effect size, **and** (b) no configuration improves
+> a single case beyond the minimum effect size, record "this target is flat
+> under the hint method" and swap the target.
+
+Correctness precondition: **satisfied trivially --- all 37 configurations
+produce identical output on all six inputs**, so nothing is excluded and the
+rule reads on the full set. MDE = 3.40% (section 46).
+
+- **(a)** The highest aggregate CI lower bound over all 36 timed
+  configurations is **1.0075** (`g1-tfstyle-data-and-control`, n=15), against
+  the required 1.0340; at n=25 the best configuration's lower bound is
+  **0.9999**. **Not satisfied.**
+- **(b)** No configuration improves any single case beyond 3.40%. The 16
+  per-case flags in the n=15 run are the base-label outlier artefact of
+  section 47.1, refuted by both the median cross-check and the n=25
+  confirmation, where the largest genuine per-case improvement is **+0.99%**
+  (`g2-inline325` on `photo`). The only per-case figure beyond the MDE that
+  survives confirmation is a **regression** (`g5-count4` on `alpha`,
+  -4.93%). **Not satisfied.**
+
+**Outcome for oxipng: (a) no and (b) no --- "this target is flat under the
+hint method; swap the target."** SPEC.ja.md 1.3-1 is **not met on oxipng**.
+
+#### 48.1 Does oxipng have hint headroom? No, and for a reason the other targets did not have
+
+Three targets have now come back flat, for three different reasons, and
+oxipng's is the most conclusive:
+
+| target | why flat | could a better plan change it? |
+|---|---|---|
+| toy | the one loop the width family reached had an `i64` accumulator, so VF 32 was 2.2x *slower* (section 15) | no --- the hint worked and the answer was wrong |
+| zopfli | 67% of the profile is data-dependent early-exit byte scans the vectorizer refuses on analysis grounds; the one reachable loop is worth +1.6% (section 31.4) | marginally; the ceiling is half the MDE |
+| **oxipng** | **80% of the wall time is in statically linked C** that no rustc flag, no `-Cllvm-args`, no PGO profile and no LLVM pass plugin can reach, and the 16% that is Rust is **already vectorised at the widest byte width the CPU has** | **no** |
+
+The arithmetic is short. With the Rust share at 15.7% overall (section 43),
+a global knob would have to make **every line of oxipng's Rust code 21%
+faster** to move the aggregate by the 3.40% MDE (`1/(1 - 0.157x) = 1.034`).
+On the one workload where the Rust share is largest (`alpha`, 28.0%) it would
+still need 12%. And the code
+it would have to speed up is `vpsubb` on `ymm` registers in a loop of ~4000
+byte iterations --- the output of a cost model that already had all the
+information a width hint could give it.
+
+#### 48.2 Is there site-level room worth a Stage 2? No
+
+SPEC.ja.md 6.3 is explicit that a global sweep bounds nothing, and section 28
+used that to keep zopfli alive for Stage 2 on the strength of two hot,
+integer, `cost`-declined loops. The same question, asked of oxipng, answers
+itself in the other direction:
+
+1. **The candidate list is two functions**, `<RowFilter>::filter_line` and
+   `<PngImage>::filter_image`, and they are 11.4% / 28.0% / 9.6% of the wall
+   time on the three cases.
+2. **Both are already vectorised**, `filter_line` with `vpsubb` on 32-byte
+   registers and `filter_image` with the `vpsadbw` / `vpshufb` / `vpmovmskb`
+   entropy estimators. The width family's request is the state they are
+   already in.
+3. **The `cost` class, which is the one class a hint can overturn, has 280
+   lines here, and not one of them is at an oxipng DebugLoc** that resolves to
+   either function unambiguously --- the attribution is 5400-way ambiguous
+   (section 45). Even choosing a site to ask Jev about is not currently
+   possible on this target without the plugin.
+4. **Every member of the width family was measured, globally, and none of
+   them moved anything**: `g1-vw8/16/32`, `g1-maxbw`, `g1-maxbw-vw32`,
+   `g1-ic1/2/4` all sit inside +-0.5% at n=15-25 with identical output.
+
+An empirically anchored ceiling in section 31.4's style: the entire Rust
+share is 15.7% of the wall time, and **those two functions are essentially
+all of it** --- 15.5 of the 15.7 points, wall-time weighted. The best global
+knob touching them is +0.48%, and its CI includes 1. **The Stage 2 ceiling on oxipng is indistinguishable
+from zero, which is materially worse than zopfli's estimated +1.6%.**
+
+#### 48.3 Recommendation
+
+**Recommended: apply the rule as written and drop oxipng.** Unlike section
+28's zopfli recommendation, there is no post-hoc argument for an exception:
+the reason oxipng is flat is not "the uniform setting could not reach the
+site", it is "the site is in another compiler's output, and the sites that
+are in this compiler's output are already optimal". oxipng is worth keeping in
+`results.md` as **evidence**, not as a target:
+
+- it is the clean demonstration that SPEC.ja.md 6.1-2's disqualification
+  filter has a false-negative mode, and that SPEC.ja.md 8.2's profile-based
+  hotness has a matching blind spot (sections 42-43);
+- it is a third independent "flat" result for SPEC.ja.md 1.3-1, on a target
+  SPEC.ja.md 6.4 named as *the* obvious byte-loop candidate, which makes the
+  negative result harder to attribute to bad target selection;
+- it is the strongest evidence so far for section 29-1's "the candidate set
+  must not be one list": `-unroll-max-count=1` is zopfli's best knob and
+  oxipng's second-worst.
+
+#### 48.4 Recommended changes to SPEC.ja.md and docs/decisions.ja.md (not applied here)
+
+Neither file was edited. These are the changes this section's evidence
+supports:
+
+1. **SPEC.ja.md 6.4, the oxipng row.** "Turn off the libdeflate feature and
+   pin rayon to one thread" is wrong for 9.1.5: `libdeflater` is not optional,
+   and `--threads` exists only when the `parallel` feature is on. Replace the
+   row with the measured result, or delete oxipng from the candidate list.
+2. **SPEC.ja.md 6.1-2, the disqualification filter.** Add a third *static*
+   check, `cargo tree -e normal,build | grep -iE 'cc v|-sys v|cmake v|bindgen v'`
+   (note `-e build` alone does not descend), and a fourth,
+   `nm --defined-only <bin> | grep -v ' _R'` on the built binary. Both are
+   **hints, not verdicts**: the `nm` form also matches libc and crt stubs
+   (`_start`, `deregister_tm_clones`) and any `#[no_mangle]` Rust, and
+   `linux-raw-sys` is a false positive on the `cargo tree` form. What settles
+   it is the **dynamic** check --- a sampled IP share by symbol class (item 3)
+   --- and the static checks' job is to say when that is worth running. State
+   that a C dependency is a **harder** disqualification than hand-written
+   SIMD in Rust, because it is invisible to `-Cllvm-args`, `-Ctarget-cpu`,
+   `-Cprofile-generate` and the Stage 2 plugin at once.
+3. **SPEC.ja.md 6.1-4 and 8.2-8.3, profile share.** Say in the text that a
+   profdata share is a share **of the instrumented code only**, and that on a
+   target with a `cc` dependency it is normalised to the wrong denominator and
+   will read ~100% Rust. Require a wall-clock attribution (`perf`,
+   `callgrind`, or `scripts/ipsample.c`) before a profile share is used to
+   clear a filter hit, as section 20 did for zopfli.
+4. **SPEC.ja.md 3, profdata reproducibility.** Two targets now fail it for
+   unrelated reasons (zopfli: embedded build id; oxipng: a randomly seeded
+   `indexmap` hasher changes real counters). Restate the requirement as
+   same-run identity --- `basis.pgo_profile_sha` proves both arms used *this*
+   profile, never that the recipe reproduces it.
+5. **SPEC.ja.md 10, the statistic.** `bench.py stats` uses means; 3.1% of the
+   samples in section 47 were more than 15% above their own median, and three
+   of them landed on the base label and produced sixteen false "beyond MDE"
+   flags. Freeze a trimmed or median-based statistic, or require the
+   median cross-check as a mandatory second read rather than an ad-hoc one.
+6. **SPEC.ja.md 6.2's byte-loop hypothesis.** Restate it. "Byte loop" does not
+   predict width headroom: oxipng's byte loop is already at VF 32 because its
+   result type is a byte, and the toy's was stuck at VF 4 because its result
+   type was `i64` --- and forcing the width there made it 2.2x slower. The
+   property that predicts anything is the **accumulator/result type**, and in
+   both directions it predicts *no* opportunity.
+7. **SPEC.ja.md 10, measurement hygiene.** Add: only one target may be
+   measured on this machine at a time, and a shared script may not be edited
+   in place while a run is outstanding (section 47.3). The cost of the
+   concurrency here, in numbers the spec owner can weigh: oxipng's A/A
+   half-width was **1.70% against zopfli's 0.29%**, which pushed the MDE above
+   the 3% floor for the first time in this study; 3.1% of the sweep's samples
+   were more than 15% above their own median, three of them landed on the base
+   label, and they produced **16 false "beyond MDE" flags**; the n=25
+   confirmation on a quieter machine had half-widths **three to five times
+   smaller** (0.4-1.3% against 1.6-3.7%).
+
+### 49. Deviations, and what is not done
+
+- The sweep ran on the **training** inputs (SPEC.ja.md 7), unlike the toy and
+  zopfli sweeps; the holdout is untouched except by the A/A.
+- `scripts/bench.py stats` for the main sweep was run by hand after the
+  driving script was corrupted mid-run by a concurrent edit (section 47.3).
+  The invocation is the one the script contains, with the frozen MDE.
+- A second Stage 0 (jaq) ran on this machine throughout (section 44).
+- **`scripts/ipsample.c` is a sampler, not `perf`.** It samples
+  `ITIMER_PROF` at 500 us, pooled over three runs per case (1071-1578 samples
+  each), so the binomial standard error on a share near 10% is about 0.9
+  percentage points and near 28% about 1.3. Quoting the shares to two decimals
+  above is the raw arithmetic, not a claim of that precision, and nothing here
+  turns on the second digit. Note also that these are shares of **CPU** time,
+  not wall time (section 43).
+- The Stage 2 plugin, the heterogeneity gate and the `vectorize.width`
+  metadata FP-reassociation question are still open. oxipng cannot answer the
+  last one either: like zopfli it has no vectorizable FP reduction, and
+  `cannot prove it is safe to reorder floating-point operations` does not
+  appear in its 68359 remark lines.
+- Post-hoc attribution beyond section 43 was not needed: no configuration
+  produced a difference worth attributing.

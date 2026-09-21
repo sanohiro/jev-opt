@@ -8,7 +8,7 @@
 # remark flags for every configuration. The only thing a caller varies is the
 # list of extra -Cllvm-args knobs.
 #
-# One knob selects the target: TARGET=toy (default) or TARGET=zopfli. The
+# One knob selects the target: TARGET=toy (default), zopfli or jaq. The
 # case block below is the only place a target name appears; SPEC.ja.md 11
 # requires that switching targets touch nothing else. Everything downstream
 # (build recipe, remark handling, .text hash, bench.py invocation) is target
@@ -32,6 +32,11 @@ TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
 #                 its Cargo.lock cannot drift under us).
 # WORKLOADS       bench.py --workload specs, NAME=ARGS. These are the holdout
 #                 cases: A/A and the headroom timing run on them.
+# TRAIN_WORKLOADS the same three cases on the *training* inputs, selected by
+#                 BENCH_SET=training (SPEC.ja.md 7 wants the sweep on the
+#                 training data and the holdout measured once, after
+#                 freezing). Default BENCH_SET=holdout keeps toy and zopfli
+#                 behaving exactly as results.md sections 24-26 recorded.
 # TRAIN_INPUTS    the training cases. Used once, by the instrumented build, to
 #                 produce merged.profdata (SPEC.ja.md 3). Disjoint from the
 #                 holdout by construction.
@@ -60,11 +65,140 @@ case "$TARGET" in
     CORRECTNESS_IN=("$WLDIR/train-text.dat" "$WLDIR/train-binary.dat" "$WLDIR/train-json.dat"
                     "$WLDIR/hold-text.dat" "$WLDIR/hold-binary.dat" "$WLDIR/hold-json.dat")
     ;;
+  jaq)
+    # A cargo workspace: build the `jaq` bin package only.
+    MANIFEST="${MANIFEST:-$REPO/targets/jaq/src/jaq/Cargo.toml}"
+    BIN_NAME="${BIN_NAME:-jaq}"
+    CARGO_EXTRA=(--locked)
+    # The workspace's own [profile.release] sets `strip = true`, which would
+    # remove the symbol table and DWARF from every build and silently break
+    # every analysis script here (nm finds nothing, addr2line answers `??`).
+    # SPEC.ja.md 3 freezes strip as a build dimension and evaluates stripped
+    # binaries separately, so override it the same way the other profile
+    # values are overridden. Exported, so the plain and instrumented builds in
+    # target_pgo_baseline.sh get it too.
+    export CARGO_PROFILE_RELEASE_STRIP=none
+    # CPU 2 is where the zopfli measurements ran; jaq uses core 2 (CPU 4, SMT
+    # sibling CPU 5 left idle) so a concurrent run on another target cannot
+    # contend for the same physical core. Recorded in results.md.
+    BENCH_CPU="${BENCH_CPU:-4}"
+    # jaq writes its whole result to stdout (tens of MB per case), so the
+    # timed runs must discard it; correctness is run_correctness's sha256.
+    BENCH_STDOUT="${BENCH_STDOUT:-devnull}"
+    # jaq leaves a few hundred MiB of resident set behind at exit and the
+    # next process pays for reclaiming it; a short settle gap between timed
+    # runs cuts the within-binary spread from about 8% to about 1%
+    # (results.md "Stage 0 (jaq)" section 55).
+    BENCH_GAP_MS="${BENCH_GAP_MS:-250}"
+    WLDIR="$REPO/targets/jaq/workloads"
+    # The three article workloads, each paired with the input kind it fits
+    # (targets/jaq/workloads/gen.py). `-c` on the read/write case keeps the
+    # re-serialised output the same shape as the input.
+    F_SEARCH='.[] | select(.k == "v") | .id'
+    F_STRING='[.[] | .name | ascii_downcase | length] | add'
+    F_RW='.'
+    # Each case names its input file several times: `jaq FILTER f f f f`
+    # parses and filters each file in turn. This is how the cases reach a
+    # second of work without giving jaq a single array so large that the
+    # resident set turns the wall time bimodal (targets/jaq/workloads/gen.py
+    # REPEATS, results.md "Stage 0 (jaq)" section 55). The repeat counts are
+    # part of the frozen case set: objects x4, strings x8, ndjson x2.
+    _jaq_rep() { local n="$1" f="$2" i; for ((i=0;i<n;i++)); do printf ' %s' "$f"; done; }
+    # bench.py shlex-splits everything after the first `=`, so the filter is
+    # wrapped in single quotes (no filter contains one).
+    WORKLOADS=("objsearch='$F_SEARCH'$(_jaq_rep 4 "$WLDIR/hold-objects.json")"
+               "strproc='$F_STRING'$(_jaq_rep 8 "$WLDIR/hold-strings.json")"
+               "readwrite=-c '$F_RW'$(_jaq_rep 2 "$WLDIR/hold-ndjson.json")")
+    TRAIN_WORKLOADS=("objsearch='$F_SEARCH'$(_jaq_rep 4 "$WLDIR/train-objects.json")"
+                     "strproc='$F_STRING'$(_jaq_rep 8 "$WLDIR/train-strings.json")"
+                     "readwrite=-c '$F_RW'$(_jaq_rep 2 "$WLDIR/train-ndjson.json")")
+    # Training runs for the instrumented build: the same three cases, argv for
+    # argv, on the training inputs (SPEC.ja.md 3). One entry per run, tab
+    # separated.
+    _jaq_treps() { local n="$1" f="$2" i; for ((i=0;i<n;i++)); do printf '\t%s' "$f"; done; }
+    TRAIN_ARGS=("$F_SEARCH$(_jaq_treps 4 "$WLDIR/train-objects.json")"
+                "$F_STRING$(_jaq_treps 8 "$WLDIR/train-strings.json")"
+                "-c"$'\t'"$F_RW$(_jaq_treps 2 "$WLDIR/train-ndjson.json")")
+    # Correctness: the sha256 of stdout for every case, training and holdout.
+    CORRECTNESS_IN=("${TRAIN_ARGS[@]}"
+                    "$F_SEARCH$(_jaq_treps 4 "$WLDIR/hold-objects.json")"
+                    "$F_STRING$(_jaq_treps 8 "$WLDIR/hold-strings.json")"
+                    "-c"$'\t'"$F_RW$(_jaq_treps 2 "$WLDIR/hold-ndjson.json")")
+    ;;
+  oxipng)
+    MANIFEST="${MANIFEST:-$REPO/targets/oxipng/src/Cargo.toml}"
+    BIN_NAME="${BIN_NAME:-oxipng}"
+    # Features (results.md "Stage 0 (oxipng)" section 40 explains each):
+    #   binary    the CLI itself (clap + env_logger); [[bin]] requires it.
+    #   filetime  kept from the default set; inert without --preserve.
+    #   parallel  DROPPED. oxipng ships its own single-threaded shim in
+    #             src/rayon.rs for exactly this build, so dropping rayon makes
+    #             the binary single-threaded by construction. Note that
+    #             `--threads` only exists when `parallel` is on, so there is no
+    #             flag to pass here.
+    #   zopfli    DROPPED. It is the pure-Rust zopfli crate, not a C library,
+    #             and it is dead code at -o 2 (only --zopfli selects it); it
+    #             would add its loops to the remark landscape for nothing.
+    # libdeflater is NOT optional in 9.1.5, so the C deflate core cannot be
+    # switched off by any feature combination (section 32).
+    CARGO_EXTRA=(--locked --no-default-features --features binary,filetime)
+    # oxipng's own [profile.release] sets `strip = "symbols"`, which would
+    # delete the symbol table and DWARF from every build and break every
+    # analysis script here. SPEC.ja.md 3 freezes strip and evaluates stripped
+    # copies separately, so override it like the other profile values.
+    # Exported, so the plain and instrumented builds get it too.
+    export CARGO_PROFILE_RELEASE_STRIP=none
+    # Core 3 (CPU 6, SMT sibling CPU 7 left idle): core 1 (CPU 2) belongs to
+    # toy/zopfli and core 2 (CPU 4) to jaq, so three targets can be measured
+    # without ever sharing a physical core. Recorded in results.md.
+    BENCH_CPU="${BENCH_CPU:-6}"
+    WLDIR="$REPO/targets/oxipng/workloads"
+    # `--out /dev/null` keeps the 3-6 MiB of output off the filesystem: the
+    # timed quantity is the optimisation, not the write, and every arm does
+    # the same thing. run_correctness below writes a real file and hashes it.
+    WORKLOADS=("photo=-o 2 --out /dev/null $WLDIR/hold-photo.png"
+               "alpha=-o 2 --out /dev/null $WLDIR/hold-alpha.png"
+               "palette=-o 2 --out /dev/null $WLDIR/hold-palette.png")
+    TRAIN_WORKLOADS=("photo=-o 2 --out /dev/null $WLDIR/train-photo.png"
+                     "alpha=-o 2 --out /dev/null $WLDIR/train-alpha.png"
+                     "palette=-o 2 --out /dev/null $WLDIR/train-palette.png")
+    TRAIN_ARGS=("$WLDIR/train-photo.png" "$WLDIR/train-alpha.png"
+                "$WLDIR/train-palette.png")
+    CORRECTNESS_IN=("$WLDIR/train-photo.png" "$WLDIR/train-alpha.png"
+                    "$WLDIR/train-palette.png" "$WLDIR/hold-photo.png"
+                    "$WLDIR/hold-alpha.png" "$WLDIR/hold-palette.png")
+    ;;
   *)
     echo "target_common.sh: unknown TARGET=$TARGET" >&2
     return 1 2>/dev/null || exit 1
     ;;
 esac
+
+# BENCH_SET selects which of the two case sets bench.py measures.
+#   holdout   (default) the WORKLOADS above --- A/A and the final holdout.
+#   training  the same filters on the training inputs --- what SPEC.ja.md 7
+#             says the headroom sweep should use.
+# Only defined for targets that declare TRAIN_WORKLOADS.
+case "${BENCH_SET:-holdout}" in
+  holdout) ;;
+  training)
+    if [ -z "${TRAIN_WORKLOADS+x}" ]; then
+      echo "target_common.sh: TARGET=$TARGET has no TRAIN_WORKLOADS" >&2
+      return 1 2>/dev/null || exit 1
+    fi
+    WORKLOADS=("${TRAIN_WORKLOADS[@]}")
+    ;;
+  *)
+    echo "target_common.sh: unknown BENCH_SET=$BENCH_SET" >&2
+    return 1 2>/dev/null || exit 1
+    ;;
+esac
+
+# Root the SPEC.ja.md 6.1-2 source grep walks. The manifest's own directory
+# for a single-crate target; for a workspace (jaq) the manifest is one member,
+# so the grep has to start one level up or it sees only the bin crate.
+FILTER_SRC_ROOT="${FILTER_SRC_ROOT:-$(dirname "$MANIFEST")}"
+if [ "$TARGET" = jaq ]; then FILTER_SRC_ROOT="$REPO/targets/jaq/src"; fi
 
 PGO_DIR="$REPO/pgo/$TARGET"
 PROFDATA="${PROFDATA:-$PGO_DIR/merged.profdata}"
@@ -75,6 +209,14 @@ REMARK_DIR="$REPO/remarks/$TARGET"
 # 5950X is not visible from inside the guest. CPU 2 is core 1; its SMT sibling
 # CPU 3 is left unused.
 BENCH_CPU="${BENCH_CPU:-2}"
+
+# What bench.py does with each timed run's stdout (see bench.py --stdout).
+# `pipe` keeps the toy's and zopfli's free cross-label output check.
+BENCH_STDOUT="${BENCH_STDOUT:-pipe}"
+
+# Idle time between timed runs, outside the timed window (bench.py --gap-ms).
+# 0 is what the toy and zopfli measurements used.
+BENCH_GAP_MS="${BENCH_GAP_MS:-0}"
 
 # CARGO_ENCODED_RUSTFLAGS is \x1f-separated.
 enc() { local out="$1"; shift; for a in "$@"; do out="$out$(printf '\x1f')$a"; done; printf '%s' "$out"; }
@@ -151,6 +293,61 @@ run_correctness() {
         fi
         rm -f "$scratch/$base" "$scratch/$base.gz"
       done
+      rmdir "$scratch"
+      ;;
+    jaq)
+      # jaq writes its result to stdout, so correctness is the sha256 of
+      # stdout for every case. The timed runs send stdout to /dev/null
+      # (bench.py --stdout devnull), which is exactly SPEC.ja.md 10's
+      # "discard stdout the same way in both variants and keep the
+      # correctness check separate from the timing".
+      #
+      # CORRECTNESS_IN holds one tab-separated argv per case.
+      : > "$out"
+      local spec argv name
+      for spec in "${CORRECTNESS_IN[@]}"; do
+        IFS=$'\t' read -r -a argv <<< "$spec"
+        name="$(basename "${argv[-1]}")"
+        # sha256sum always succeeds, so propagate jaq's own status out of the
+        # pipeline explicitly rather than relying on the caller's pipefail.
+        local h rc=0
+        h="$("$bin" "${argv[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1
+             exit "${PIPESTATUS[0]}")" || rc=$?
+        if [ "$rc" = 0 ]; then
+          printf '%s %s\n' "$name" "$h" >> "$out"
+        else
+          printf '%s RUN-FAILED\n' "$name" >> "$out"
+        fi
+      done
+      ;;
+    oxipng)
+      # oxipng writes the optimised PNG to --out and prints only progress on
+      # stderr, so correctness is the sha256 of the produced file. The input
+      # is copied to a scratch directory first, so the workload directory
+      # stays clean and two correctness runs cannot collide.
+      #
+      # The missing-file case matters here: oxipng does NOT write an output
+      # file when it finds no improvement, and a silent "no file" would make
+      # every configuration agree on nothing. It is recorded as NO-OUTPUT so
+      # the checksum comparison fails loudly.
+      local scratch; scratch="$(mktemp -d)"
+      : > "$out"
+      local f base
+      for f in "${CORRECTNESS_IN[@]}"; do
+        base="$(basename "$f")"
+        cp "$f" "$scratch/in.png"
+        rm -f "$scratch/out.png"
+        if "$bin" -o 2 --out "$scratch/out.png" "$scratch/in.png" \
+             >/dev/null 2>&1 && [ -f "$scratch/out.png" ]; then
+          printf '%s %s\n' "$base" \
+            "$(sha256sum "$scratch/out.png" | cut -d' ' -f1)" >> "$out"
+        elif [ ! -f "$scratch/out.png" ]; then
+          printf '%s NO-OUTPUT\n' "$base" >> "$out"
+        else
+          printf '%s RUN-FAILED\n' "$base" >> "$out"
+        fi
+      done
+      rm -f "$scratch/in.png" "$scratch/out.png"
       rmdir "$scratch"
       ;;
     *)
