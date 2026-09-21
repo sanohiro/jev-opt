@@ -10,15 +10,27 @@
 # results.md can quote it.
 #
 # Usage: scripts/toy_pgo_baseline.sh
+#
+# Environment:
+#   TARGET=toy          target name; only the artifact paths are parameterised
+#                       (pgo/<target>/, remarks/<target>/), the build itself is
+#                       still the toy workspace.
+#   REUSE_PROFDATA=1    keep an existing pgo/<target>/merged.profdata and skip
+#                       the instrumented build and the training run. The
+#                       training run happens once per target (SPEC.ja.md 3);
+#                       re-running it is only allowed because the toy's
+#                       profdata was shown to be byte-reproducible.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET="${TARGET:-toy}"
 TOY="$REPO/targets/toy"
-PGO_DIR="$REPO/pgo"
+PGO_DIR="$REPO/pgo/$TARGET"
 PROFRAW_DIR="$PGO_DIR/profraw"
 PROFDATA="$PGO_DIR/merged.profdata"
-REMARK_DIR="$REPO/remarks"
-LOG_DIR="$REPO/artifacts/toy-day0"
+REMARK_DIR="$REPO/remarks/$TARGET"
+LOG_DIR="$REPO/artifacts/$TARGET-day0"
+REUSE_PROFDATA="${REUSE_PROFDATA:-1}"
 
 TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
 SYSROOT="$(rustc --print sysroot)"
@@ -44,7 +56,13 @@ enc() { local out="$1"; shift; for a in "$@"; do out="$out$(printf '\x1f')$a"; d
 
 banner() { printf '\n========== %s ==========\n' "$*"; }
 
-rm -rf "$TD_PLAIN" "$TD_GEN" "$TD_USE" "$TD_USE_D0" "$PGO_DIR" "$REMARK_DIR" "$LOG_DIR"
+rm -rf "$TD_PLAIN" "$TD_GEN" "$TD_USE" "$TD_USE_D0" "$REMARK_DIR" "$LOG_DIR"
+if [ "$REUSE_PROFDATA" = 1 ] && [ -f "$PROFDATA" ]; then
+  REUSE=1
+else
+  REUSE=0
+  rm -rf "$PGO_DIR"
+fi
 mkdir -p "$PROFRAW_DIR" "$REMARK_DIR" "$LOG_DIR"
 
 banner "toolchain"
@@ -68,6 +86,12 @@ BIN_PLAIN="$TD_PLAIN/$TRIPLE/release/toy"
 # ---------------------------------------------------------------------------
 # a. Instrumented build. No remarks, no plugin (SPEC.ja.md 3).
 # ---------------------------------------------------------------------------
+if [ "$REUSE" = 1 ]; then
+banner "a-c. reusing existing profdata (no instrumented build, no training run)"
+echo "profdata: $PROFDATA"
+sha256sum "$PROFDATA"
+"$LLVM_PROFDATA" show --all-functions "$PROFDATA" | tail -12
+else
 banner "a. instrumented build (-Cprofile-generate)"
 CARGO_PROFILE_RELEASE_DEBUG=1 \
 CARGO_TARGET_DIR="$TD_GEN" \
@@ -93,6 +117,8 @@ echo "\$ $LLVM_PROFDATA merge -o $PROFDATA $PROFRAW_DIR/*.profraw"
 "$LLVM_PROFDATA" merge -o "$PROFDATA" "$PROFRAW_DIR"/*.profraw
 sha256sum "$PROFDATA"
 "$LLVM_PROFDATA" show --all-functions "$PROFDATA" | tail -12
+
+fi
 
 # ---------------------------------------------------------------------------
 # d. PGO baseline build, with remarks and the missing-function warning on.
