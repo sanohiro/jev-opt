@@ -11,7 +11,7 @@
 **Jev が決めること(2つだけ)**:
 
 1. **ビルド全体のコンパイラ設定**を候補から1つ選ぶ(例: byte 処理のベクトル幅を最大化する設定を使うか)。
-2. **ホットなループごとのヒント**を候補から1つ選ぶ(例: このループはベクトル幅 32、あのループは既定のまま)。「既定のまま」を選べるので、どこを触るかも Jev が決めている。
+2. **ホットなループごとのヒント**を候補から1つ選ぶ(例: このループはベクトル幅や interleave を明示、あのループは既定のまま)。「既定のまま」を選べるので、どこを触るかも Jev が決めている。
 
 **人が決めないこと**: 対象関数の選定、ヒントの選択、設定の選択。判断が要るところはすべて Jev。固定規則は評価用の対照としてだけ存在し、製品の経路には無い。
 
@@ -21,7 +21,7 @@
 
 **作る順序**: まず PGO 基準(計装ビルド → 訓練実行 → profdata → PGO 基準ビルド)を作り、コードを書かずに「余地があるか」をその上で測る(Stage 0)。次に plugin 無しで Jev にビルド設定を選ばせる(Stage 1)。それから plugin を足して、Jev にループ単位のヒントを選ばせる(Stage 2)。製品の `jev-opt build` は PGO 基準に Stage 1 と Stage 2 の決定を重ねる。
 
-**対象の順序**: 各 Stage を **toy crate → zopfli → jaq** の順に適用する。toy crate(lib + bin の2 crate、lib 側に素朴な `for` ループと `iter().filter().count()`)はパイプラインを end-to-end に通すための検証用で、性能主張には一切使わない。最初の実対象は zopfli(純 Rust、依存ほぼ無し、byte ループと整数 reduction を持つ、秒オーダーでノイズ比が良い、出力が決定論的)。f64 reduction も持つが、FP 再結合の合法性でヒントの射程外と分かったので狙わない(§6.2)。jaq は本命で記事の対象だが、パイプラインが toy と zopfli で通ってから入る(§6.4)。
+**対象の順序**: 各 Stage を **toy crate → zopfli → jaq** の順に適用する。toy crate(lib + bin の2 crate、lib 側に素朴な `for` ループと `iter().filter().count()`)はパイプラインを end-to-end に通すための検証用で、性能主張には一切使わない。最初の実対象は zopfli(純 Rust、依存ほぼ無し、byte ループと整数 reduction を持つ、秒オーダーでノイズ比が良い、出力が決定論的)。f64 reduction も持つが、幅ヒントを付けると loop vectorizer が FP を再結合して**出力そのものが変わる**(§6.2、results.md §13)ので、正しさの理由から狙わない。jaq は本命で記事の対象だが、パイプラインが toy と zopfli で通ってから入る(§6.4)。
 
 **ホットなループの取り方**: 基準が PGO 込みなので、hotness は外部プロファイラではなく **PGO の分岐重み**から取る。plugin の dump モードが各ループヘッダのプロファイルカウント(`!prof` 由来)とループ本体の命令数を読み、その積を hotness score として `sites.json` に直接書く。「同じ profile を基準と Jev の両側に」が文字通り成立し、IP → site の突合も別プロファイラも主経路には要らない。perf / callgrind は §10 の事後帰属だけに使う。
 
@@ -68,7 +68,7 @@
 
 ### 1.3 「Jev コンパイラが実現可能かも」と言うために集める証拠
 
-1. **ヘッドルームの存在**: PGO 基準の上で、グローバル設定1つで集計速度比を最小効果量の2倍以上動かす次元が最低1つある。
+1. **ヘッドルームの存在**: PGO 基準の上で、グローバル設定1つで集計速度比を最小効果量の2倍以上動かす次元が最低1つある。**toy ではこの証拠は得られなかった**(群 1〜3 の 23 構成のうち、正しさが通る構成の集計 CI 下限の最大は 1.0003、単体ケースの最大改善は +1.03%、MDE は 3.00%。results.md §14〜§16)。toy は §6.4 によりそもそも性能主張に使わないので、この項目は zopfli と jaq の掃引で取り直す。動いた構成はすべて**劣化**か**正しさ違反**だった、という事実は候補集合の作り方(§7)に反映する。
 2. **不均質性**: 上位 site 間で最適設定が異なり、oracle − 一律最良 ≥ 最小効果量の2倍。これが無ければ「フラグを1個足せばよかった」で終わり、コンパイラの必要性は主張できない。
 3. **Jev / oracle 比**: 探索ゼロの1回の Choice で oracle の何%を取ったか。決定的 selector の同比と並べる。
 4. **主比較が有意であること**: 主比較 (PGO + Jev) − PGO の集計速度比の信頼区間下限 > 最小効果量。基準が既に PGO 込みなので、これがそのまま「プロファイル情報の再配達ではなく、コストモデルに無い判断をしている」証拠になる。
@@ -84,7 +84,8 @@ Stage 0  準備・PGO 基準の作成・ヘッドルーム探索(jev-opt のコ�
     ※ 訓練実行はここ1回だけ。この profdata を以降の全アーム(基準・selector・Jev・oracle・掃引の全構成)で共有する
   PGO 基準ビルド(-Cprofile-use、第2段階では plugin dump モード + remarks)
   失格フィルタ(手書き SIMD の有無)とテキスト remark の取得確認 → 対象の妥当性判定(§6.1)
-  RUSTFLAGS でグローバル設定を振り(全構成に同じ -Cprofile-use を付ける)、時間が動く次元を特定
+  RUSTFLAGS でグローバル設定を振り(全構成に同じ -Cprofile-use を付ける)、
+    出力 checksum が基準と一致する構成だけを対象に、時間が動く次元を特定(§6.3)
         │
 Stage 1  グローバル plan(plugin 無し)
   Jev が候補設定集合から 1 つを Choice → RUSTFLAGS に付けて PGO ビルド → 4 アーム評価
@@ -142,7 +143,7 @@ llvm-profdata merge -o <abs>/pgo/<target>/merged.profdata <abs>/pgo/<target>/pro
 - lto / codegen-units / debuginfo / panic は RUSTFLAGS ではなく cargo の profile 環境変数で渡す。RUSTFLAGS に `-Clto=fat` を入れると、profile 側で LTO が無効な場合に cargo が付ける `-Cembed-bitcode=no` と衝突して rustc がエラーになる。profile 環境変数なら対象の `Cargo.toml` を変えずに済み、「ソースも Cargo.toml も変えない」が構成上成立する。
 - `--target` の明示は必須。省略すると RUSTFLAGS が build script と proc-macro の host コンパイルにも載り、plugin が macro ビルド内で動く。
 - `panic` 戦略、frame pointer、strip、リンカは探索次元に入れず1本に凍結して run-manifest に記録する。
-- 最終バイナリは評価前に strip する。**debuginfo は全アームで `=1` に固定する。** この toolchain では debuginfo=0 と =1 で `.text` が一致しない(ハッシュだけでなくセクションサイズも関数順序も変わる。results.md Day 0 §5)ので、「debuginfo が `.text` を変えない」ことを確かめる手順は成立せず、行わない。`objcopy -O binary --only-section=.text` のハッシュ比較は、**debuginfo が一致するビルド同士**(plugin 未ロード vs ロード + `JEV_MODE=off`、§8.1)でのみ行う。ビルド自体は決定論的なので、同条件なら `.text` ハッシュは一致する。§7 の機械語帰属は strip 前・debuginfo=1 のバイナリに対して行う。
+- 最終バイナリは評価前に strip する。**debuginfo は全アームで `=1` に固定する。** この toolchain では debuginfo=0 と =1 で `.text` が一致しない(ハッシュだけでなくセクションサイズも関数順序も変わる。results.md Day 0 §5)ので、「debuginfo が `.text` を変えない」ことを確かめる手順は成立せず、行わない。`objcopy -O binary --only-section=.text` のハッシュ比較は、**debuginfo が一致するビルド同士**でのみ行う。用途は2つで、(i) plugin 未ロード vs ロード + `JEV_MODE=off` の off 等価性ゲート(§8.1)と、(ii) 掃引での足切り(§6.3。`.text` がバイト一致する構成は機械語が同じなので計測不要)。ビルド自体は決定論的なので、同条件なら `.text` ハッシュは一致する(toy では PGO 基準を別スクリプトで再ビルドしても `.text` がバイト一致した。results.md §8)。§7 の機械語帰属は strip 前・debuginfo=1 のバイナリに対して行う。
 - `-Cprofile-generate=<dir>` / `-Cprofile-use=<abs .profdata>` は RUSTFLAGS(`CARGO_ENCODED_RUSTFLAGS`)で渡す。対応する cargo profile 環境変数は無い。パスは必ず絶対パス。計装ビルドでも `--target` の明示は必須で(build script / proc-macro を計装しないため)、`CARGO_TARGET_DIR` は `target/pgo-gen` に分ける。
 - `llvm-profdata` は `rustup component add llvm-tools-preview` で入る、pin した toolchain 付属のものを使う。profraw のフォーマットは LLVM メジャーに紐づくので、システムの LLVM の `llvm-profdata` でマージしてはいけない。
 - **基準アームと Jev アームは、同じ profdata・同じ global_flags・同じ debuginfo・同じ panic 戦略でビルドする。** 差分は plugin が付ける loop metadata(plan)だけ。`merged.profdata` の sha256 を `run-manifest.json` と `jev-plan.json` の `basis.pgo_profile_sha` に記録する。
@@ -192,7 +193,7 @@ proc-macro crate、source scanner、broker、Unix socket プロトコル、decis
 
 ## 6. Stage 0: 準備・PGO 基準の作成・ヘッドルーム探索
 
-`jev-opt` のコードは書かない(対象の toy crate と day 0 の補助スクリプトは除く)。CLI の最初のサブコマンド `doctor` / `baseline` / `headroom` はこの手順の自動化に過ぎない。対象は toy crate → zopfli → jaq の順に進める(§6.4)。toy はパイプライン検証専用なので、Stage 0 では「手順が通ること」だけを見て、打ち切り規則と(§6.1-2 の失格フィルタ以外の)妥当性判定は適用しない。
+`jev-opt` のコードは書かない(対象の toy crate と day 0 の補助スクリプトは除く)。CLI の最初のサブコマンド `doctor` / `baseline` / `headroom` はこの手順の自動化に過ぎない。対象は toy crate → zopfli → jaq の順に進める(§6.4)。toy はパイプライン検証専用なので、Stage 0 では「手順が通ること」だけを見る。打ち切り規則と(§6.1-2 の失格フィルタ以外の)妥当性判定は、**結論には使わない**が、規則が記録物だけから機械的に判定できることの確認として一度適用し、出た結論は破棄する(toy では「フラット」と出て破棄した。results.md §16)。
 
 ### 6.1 対象の妥当性判定(対象1本あたり最初の半日)
 
@@ -203,31 +204,36 @@ proc-macro crate、source scanner、broker、Unix socket プロトコル、decis
 
 ### 6.2 仮説と、pin した toolchain(LLVM 23.1.1)の toy での実測結果
 
-以下は **toy で 23.1.1 実測により確認済み**(results.md Day 0 §6)。4ループはいずれも fat LTO で `toy::main` にインライン展開された上での観測で、zopfli と jaq のテキスト remark で再確認または棄却する。
+以下は **toy で 23.1.1 実測により確認済み**(results.md Day 0 §6、および掃引の §13〜§17)。4ループはいずれも fat LTO で `toy::main` にインライン展開された上での観測で、zopfli と jaq のテキスト remark で再確認または棄却する。
 
-- **byte 探索ループ**(`position(|c| c == b'"' || c == b'\\' || c < 0x20)` 型、toy の `find_special`)は**合法性**で落ちる。実測の理由文字列は「Incorrect number of successors from early exiting block」と「Loop contains an unsupported switch」の2つで、機械語も 15 命令・ベクタレジスタ 0 のスカラループ。**仮説は成立。** loop metadata は合法性を持ち上げないので5ファミリーの射程外。ただしグローバルノブ `-enable-early-exit-vectorization`(§6.3 群 1)だけはこの形に効きうる唯一のレバーで、未検証。`vectorize.enable=true` を付けても変わらないという 22.x 時代の記述は、23.1.1 では再実行していない。
-- **byte 集計ループ**(`filter(..).count()` 型、toy の `count_quotes`)は累算器が `i64` のため既定 **VF 4 × IC 4**。実測では `vpmovzxbq` で 1 反復 16 バイト、`ymm` 累算器4本を `vpaddq` で回す。**「既定 VF=4」という仮説の前半は成立。** byte 幅の累算器なら 1 反復 32 バイトにできるはずで、その 1 レジスタあたり 8 倍の差が `vectorize.width=32` / `-vectorizer-maximize-bandwidth` の狙い目として 23.1.1 でも残っている。**hint で実際に VF が上がるか、上がって速くなるかは未測定**(ヘッドルーム掃引の課題)。この機で最も期待値の高いヒントである点は変わらない。
-- **素朴な添字 reduction**(toy の `sum_indexed`、`for i in 0..v.len()` で `u32` を `u64` に足す)も **VF 4 × IC 4**。`vpmovzxdq` で 1 反復 16 バイト。`count_quotes` と同じ「累算器の型が幅を決める」話の一段弱い版。
-- **f64 reduction はヒントの射程外**(toy の `dot_f64`)。ループベクトライザは「cannot prove it is safe to reorder floating-point operations」で拒否し、SLP が乗算だけをベクトル化して(`vmulpd`、1 反復 8 double)、加算は `vaddsd` の順序付き鎖のまま残る。**`vectorize.width` は FP の再結合を許可しないので、5ファミリーのどの hint でもこのループは動かない。**
-- したがって **zopfli の f64 reduction 仮説は撤回する。** zopfli で狙うのは (a) LZ77 のマッチ長比較などの **byte ループ**(幅と interleave)と (b) **整数 reduction** に限る。Huffman コスト計算の f64 reduction に幅・interleave・unroll の余地があるという v0.3 までの想定は、上の `dot_f64` と同じ合法性で落ちるとみて候補から外す(§6.4)。
+- **byte 探索ループ**(`position(|c| c == b'"' || c == b'\\' || c < 0x20)` 型、toy の `find_special`)は**合法性**で落ちる。実測の理由文字列は「Incorrect number of successors from early exiting block」と「Loop contains an unsupported switch」の2つで、機械語も 15 命令・ベクタレジスタ 0 のスカラループ。**仮説は成立。** loop metadata は合法性を持ち上げないので5ファミリーの射程外。グローバルノブ `-enable-early-exit-vectorization` が唯一のレバーという v0.3 までの記述は**誤り**で、このノブは **LLVM 23.1.1 では既定 ON**、つまり PGO 基準に既に入っている。明示的に on にしても `.text` はバイト一致し(off にすると 27 行の analysis remark が動く)、それでも `find_special` は上記の legality でその前段に落ちる(results.md §12)。したがってこの形に効くレバーは掃引の中に無い。`vectorize.enable=true` を付けても変わらないという 22.x 時代の記述は、23.1.1 では再実行していない。
+- **byte 集計ループ**(`filter(..).count()` 型、toy の `count_quotes`)は累算器が `i64` のため既定 **VF 4 × IC 4**。実測では `vpmovzxbq` で 1 反復 16 バイト、`ymm` 累算器4本を `vpaddq` で回す。**「既定 VF=4」という仮説の前半は成立。** 一方、**「VF を 32 に上げれば 1 レジスタあたり 8 倍」という仮説の後半は toy で棄却された**(results.md §15)。`-vectorizer-maximize-bandwidth` と `-force-vector-width=32` はどちらも実際に VF 32 を出す(`vpcmpeqb` が 32 バイトを一度に比較する)ので**ヒント機構は期待どおり効く**が、LLVM は reduction の型を縮めないため、累算器は i64 のまま残り、32 バイトの比較結果を `vpmovzxbw → vpmovzxwd → vpmovzxdq` の3段ツリーで 8 本の `ymm` に広げて `vpaddq` することになる。ループ本体を支配するのは比較ではなく拡張ツリーで、結果は **quotes ワークロードで 117.6 ms → 259.4 ms(2.2 倍遅い、速度比 0.453)**。「byte 幅の累算器で 1 反復 32 バイト」はこのノブ群では最初から提供されておらず、**VF 4 を選んだコストモデルの方が正しかった**。これは toy についての記録であって zopfli / jaq についての主張ではないが、仮説が名指しした当の形に対する直接の実測なので、「この機で最も期待値の高いヒント」という位置づけは取り下げる。
+- **素朴な添字 reduction**(toy の `sum_indexed`、`for i in 0..v.len()` で `u32` を `u64` に足す)も **VF 4 × IC 4**。`vpmovzxdq` で 1 反復 16 バイト。`count_quotes` と同じ「累算器の型が幅を決める」話の一段弱い版で、同じ理由で幅を上げても取り返せないとみる。
+- **f64 reduction は「合法性で届かない」のではなく「幅ヒントが届いてしまい、出力が変わる」**(toy の `dot_f64`)。基準ではループベクトライザが「cannot prove it is safe to reorder floating-point operations」で拒否し、SLP が乗算だけをベクトル化して(`vmulpd`、1 反復 8 double)、加算は `vaddsd` の順序付き鎖のまま残る。**ところが `-force-vector-width=8|16|32` を付けると、この remark が消えて reduction がベクトル化され(`vaddpd %ymm` が 8 個出現)、`dot` の checksum が基準と変わった**(results.md §13)。LLVM では幅の明示が `LoopVectorizeHints` に「明示的にベクトル化を要求された」という状態を作り、それが FP の再結合を許す経路がある。したがって **「`vectorize.width` は FP の再結合を許可しない」という v0.3 までの記述は誤り**である。`-vectorizer-maximize-bandwidth` 単体にはこの副作用は無い(4ワークロードとも checksum 一致)。`llvm.loop.vectorize.width` メタデータは同じ `LoopVectorizeHints` を通ると見られるので同じ副作用を持つ可能性が高いが、**メタデータ経路は plugin が要るため未測定**で、day 3 の項目 13 で最初に確かめる。結論(このループは狙わない)は変わらないが、理由は「ヒントが届かない」ではなく「**届くと答えが変わる**」であり、扱いは §8.4 と §10 の正しさゲートに移る。
+- したがって **zopfli の f64 reduction 仮説は撤回する。** zopfli で狙うのは (a) LZ77 のマッチ長比較などの **byte ループ**(幅と interleave)と (b) **整数 reduction** に限る。Huffman コスト計算の f64 reduction に幅・interleave・unroll の余地があるという v0.3 までの想定は、上の `dot_f64` と同じ理由 —— 幅ヒントを付ければ動くが出力が変わる —— で候補から外す(§6.4)。
+- 掃引の副産物として、**`-force-vector-interleave` が toy で2番目に大きいレバー**だった(IC 1 で quotes −27.2% / sum −60.2%、IC 2 で −7.2% / −24.1%、IC 4 で sum −4.4%)。すべて劣化で、すべて checksum は一致する。PGO が選んだ IC 4 が既に良い選択だったという記録で、interleave が「動く次元」であること自体は zopfli でも確認する価値がある。
 - jaq で余地があるのは (a) 集計系 reduction ループ(整数のもの)、(b) 不変モード分岐の unswitch、(c) ホットループ内 callee の inline 判断。(b)(c) は第2段階の loop metadata では扱えないため、jaq で第2段階の効果が薄い可能性を最初から織り込む。
 
 ### 6.3 ヘッドルーム探索の行列(1日)
 
 - 全ノブを `CARGO_ENCODED_RUSTFLAGS` で渡す(区切りは `\x1f`)。`-Cllvm-args` は cl::opt でプロセスグローバルだが、bin crate だけに渡すと依存 crate の pre-link パイプライン(inlining、SLP、LICM)に効かない。`-Ctarget-feature` は関数属性として各 crate に焼き込まれるので bin だけでは無効。したがって全構成で全 crate を再ビルドする。
-- 一次読み取りはテキスト remark の diff。ビルドログから `remark:` 行を抜き、**ソートしてから** diff する(複数の rustc プロセスが同一 stderr に交互に書くので行順は決定論的ではない。行の集合は決定論的でノイズゼロ)。判定が変わったループが無い構成は実測を省略する。二次読み取りは代表3ワークロードの実測。
-- ノブ名と既定値は `llvm-knobs.json` から取り、手で書かない。
+- 一次読み取りは **remark diff と `.text` ハッシュの2つ**で、どちらも安いので必ず両方取る。
+  - **remark diff**: ビルドログから `remark:` 行を抜き、**ソートしてから** diff する(複数の rustc プロセスが同一 stderr に交互に書くので行順は決定論的ではない。行の集合は決定論的でノイズゼロ)。さらに **remark 中のコストモデルの数値をマスクしてから比較する**(`(cost=-14995, threshold=525)`、`with cost N and threshold N`、`tree size N`)。これをしないと `-inline-threshold` 系の全構成が「判定が変わった」と誤判定される(toy では 524〜1370 行が動いたが、動いたのは算術だけで決定ではない)。**ベクトル化幅・interleave 数・`file:line:col` はマスクしない** —— そこが決定である。
+  - **`.text` ハッシュ**: `objcopy -O binary --only-section=.text` の sha256 を基準と比較する。**バイト一致した構成は機械語が同じなので、remark が何を言っていても計測不要と確定できる**(toy では 6 構成がこれで落ち、逆に remark は変わったが `.text` は同一という構成も 2 つあった。results.md §12)。両辺は debuginfo を揃える(§3)。
+  - **省略規則**: 「remark(正規化後)が変わらず、かつ `.text` がバイト一致」の構成だけを計測省略する。どちらか一方でも動いた構成は計測する。二次読み取りは代表3ワークロードの実測。
+- ノブ名と既定値は `llvm-knobs.json` から取り、手で書かない。**生成は必ずリポジトリ内(`rust-toolchain.toml` が効く場所)で行う**(`scripts/gen_llvm_knobs.sh`)。`/tmp` などで走らせると利用者の default toolchain が拾われ、別の LLVM のノブ表ができる(results.md §11 で一度踏んだ)。なお LLVM の `--print-all-options` / `--print-options` は 23.1.1 に cl::opt として存在するが **rustc の `-Cllvm-args` 経由では何も出力しない**ので、既定値は help 文(`llvm-knobs.json` の `default_doc`)からしか取れない。したがってこの掃引での「既定」の実質的な定義は**そのフラグを渡さないこと**とする。
 - **掃引の全構成に同じ `-Cprofile-use=<merged.profdata>` を付ける。** ヘッドルームは PGO 基準の上にどれだけ残っているかを測るものであり、PGO 無しで動く次元が PGO 有りでも動くとは限らない(特に unroll と inline は PGO が既に触っている)。profdata は Stage 0 の最初に作った1つを使い回すので訓練実行は増えないが、`-Cprofile-use` はビルド1本を重くするので掃引のビルドコストは上がる。
 
 | 群 | ノブ | 値域 | site 単位の等価ヒント |
 |---|---|---|---|
 | 0 | `-align-all-nofallthru-blocks` | 0, 5 | なし。**ノイズフロア測定専用**、最初に実行 |
 | 1 | `-vectorizer-maximize-bandwidth` | off, on | `vectorize.width` |
-| 1 | `-force-vector-width` | 0, 8, 16, 32 | `vectorize.width` |
+| 1 | `-force-vector-width` | 0, 8, 16, 32 | `vectorize.width`。**FP reduction を持つ対象では出力が変わる**(§6.2、results.md §13)。正しさゲートを通った構成だけを判定に使う |
 | 1 | `-force-vector-interleave` | 0, 1, 2, 4 | `interleave.count` |
-| 1 | `-prefer-predicate-over-epilogue` | 3値 | `vectorize.predicate.enable` |
+| 1 | `-epilogue-tail-folding-policy` | `dont-fold-tail`, `prefer-fold-tail` | `vectorize.predicate.enable`。**`-prefer-predicate-over-epilogue` は LLVM 23.1.1 に存在しない**ので、その代替(results.md §11) |
+| 1 | `-force-tail-folding-style` | `none`, `data`, `data-without-lane-mask`, `data-and-control`, `data-with-evl` | 同上。掃引では `data` と `data-and-control` を振る |
 | 1 | `-runtime-memory-check-threshold` | 8, 24, 128 | `vectorize.enable=true` で閾値が昇格(部分等価) |
-| 1 | `-enable-early-exit-vectorization` | off, on | なし(グローバルのみ) |
+| 1 | `-enable-early-exit-vectorization` | on(**23.1.1 の既定**), off | なし(グローバルのみ)。既定が on なので、掃引で振る意味があるのは **off 側**。on を渡しても `.text` は変わらない(results.md §12) |
 | 2 | `-inline-threshold` | 225, 325, 500, 1000 | site 単位の等価ヒントは無し(関数属性は §14 でスコープ外)。グローバル設定としてのみ候補に入る |
 | 2 | `-unroll-threshold` / `-unroll-max-count` / `-unroll-runtime` | 数値、on/off | `unroll.count` / `unroll.runtime.disable` |
 | 3 | `-enable-loop-distribute` | off, on | `distribute.enable` |
@@ -236,7 +242,13 @@ proc-macro crate、source scanner、broker、Unix socket プロトコル、decis
 
 実行順序は群 0 → 1 → 2 → 3 → 4。ユニーク構成は約30。`-Cprofile-use` 込みのフル再ビルドを1本3分(zopfli はこれより軽く、jaq で3分)と見て、対象1本あたり約1.5時間。
 
-**打ち切り規則(事前登録)**: 群 1〜3 を通して、(a) 集計速度比の信頼区間下限が最小効果量を超える構成が無く、**かつ** (b) どのケースでも単体ケースの改善が最小効果量を超える構成が無ければ、「この対象は hint 方式でフラット」と記録して対象を差し替える。(a) を満たさず (b) を満たす場合は、site 選択性に価値がある可能性があるので続行する。グローバル掃引は上限でも下限でもないので、この非対称な規則にする。
+**打ち切り規則(事前登録)**:
+
+**前提条件(正しさが先)**: 各構成について、まず最終バイナリの出力が基準と一致することを確認する。**一致した構成だけを (a)(b) の判定対象にする。**一致しない構成は「余地」に数えず、**正しさ違反として別枠で記録する**(ノブ名、どのケースの出力が変わったか、機械語で何が起きたか)。この前提条件が要るのは、素直に読むと `-force-vector-width` が (a) を満たしてしまうからである。toy では実際に、4つの `-force-vector-width` 構成が集計 CI 下限 1.3548 などで (a) を余裕で満たしたが、その速さは `dot` を**別の計算に変えた**ことによるものだった(results.md §13、§16)。正しさの検査を時間の読み取りより**前**に置く。
+
+その上で、群 1〜3 を通して、(a) 集計速度比の信頼区間下限が最小効果量を超える構成が無く、**かつ** (b) どのケースでも単体ケースの改善が最小効果量を超える構成が無ければ、「この対象は hint 方式でフラット」と記録して対象を差し替える。(a) を満たさず (b) を満たす場合は、site 選択性に価値がある可能性があるので続行する。グローバル掃引は上限でも下限でもないので、この非対称な規則にする。
+
+toy でこの規則を(記録として)適用したところ、正しさが通る構成の集計 CI 下限の最大は 1.0003、単体ケースの最大改善は +1.03% で、(a) も (b) も満たさず「フラット」と出た。この結論は §6.4 のとおり toy については破棄するが、**規則が記録物(checksum、CI 表)だけから人の判断を挟まずに機械的に判定できた**ことは確認できた(results.md §16)。
 
 ### 6.4 対象の順序
 
@@ -244,11 +256,11 @@ proc-macro crate、source scanner、broker、Unix socket プロトコル、decis
 
 | 対象 | 位置づけ | 理由 |
 |---|---|---|
-| toy crate(lib + bin の2 crate) | **パイプライン検証** | lib 側に素朴な `for` ループと `iter().filter().count()` を置き、bin から呼ぶ(§13 day 3 の構成をそのまま使う)。ビルドが数秒なので、計装 → 訓練 → profdata → dump → plan → apply → bench の配管を end-to-end で回して壊れている箇所を切り分けられる。**性能主張には使わない**(ヘッドルーム判定も打ち切り規則も適用しない) |
-| zopfli(Rust crate + CLI) | **最初の実対象** | 純 Rust、依存ほぼゼロ、ビルドが軽い。LZ77 マッチ長比較(byte ループ)と整数 reduction があり、実行が秒オーダーでノイズ比が良い。Huffman コスト計算の f64 reduction は、§6.2 の `dot_f64` 実測(FP 再結合の合法性で loop vectorizer が拒否)により**ヒントの射程外と判断して狙わない**。出力が決定論的で正しさ検査が自明。実プログラムの手順(ワークロード定義、A/A、掃引、site 絞り込み)をここで固める |
+| toy crate(lib + bin の2 crate) | **パイプライン検証** | lib 側に素朴な `for` ループと `iter().filter().count()` を置き、bin から呼ぶ(§13 day 3 の構成をそのまま使う)。ビルドが数秒なので、計装 → 訓練 → profdata → dump → plan → apply → bench の配管を end-to-end で回して壊れている箇所を切り分けられる。**性能主張には使わない**(ヘッドルーム判定も打ち切り規則も、結論としては採らない。規則が機械判定できることの確認としてだけ一度走らせ、出た結論は破棄する。§6.3、results.md §16) |
+| zopfli(Rust crate + CLI) | **最初の実対象** | 純 Rust、依存ほぼゼロ、ビルドが軽い。LZ77 マッチ長比較(byte ループ)と整数 reduction があり、実行が秒オーダーでノイズ比が良い。Huffman コスト計算の f64 reduction は、§6.2 の `dot_f64` 実測(基準では FP 再結合の合法性で拒否されるが、**幅ヒントを付けると再結合されて出力が変わる**)により、**正しさの理由で狙わない**。出力が決定論的で正しさ検査が自明。実プログラムの手順(ワークロード定義、A/A、掃引、site 絞り込み)をここで固める |
 | jaq | **本命(記事の対象)** | JSON 処理の実ユーザーがいる。インタプリタ層が厚いので、進む時点で §6.1-4 の 70% ゲートを掛ける。超えていたら jaq は本命から降ろし、zopfli を主対象として報告する |
 | oxipng | 差し替え・転移候補 | PNG フィルタが純粋な byte ループで vectorize 余地が明確。実ユーザーのいる CLI。libdeflate feature を切り、rayon をシングルスレッドに固定する |
-| symphonia(薄い再生 CLI) | 差し替え・転移候補 | f32 の IMDCT / フィルタバンクの内側ループが長く VF・interleave・unroll の余地が最大。ただし FP の reduction 部分は §6.2 の `dot_f64` と同じ理由で射程外の可能性があるので、着手時に remark で確認する。ビルドはやや重い |
+| symphonia(薄い再生 CLI) | 差し替え・転移候補 | f32 の IMDCT / フィルタバンクの内側ループが長く VF・interleave・unroll の余地が最大。ただし FP の reduction 部分は §6.2 の `dot_f64` と同じ扱い —— 基準では拒否され、幅ヒントを付けると再結合されて出力が変わる —— になる可能性があるので、着手時に remark と**出力 checksum** の両方で確認する。f32 の音声出力に対して「答えが変わった」を許容するかは、対象を選ぶ時点で決めておく。ビルドはやや重い |
 
 除外: ripgrep、simd-json、blake3、base64、bytecount(手書き SIMD 済み)、I/O 律速の CLI。
 
@@ -258,14 +270,16 @@ zopfli と jaq の2本で §1.3-5 の転移証拠は揃う。oxipng / symphonia 
 
 Jev が PGO 基準の上に重ねるビルド全体のコンパイラ設定を1つ選ぶ。これだけで「オプションを付けたら速いバイナリ」の体験、評価手順、Jev 接続、費用測定が end-to-end で回る。
 
-- **候補集合**: §6.3 で remark diff か実測のどちらかを動かしたノブの単独設定と、その少数組合せ。`KEEP_DEFAULT` を含めて 255 以下。候補の説明にはノブの意味と方向を書き、掃引の実測値は書かない。
+- **候補集合は対象ごとの掃引から作る。** 条件は3つで、その対象の §6.3 掃引で (i) **出力が基準と一致し**、(ii) remark(正規化後)か `.text` のどちらかが動き、(iii) その対象で**劣化しなかった**ノブの単独設定と、その少数組合せ。`KEEP_DEFAULT` を含めて 255 以下。候補の説明にはノブの意味と方向を書き、掃引の実測値は書かない。**方向が事前に分からないことも説明に書く**(toy では最も大きく動いたノブが最も大きく劣化した)。
+- **toy の結果から候補を決め打ちしない。** toy では群 1 で時間を動かしたノブはすべて劣化(`-vectorizer-maximize-bandwidth` 集計 −18.2%、`-force-vector-interleave` も全値で劣化)、群 2・3 は時間を動かさなかった(≤ 0.7%)が、これは toy という形についての記録であって zopfli / jaq の予測ではない(results.md §17)。候補集合は対象ごとに掃引をやり直して作る。
+- **`-force-vector-width` 系は Stage 1 の候補から除外する。** グローバルに適用すると、そのビルド中の**すべての** FP reduction が再結合されうるため、site 単位で避ける手段が無い(§6.2、results.md §13)。幅の force は、FP reduction を持つ site を外せる **Stage 2 でのみ**扱う。対象に FP reduction が1つも無いことを確認できた場合に限り、正しさゲート(§10)付きで Stage 1 に戻してよい。
 - **Jev への入力**: CPU 情報、remark 分類の集計(何個のループが cost で見送られたか等)、候補集合、および**remark が `cost` 理由を出したループを含む関数のソース**。Stage 1 は plugin 無しで完結するので hotness はまだ無い。hotness による順位付けはしない(件数が多い場合は remark の出現順で上限を切り、切ったことを記録する)。関数の特定方法は次項。製品経路(§12 `jev-opt build`)では手順 (2) の dump が先に走るので、そこでは hotness 上位で並べ替えた同じ関数集合を渡してよい。この差は `jev-plan.json` の `answer_ref` に入力の出どころとして記録する。
 - **関数の特定は機械語から行う(23.1.1 の実測を受けた変更)**。採用したテキスト remark には DebugLoc(`file:line:col`)はあるが**関数名が無く**、構造化フィールドも無い(関数名を持つ YAML は fat LTO 段で空。§3)。しかもインライン後のイテレータループの DebugLoc は `library/core/src/slice/iter/macros.rs` など std 側を指すので、**「remark の DebugLoc → 関数名」は直接には成立しない**。代わりに次の手順で帰属させる。
   1. strip 前・debuginfo=1 のバイナリの DWARF 行テーブル(`llvm-dwarfdump --debug-line`、または `objdump --dwarf=decodedline`)を引き、remark の `file:line` に対応するアドレス集合を得る。
   2. 各アドレスを `addr2line -i -f -p -C -e <bin>` でインライン鎖に展開し、**最外の(対象 crate 側の)関数**に帰属させる。シンボルは v0 mangling なので `-C` か `rustfilt` で復元する。
   3. 同じ std の `file:line:col` は**バイナリ内の複数のインライン実体に共有される**(std 自身のループも含む)ので、帰属の結果は1つの関数ではなく**候補集合**になる。同一 DebugLoc の remark 行の結論が全て同じ(例: 全て「vectorized, VF 4」)なら候補集合の全員に帰属させ、結論が割れていれば `ambiguous` として記録し件数を出す。remark 行どうしを個別のインライン実体に対応付ける手がかりはテキストには無い。
   toy ではこの方式の原型が `scripts/toy_loop_attribution.sh`(`toy::main` の全命令を歩いてインライン鎖を解き、toyloops の関数ごとに分類する)。**Stage 2 の plugin dump は IR を直接読むので、site 列挙と hotness はこの問題の影響を受けない**(影響を受けるのは remark 分類の書き戻しだけ。§8.3)。
-- **アーム**: A = PGO 基準、B = PGO + 決定的 selector(測定を見ない事前登録規則。例: 「maximize-bandwidth を on にする」1本)、C = PGO + Jev、oracle = 訓練ワークロード上の掃引最良(これも PGO 込み)。**4アームすべてが同じ `merged.profdata` を `-Cprofile-use` で使い、訓練実行は追加で行わない。** 掃引は訓練ワークロードでのみ行い、holdout は4アーム + 参考アーム R(§9)を一度だけ測る。
+- **アーム**: A = PGO 基準、B = PGO + 決定的 selector(測定を見ない事前登録規則。例: 「maximize-bandwidth を on にする」1本。**これは規則の形の例であって推奨ではない**: toy ではこの規則は集計 −18.2% の劣化になった)、C = PGO + Jev、oracle = 訓練ワークロード上の掃引最良(これも PGO 込み)。**4アームすべてが同じ `merged.profdata` を `-Cprofile-use` で使い、訓練実行は追加で行わない。** 掃引は訓練ワークロードでのみ行い、holdout は4アーム + 参考アーム R(§9)を一度だけ測る。
 - **判定**: C − A、C − B、C / oracle 比。C − A が最小効果量を超えなければ第2段階に進む前に候補集合と入力を見直す(1回まで)。
 
 ## 8. Stage 2: site plan(plugin あり)
@@ -308,7 +322,8 @@ apply 時に同じ key が2つ以上に解決したら `ambiguous`、0個なら 
 
 前提: Stage 2 の全アーム(基準、selector、Jev、oracle-probe)は**すべて PGO 込み・同一 profdata(`-Cprofile-use`)・同一 global_flags(Stage 1 で選ばれたもの)**でビルドし、dump も同じ条件で取る。これで site ヒントの効果だけを分離でき、かつ dump と apply で inline chain が一致するので site key が解決する。記事の見出しになる主比較 (PGO + Jev) − PGO は、Stage 1 + Stage 2 を合わせたビルドと、同じ profdata で作った PGO 基準ビルドとの差。
 
-1. hotness は dump が既に書いているので、CLI は remark 分類だけを `sites.json` に書き戻す。**テキスト remark と site レコードの結合キーは `leaf_loc`(file, line, col)1つだけ**である(採用した remark 機構に関数名が無いため。§3、§7)。同じ `leaf_loc` に複数の site が当たることはインライン後のイテレータループでは普通に起きるので、その場合は remark の結論が全て同じならその全 site に同じ分類を書き、割れていれば `remark_reason: "unknown"` とし、衝突した site 数を `sites.json` のトップレベル(`remark_ambiguous_sites`)に出す。理由が `legality` / `unsupported` に**一意に**分類された site は **Jev に見せる前に除外**する。ヒントで変わらないものに問い合わせるのは費用の無駄。`unknown` の site は除外しない。
+1. hotness は dump が既に書いているので、CLI は remark 分類だけを `sites.json` に書き戻す。**テキスト remark と site レコードの結合キーは `leaf_loc`(file, line, col)1つだけ**である(採用した remark 機構に関数名が無いため。§3、§7)。同じ `leaf_loc` に複数の site が当たることはインライン後のイテレータループでは普通に起きるので、その場合は remark の結論が全て同じならその全 site に同じ分類を書き、割れていれば `remark_reason: "unknown"` とし、衝突した site 数を `sites.json` のトップレベル(`remark_ambiguous_sites`)に出す。理由が `legality` / `unsupported` に**一意に**分類された site は **Jev に見せる前に除外**する。ただし除外の理由は一様ではない。大半は「ヒントで変わらないものに問い合わせるのは費用の無駄」だが、**FP 再結合の legality(`cannot prove it is safe to reorder floating-point operations`)だけは違い、ヒントは実際にこれを持ち上げてしまう**(§6.2)。こちらは費用ではなく**正しさ**のための除外である。`unknown` の site は除外しない。
+   **この正しさのための除外を remark の突合に依存させてはいけない。** remark と site の結合キーは `leaf_loc` だけで、衝突すると分類は `unknown` に落ちる(上記)ので、remark だけを頼りにすると FP reduction を持つ site が素通りしうる。FP の判定は plugin dump が IR から直接書く `has_fp_reduction`(§8.5)を一次情報とし、remark 分類は補助にする。
 2. `share`(§8.2)上位 N(初期 20)を候補 site とする。候補 site の share 合計 S と理論上限 1/(1−S) を報告し、上限 − 1 < 最小効果量の2倍なら「対象選定段階で null」として記録し、Jev を呼ばない。**この S は cycle の実測ではなく「プロファイルカウント × 命令数」による推定**であり、命令ごとのレイテンシ、キャッシュミス、分岐予測失敗、ベクトル化済みブロックの実コストを反映しない。したがって 1/(1−S) は cycle ベースの上限より楽観にも悲観にも振れうる粗い目安で、桁の判断(「候補が全体の数%しか押さえていない」)にだけ使い、効果量の予測には使わない。これが perf を主経路から外した代償で、境界付近(上限 − 1 が最小効果量の2〜3倍)なら perf / callgrind で一度だけ裏を取ってよい。
 3. **不均質性ゲート**(実験専用モード、丸1日): 上位 K(6〜10)site × 設定 M(4〜6)の手書き plan で単一 site 変種をビルドし、`best_uniform`(一律最良)と `oracle`(site ごと最良)の集計速度比を出す。oracle − best_uniform < 最小効果量の2倍なら、この対象では per-site 判断そのものに価値が無いので Jev を呼ばず、対象差し替えか Stage 1 の結果のみで報告する。
 4. ゲートを通ったら、Jev への問い合わせに進む。oracle の値は Jev の入力に入れない。
@@ -317,8 +332,16 @@ apply 時に同じ key が2つ以上に解決したら `ambiguous`、0個なら 
 
 - 候補 site ごとに Choice を1回。候補 = `KEEP_DEFAULT` + その site に適用可能な recipe(初期は幅 8/16/32、interleave 1/2/4、predicate on、unroll 2/4/8、distribute on の組合せから、§6.3 で動いた次元だけ、最大 8〜12 個)。
 - 入力: その関数のソース、site の位置(可読サフィックス)、hotness、trip count(取れれば)、remark の理由分類、CPU 情報。
-- 決定的 selector(アーム B)は同じ候補 site リストと同じ recipe 集合に対し、測定を見ない事前登録規則で選ぶ(例: 「i8 reduction なら幅 32、それ以外 KEEP_DEFAULT」)。
-- `forced: true` の recipe(幅の明示指定)はコストモデルを迂回する force である旨を plan に記録する。合法性は LoopVectorize の legality 解析がそのまま守るので、ヒントは意味の主張を捏造しない。
+- 決定的 selector(アーム B)は同じ候補 site リストと同じ recipe 集合に対し、測定を見ない事前登録規則で選ぶ(例: 「i8 reduction なら幅 32、それ以外 KEEP_DEFAULT」という形。**この例の中身は推奨ではない**: toy ではまさにこの規則にあたる VF 32 が 2.2 倍の劣化だった。§6.2)。
+- `forced: true` の recipe(幅の明示指定)はコストモデルを迂回する force である旨を plan に記録する。
+
+**幅ヒントは合法性の一部を持ち上げる(v0.3 までの記述の訂正)。** 「合法性は LoopVectorize の legality 解析がそのまま守るので、ヒントは意味の主張を捏造しない」という v0.3 までの記述は**誤り**である。LLVM では幅の明示要求が `LoopVectorizeHints` に「明示的にベクトル化を要求された」状態を作り、それが **FP reduction の再結合を許す**経路がある。グローバルノブ `-force-vector-width` では実測済み(toy の `dot_f64` の checksum が変わった。results.md §13)。`llvm.loop.vectorize.width` メタデータは同じ経路を通る可能性が高いが**未測定**(plugin が要る)。したがって次の3点を規則にする。
+
+1. **plan 生成時の規則**: **FP reduction を含む site には幅ヒントを付けない。** 判定には plugin dump が IR から書く `has_fp_reduction`(§8.5)を使い、真の site の候補集合から `vectorize.width` を外す(`KEEP_DEFAULT` と interleave / unroll / distribute は残してよい)。保守的に「FP の reduction PHI があれば真」とする(基準で既に `reassoc` が付いてベクトル化済みのものは本来除外してよいが、初期は区別しない)。**`vectorize.enable=true` も同じ `LoopVectorizeHints` を通るとみられるため、未測定のうちは同様に外す。**
+2. **正しさゲート(必須)**: `jev-opt build` は**最終バイナリの出力 checksum を PGO 基準のものと比較する**。不一致なら **plan を採用しない**(§10、§12)。site 単位の規則は IR の読み方を1つ間違えれば破れるので、規則ではなく成果物で押さえる。
+3. **day 3 の apply 試験**(§13 項目 13)に、**`dot_f64` に `vectorize.width=8` を付けて checksum を基準と比較する項目を必須で入れる。** これがメタデータ経路にも同じ副作用があるかの唯一の実測であり、結果によって上の規則 1 の射程が決まる。同じビルドで `vectorize.enable=true` 単独も試す。
+
+なお LLVM 23.1.1 には **`-hints-allow-reordering`**(help: "Allow enabling loop hints to reorder FP operations during vectorization")という cl::opt が実在する(`llvm-knobs.json`)。これを false 固定すれば全アームで機械的にこの副作用を封じられる可能性があるが、**既定値も実効も未測定**。day 3 で項目 3 と同時に試し、効くなら全アーム共通フラグに加えることを検討する。
 
 ### 8.5 schema
 
@@ -334,6 +357,9 @@ sites[]: { key, owner_fn, inline_chain[], leaf{file,line,col}, loop_fingerprint,
            stage: "prelink"|"lto", already_vectorized: bool,
            trip_count: int|null,   // PGO の branch weight 由来。LLVM も同じ値を見ている
            has_calls, has_reduction,
+           has_fp_reduction: bool,  // 浮動小数点型の reduction PHI を含むか。plugin が IR から直接書く。
+                                    // 真の site には幅ヒント(と vectorize.enable)を付けない(§8.4)。
+                                    // remark 由来ではない一次情報にする理由は §8.3-1
            hotness{ header_freq: int|null,      // 診断用。関数相対の getBlockFrequency
                     header_count: int|null,     // getBlockProfileCount(header)。絶対カウント
                     body_inst_count: int,       // ループに属しサブループには属さないブロックの命令数
@@ -379,14 +405,19 @@ results[]: { key, outcome: "consumed"|"attached"|"vanished"|"ambiguous"|"already
 - **主指標**: end-to-end wall time。ケースごとの速度比を事前固定重みの幾何平均で集計し、交互実行の pair を単位に bootstrap で 95% 信頼区間を出す。
 - **ノイズフロア**: holdout の前に基準バイナリを2ラベルとして同一手順で測る A/A 実行を必須とし、その信頼区間半幅をノイズフロアとする。
 - **最小効果量**: max(2 × A/A の半幅, 3%)。集計速度比の信頼区間下限がこれを超えない限り「改善」と書かない。
-- **測定条件**: `taskset` で単一 CCD 内の物理コアに固定し SMT 兄弟を空ける。構成順序をラウンドロビンで交互化する(連続で流すと後半が熱で遅くなる)。ASLR は有効のまま。n(初期 50)、warmup(初期 5)、trimming 規則を holdout 前に config で凍結し、事後変更した run は無効。
+- **A/A の実測値(toy、2026-09-21。対象ごとに再測定する)**: 同一バイナリを2ラベルにして 30 ラウンド × 4 ワークロード(warmup 5)を交互実行した CI 半幅は、quotes 0.24% / special 0.18% / sum 1.22% / dot 0.27%、**集計(幾何平均)0.34%**。最悪のケース半幅は 1.22%(`sum`、110 ms と最短のケース)。したがって **MDE = max(2 × 1.22%, 3%) = 3.00%** で、**3% の床が効いた**(この機はその床より静か)。掃引の中にも A/A 相当の対照が2つ現れ(`.text` が基準とバイト一致した `g1-tailfold-prefer` と `g3-loop-distribute`)、それぞれ 1.0020 [0.9991, 1.0050]、1.0015 [0.9978, 1.0049] とこの帯に収まった(results.md §10、§12)。**短いケースほど騒がしい**ことは、zopfli のケース選定の前に思い出す。
+- **測定条件**: `taskset` で**物理コア1つに固定し、その SMT 兄弟を空ける**(toy では `taskset -c 2`、兄弟の CPU 3 は未使用)。**`lscpu -e` の出力を記録に残す。** v0.3 までの「単一 CCD 内の物理コア」という指定は、**WSL2 からはホストの CCD トポロジが見えない**ため満たせない: `lscpu -e` は 32 論理 CPU が L3 を1つ共有していると報告し(実機の 5950X は 2 CCD で L3 32 MiB × 2)、vCPU → ホストコアの対応も保証されない(results.md §9)。単一コアに固定する限り「単一 CCD 内」は自明に成り立つが、**検証はできない**ので主張もしない。構成順序をラウンドロビンで交互化する(連続で流すと後半が熱で遅くなる)。ASLR は有効のまま。n(初期 50)、warmup(初期 5)、trimming 規則を holdout 前に config で凍結し、事後変更した run は無効。
 - **holdout は凍結後1回のみ**。結果を見てから候補・selector・重み・n を変えた場合は新 seed で再生成し、全実行履歴を `results.md` に列挙する。訓練ワークロード(PGO の訓練実行、掃引、不均質性ゲート)と holdout は分離する。holdout のケースは profdata の生成に一切使わない。
 - **退行**: ケース集合と重みは事前凍結し、退行ケースは集計に含めたまま最大値と件数を `results.md` 冒頭に置く。試した全アーム・全 plan 世代を列挙し、採用しなかったものも残す。
 - **帰属**: 基準と Jev の最終バイナリをシンボル単位で正規化 diff し、変化した関数を「plan の site を含む / 含まない」に分類して件数を報告する。plan の site に機械語差分が無ければ時間差は noise として扱う。`apply-report` の consumed / planned が `min_decision_realization`(初期 0.7)未満の run は性能主張の根拠に使わない。
 - **事後帰属(任意)**: 主比較で差が出た場合に限り、`perf`(無ければ `valgrind --tool=callgrind`)で基準バイナリと Jev バイナリのシンボル別 cycle(callgrind なら Ir)を取り、差分が plan の site を含む関数に集まっているかを見る。**これが perf の唯一の用途**で、hotness の取得にも site 選定にも使わない。perf も callgrind も無ければこの節を省略し、`results.md` に「事後帰属は未実施」と書く。主張の成否はこの節に依存しない。
-- **正しさ**: 上流テストと holdout の出力一致。両 variant で同じ方法で stdout を破棄し、正しさ検査と時間計測を分ける。
+- **正しさ(ゲートであり、時間より先に読む)**: 上流テストと holdout の出力一致。両 variant で同じ方法で stdout を破棄し、正しさ検査と時間計測を分ける。
+  - **出力 checksum の一致を必須ゲートにする。** 各アーム・各構成の最終バイナリで全ケースを走らせ、出力(または出力の checksum)を PGO 基準のものと比較する。**一致しない構成は、速度をどれだけ改善していても採用せず、集計にも入れない。** 別枠に「正しさ違反」として記録する。
+  - **`jev-opt build` の製品経路でも必須**にする: plan を適用したバイナリの出力が基準と一致しなければ **plan を採用せず**、PGO 基準のバイナリを成果物として出し、却下の事実と不一致の内容を記録する(§12)。
+  - **読む順序を規則にする。** 正しさは時間の読み取りより**前**に判定する。toy の掃引で最大の「高速化」(`dot` +267%)は、答えが違うバイナリだった(results.md §13、§14)。
+  - これが必要な理由は §8.4 のとおり、**幅ヒントが FP reduction の再結合を許してしまう**ため。site 単位の規則(`has_fp_reduction`)は一次防御だが、成果物での検査を最終防御に置く。
 - **コスト**: ビルド時間(fresh / cache 別、n ≥ 3 の中央値)には**計装ビルド・訓練実行・`llvm-profdata merge` の時間を含める**(`jev-opt build` 1回の体感時間がこれを含むため)。Jev の呼出し回数(global 1回 + 上位 N site 各1回で二十数回)、待機時間、費用を事前登録した予算と照合する。
-- **記録**: `run-manifest.json` に toolchain、CPU、flags、config の SHA、データ hash、`merged.profdata` の sha256(全アームで同一であることの証拠)、plan_id、binary の `.text` hash、時間サンプル、report、費用をまとめる。`results.md` は記録から生成し、欠測を成功値で埋めない。
+- **記録**: `run-manifest.json` に toolchain、CPU、**`lscpu -e` の出力と `taskset` で使ったコア**、flags、config の SHA、データ hash、`merged.profdata` の sha256(全アームで同一であることの証拠)、plan_id、binary の `.text` hash、**全アームの出力 checksum**、時間サンプル、report、費用をまとめる。`results.md` は記録から生成し、欠測を成功値で埋めない。
 
 ## 11. 設定ファイル `jev-opt.toml`
 
@@ -422,7 +453,8 @@ warmup = 5
 trim_rule = "none"
 min_effect_size = "max(2*aa_halfwidth, 0.03)"
 allowed_regression_per_case = 0.02
-cpu_pin = "0-7"           # 単一 CCD
+cpu_pin = "2"             # 物理コア1つ(SMT 兄弟の CPU 3 は空ける)。WSL2 では CCD 境界が見えないので
+                          # 「単一 CCD」は指定できない。lscpu -e を run-manifest に記録する(§10)
 min_decision_realization = 0.7
 
 [budget]
@@ -449,10 +481,10 @@ api_key_env = "AI_GATEWAY_API_KEY"                     # 値は .env か環境�
 | コマンド | 内容 |
 |---|---|
 | `jev-opt doctor` | toolchain 記録(解決後の `rustc -vV` をそのまま記録し、LLVM メジャーを確認)、gate 0(§8.1。`librustc_driver` ではなくそれが動的リンクしている `libLLVM.so` に対して `nm -D` を読む)、`llvm-tools-preview` と `llvm-profdata` の存在確認(LLVM メジャーが rustc と一致すること)、`llvm-knobs.json` 生成、テキスト remark の取得確認(`-pass-remarks*` の行がビルドログに出ること)、`-Zllvm-plugins` の probe、Jev 疎通。**`-Zllvm-plugins` の probe は codegen を伴う emit(`--emit=obj` など)で行う。** `--emit=metadata` ではフラグは受理されるが plugin を dlopen しないので、存在しない `.so` を渡しても成功してしまい、probe にならない(results.md Day 0 §1) |
-| `jev-opt headroom` | Stage 0: A/A + 最小効果量確定、グローバル掃引、打ち切り判定 |
+| `jev-opt headroom` | Stage 0: A/A + 最小効果量確定、グローバル掃引、打ち切り判定。掃引では構成ごとに **出力 checksum・正規化 remark 集合・`.text` ハッシュ**の3つを取り、(i) checksum 不一致の構成は正しさ違反として別記録にして判定から外し、(ii) remark も `.text` も動かない構成は計測を省略する(§6.3) |
 | `jev-opt baseline` | **PGO 基準を丸ごと作る**: 計装ビルド(`-Cprofile-generate`)→ `[workloads] training` の訓練実行 → `llvm-profdata merge` → `-Cprofile-use` で PGO 基準ビルド(第2段階では plugin dump モード + remarks)→ `.text` 等価性検査 → dump が書いた `sites.json`(hotness 込み)の回収 → remark 分類の書き戻し → coverage 判定。外部プロファイラは呼ばない。`--reuse-profdata`(既定 on)で既存 profdata があれば計装と訓練をスキップする(掃引や再 dump で訓練を繰り返さないため)。専用の `jev-opt pgo` は作らない。工程が1コマンドに収まる方がシンプルで、「訓練は1回」が構造的に保証される |
 | `jev-opt plan` | Jev または selector で `jev-plan.json` を出力。`--selector jev-choice|keep-default|deterministic-<name>|oracle-probe`、`--global`(Stage 1)/ `--sites`(Stage 2) |
-| `jev-opt build` | 製品経路。利用者は `cargo build --release` の代わりにこれ1つを打つ。内部で次を一括実行する: (1) 計装ビルド → 訓練実行 → `llvm-profdata merge` → `merged.profdata`(`baseline`)、(2) その profdata で PGO 基準ビルド(plugin dump モード + remarks)。dump が `sites.json` に hotness(PGO 分岐重み由来)まで書く、(3) ビルドログのテキスト remark を読んで理由分類を `sites.json` に書き戻す(結合キーは `leaf_loc`、§8.3)、(4) `plan --global` で Jev に1回問い合わせて global_flags を決める。製品経路ではここで既に dump が済んでいるので、§7 の「remark `cost` 理由の関数」ではなく hotness 上位の関数ソースを渡す、(5) `plan --global` が `KEEP_DEFAULT` 以外を選んだら**同じ profdata + 新しい global_flags で再 dump**(`baseline --with-global --reuse-profdata`)。plugin は `basis.global_flags` の不一致で止まるので、条件は「inlining が変わったか」ではなく「global_flags が変わったか」で判定する、(6) `plan --sites` で上位 N site に各1回問い合わせ、(7) 同じ profdata + 同じ global_flags + plan で PGO + Jev ビルド。Jev への問い合わせは global 1回 + site N 回の二十数回。`apply-report` を回収し実現率を判定する。plugin は `basis.global_flags` / `basis.pgo_profile_sha` と現在のビルド条件が不一致なら止まる |
+| `jev-opt build` | 製品経路。利用者は `cargo build --release` の代わりにこれ1つを打つ。内部で次を一括実行する: (1) 計装ビルド → 訓練実行 → `llvm-profdata merge` → `merged.profdata`(`baseline`)、(2) その profdata で PGO 基準ビルド(plugin dump モード + remarks)。dump が `sites.json` に hotness(PGO 分岐重み由来)まで書く、(3) ビルドログのテキスト remark を読んで理由分類を `sites.json` に書き戻す(結合キーは `leaf_loc`、§8.3)、(4) `plan --global` で Jev に1回問い合わせて global_flags を決める。製品経路ではここで既に dump が済んでいるので、§7 の「remark `cost` 理由の関数」ではなく hotness 上位の関数ソースを渡す、(5) `plan --global` が `KEEP_DEFAULT` 以外を選んだら**同じ profdata + 新しい global_flags で再 dump**(`baseline --with-global --reuse-profdata`)。plugin は `basis.global_flags` の不一致で止まるので、条件は「inlining が変わったか」ではなく「global_flags が変わったか」で判定する、(6) `plan --sites` で上位 N site に各1回問い合わせ、(7) 同じ profdata + 同じ global_flags + plan で PGO + Jev ビルド。Jev への問い合わせは global 1回 + site N 回の二十数回。`apply-report` を回収し実現率を判定する。plugin は `basis.global_flags` / `basis.pgo_profile_sha` と現在のビルド条件が不一致なら止まる、(8) **正しさゲート(必須、§10)**: 出来た Jev バイナリで正しさ検査ワークロードを走らせ、出力(checksum)を (2) の PGO 基準バイナリのものと比較する。**不一致なら plan を採用せず、(2) の PGO 基準バイナリを成果物として出力し**、却下した plan_id・不一致だったケース・該当 site を記録して非ゼロ終了ではなく警告付き成功として返す(利用者は常に正しいバイナリを受け取る)。幅ヒントが FP reduction を再結合しうるので(§8.4)、このゲートは省略可能にしない |
 | `jev-opt bench` | 全アーム、interleaved、bootstrap、帰属 diff、`results.md` |
 
 cargo への組み込みは「CLI が環境変数を組んで `cargo build --release --target …` を exec する」だけ。`.cargo/config.toml` は使わない(RUSTFLAGS 系と上書き競合し、variant 切替で状態が残る)。
@@ -485,10 +517,10 @@ cargo build --release --target x86_64-unknown-linux-gnu
 2. **済(toy。results.md Day 0 §4)/ zopfli は未**。**PGO 基準を作る**: 計装ビルド(`-Cprofile-generate`、plugin も remarks も無し、`CARGO_TARGET_DIR=target/pgo-gen`)→ `[workloads] training` を計装バイナリで実行 → pin した toolchain の `llvm-profdata merge` → `merged.profdata`。sha256 を記録する(toy は `4a054099…`。訓練実行をやり直してもバイト一致した)。**この profdata は以降の全アーム(基準・selector・Jev・oracle・掃引の全構成)で共有し、訓練実行は二度と行わない。**
 3. **済(toy。results.md Day 0 §4)/ zopfli は未**。`-Cprofile-use=<merged.profdata>` を付けて PGO 基準ビルドが通ることと、正しさ検査(上流テストと出力一致)を確認する。`-Cllvm-args=-pgo-warn-missing-function` を明示して警告件数を数える(toy は 0 件)。インタプリタ層 share のゲート(§6.1-4)は plugin dump を要するので、jaq に進む day 4 以降に掛ける。toy と zopfli には掛けない。
 4. **済(toy。results.md Day 0 §3, §6)/ zopfli は未**。失格フィルタ(memchr / SIMD、§6.1-2)、テキスト remark の取得確認(YAML ではない。§3)。
-5. A/A 実行(PGO 基準バイナリで)→ 最小効果量。群 0〜3 の掃引(**全構成に同じ `-Cprofile-use` を付ける**。群 1 が動かなくても群 2〜3 まで回す。inline 判断は群 2 で最も余地がありそうだが、PGO が既に inline を触っている点に注意)。toy では手順が通ることだけを見て、A/A と打ち切り規則は zopfli から適用する。
+5. **済(toy。results.md Day 0 §8〜§17)/ zopfli は未**。A/A 実行(PGO 基準バイナリで)→ 最小効果量。群 0〜3 の掃引(**全構成に同じ `-Cprofile-use` を付ける**。群 1 が動かなくても群 2〜3 まで回す。inline 判断は群 2 で最も余地がありそうだが、PGO が既に inline を触っている点に注意)。**各構成で出力 checksum を先に取り、正しさが通らない構成を判定から外す**(§6.3、§10)。toy の実績: A/A 半幅 集計 0.34%・最悪 1.22%、**MDE 3.00%**、29 構成 + 基準を 2 分 11 秒でビルド、`.text` バイト一致の 6 構成は計測省略、`-force-vector-width` の 4 構成は checksum 不一致で失格、残りに MDE を超える改善は無し。toy ではこの結論は破棄し(§6.4)、打ち切り規則の適用は zopfli から本番にする。
 6. 群 4 の掃引、§6.3 の打ち切り規則で判定(zopfli に対して)。対象を降ろす判断はここで1回だけ。
 
-day 0 の追加実施分(すべて **済**、results.md Day 0): `targets/toy/` の作成(lib + bin の2 crate、4ループ。§6.4)、**gate 0**(§8.1。`libLLVM.so` に対して実施したので day 3 の項目 9 は再実施しない)、**remark 機構の選定**(§3。3方式を試して `-pass-remarks*` を採用)、**`.text` ハッシュの debuginfo 依存性の確認**(§3。debuginfo 0/1 で不一致)、§6.2 の4ループ所見。**未実施**: A/A とノイズフロア、群 0〜4 の掃引、zopfli 一式(項目 5・6)。
+day 0 の追加実施分(すべて **済**、results.md Day 0): `targets/toy/` の作成(lib + bin の2 crate、4ループ。§6.4)、**gate 0**(§8.1。`libLLVM.so` に対して実施したので day 3 の項目 9 は再実施しない)、**remark 機構の選定**(§3。3方式を試して `-pass-remarks*` を採用)、**`.text` ハッシュの debuginfo 依存性の確認**(§3。debuginfo 0/1 で不一致)、§6.2 の4ループ所見、**A/A とノイズフロア**(§10 に転記)、**`llvm-knobs.json` の生成**(2689 ノブ。§6.3)、**群 0〜3 の掃引 30 ビルド**(§6.2、§6.3、§7 に転記)、**幅ヒントによる FP 再結合の発見**(§8.4)。**未実施**: 群 4 の掃引(項目 6。打ち切り判定と抱き合わせなので zopfli の項目)、zopfli 一式(項目 5・6)、`remark-reason-map.json` は §6 の手分類 9 件のままで、掃引ログに現れた残りの理由文字列は未分類。
 
 **day 1〜2(Stage 1、Rust のみ、対象: toy → zopfli)**
 7. `jev-opt` の doctor / headroom / baseline / plan --global / build / bench。Jev 接続。`baseline` に PGO の計装 → 訓練 → merge を内包する。
@@ -499,7 +531,7 @@ day 0 の追加実施分(すべて **済**、results.md Day 0): `targets/toy/` �
 10. LLVM **23.1** の upstream tarball からヘッダを生成(§8.1)。
 11. **probe plugin**: 全 EP callback を登録し、発火時に EP 名 / module / 関数数 / `isvectorized` 件数をログ。LLVM ライブラリ非リンク。
 12. **toy crate**(§6.4 の検証用対象。lib を依存にした bin の2 crate 構成で、lib 側に素朴な `for` ループと `iter().filter().count()` を置き bin から呼ぶ。day 0〜2 で既に Stage 0〜1 を通してある同じ crate を使う)を lto=off / thin / fat / **fat+PGO** でビルドし、「どの EP がどの段で発火するか」の表を作る。**これが EP 選定の唯一の根拠。** `fat+PGO` 構成では次の4点を必ず確認する: (a) 選んだ EP が `-Cprofile-use` と共存し、PGO の profile 適用より**後**で発火すること、(b) 同じ profdata で dump ビルドと apply ビルドを行い、**dump で得た site key が apply で全件解決する**こと(`vanished` / `ambiguous` が 0)、(c) profile に照合できた関数数(または `-pgo-warn-missing-function` の警告件数)が dump ビルドと apply ビルドで一致すること、(d) `basis.pgo_profile_sha` を意図的に食い違わせると plugin がエラーで止まること。(a)(c) はこの day 3 で確認する。(b)(d) は site key 生成と dump モードを要するので、項目 15 の時点で同じ toy crate に対して行う。(b)(c) が「訓練実行1回・profdata 共有」設計の実証であり、取れなければアームごとの PGO サイクルに戻す。
-13. apply 試験: toy の特定関数の全ループに `vectorize.width=8` をハードコードし、`--emit=llvm-ir` の metadata、objdump の ymm 変化、テキスト remark で consumed を三重確認。
+13. apply 試験: toy の特定関数の全ループに `vectorize.width=8` をハードコードし、`--emit=llvm-ir` の metadata、objdump の ymm 変化、テキスト remark で consumed を三重確認。**併せて `dot_f64` に `vectorize.width=8` を付けたビルドの出力 checksum を PGO 基準と比較する(必須)。** グローバルノブ `-force-vector-width` では FP reduction が再結合されて `dot` の checksum が変わることが実測済みで(§8.4、results.md §13)、**メタデータ経路でも同じことが起きるかどうかが §8.4 の規則 1 の射程を決める**。同じビルドで (a) `vectorize.enable=true` 単独、(b) cl::opt の `-hints-allow-reordering=false` を併用した場合の2つも試し、結果を `results.md` に書く。checksum が変わる経路が特定できるまで、plan には FP reduction を含む site への幅ヒント・`vectorize.enable` を入れない。
 14. off 等価性: `.text` ハッシュ一致。
 
 **失敗時の分岐**
@@ -528,6 +560,8 @@ day 0 の追加実施分(すべて **済**、results.md Day 0): `targets/toy/` �
 > `jev_opt_spec.md` v0.3 に従って実装する。順序は §13 のとおりで、day 0 は `jev-opt` のコードを書かずに(対象の toy crate と補助スクリプトは除く)手順を実行し、結果を `results.md` に記録すること。各 day の終わりにゲート判定を書き、通らなければ次に進まず報告する。特に day 4 の不均質性ゲートが通らない場合は、実装を進めず判定と根拠だけを返す。day 0 は実施済みで、結果は `results.md` の Day 0 にある。
 >
 > **基準は PGO 込み**(`O3 + target-cpu=native + lto=fat + codegen-units=1 + PGO`)であり、Jev 版は同じものに Jev のヒントを足したもの。訓練実行は Stage 0 の1回だけで、得た `merged.profdata` を基準・selector・Jev・oracle・掃引の全構成に `-Cprofile-use` で共有する。アームごとの PGO サイクルは回さない。`llvm-profdata` は pin した toolchain の `llvm-tools-preview` 付属のものを使う。主比較は (PGO + Jev) − PGO、副次は (PGO + Jev) − (PGO + 固定規則)、参考値として素の `cargo build --release` との差(§9)。
+>
+> **正しさは時間より先に読む。** 幅ヒント(`-force-vector-width`、および同じ経路を通るとみられる `llvm.loop.vectorize.width`)は FP reduction の再結合を許してしまい、出力そのものを変えうる(§6.2、§8.4、results.md §13)。掃引でも `jev-opt build` でも、**出力 checksum を PGO 基準と比較する正しさゲートを必須**にし、不一致の構成 / plan は採用せず別枠に記録する(§10、§12)。site 単位では `has_fp_reduction` が真の site に幅ヒントを付けない(§8.4、§8.5)。
 >
 > **hotness は perf ではなく PGO の分岐重みから取る。** plugin の dump モードが、ループヘッダの `getBlockProfileCount()`(絶対カウント)× ループ本体(サブループを除く)の命令数を hotness score として `sites.json` に直接書く。IP → site の突合も外部プロファイラも主経路には無い。`addr2line` は §7 の Stage 1 remark 帰属(DebugLoc → 関数)と §10 の事後帰属にだけ使い、IP → site の突合には使わない。perf / callgrind は §10 の事後帰属専用で、未導入でも全 day が進む。
 >

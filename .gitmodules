@@ -1,0 +1,4 @@
+[submodule "targets/zopfli/src"]
+	path = targets/zopfli/src
+	url = https://github.com/zopfli-rs/zopfli
+	branch = main
