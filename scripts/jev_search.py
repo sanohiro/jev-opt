@@ -1819,7 +1819,13 @@ class Search:
                 if arm is None:
                     break
             round_no += 1
+            t_round = time.time()
             rec = self.one_round(round_no, proposer, arm)
+            # Wall clock of the round, recorded here rather than inside
+            # one_round because that function has several early returns and
+            # every one of them has to carry the number (results.md asks for
+            # per-round wall clock). Records only: nothing reads it back.
+            rec["wall_s"] = round(time.time() - t_round, 1)
             with open(self.rounds_path, "a") as f:
                 f.write(json.dumps(rec) + "\n")
             self.history.append(self.history_entry(rec))
@@ -1840,13 +1846,21 @@ class Search:
         self.holdout = None
         if not self.args.measure_holdout:
             return
-        if self.best["plan"] is None:
-            print("[holdout] no round beat the baseline; nothing to measure")
-            return
-        best_bin = os.path.join(self.out, self.best["label"], "bin")
-        if not os.path.isfile(best_bin):
-            print("[holdout] %s is gone (--keep-binaries)" % best_bin)
-            return
+        # When no round was accepted the run's best is the baseline itself.
+        # Measuring the baseline against the baseline is not a speed claim ---
+        # it is the in-sweep null panel of SPEC.ja.md 7 on the holdout set, and
+        # it is the only way to get the holdout A/A half-width and the MDE that
+        # the report has to quote. The acceptance rule is untouched.
+        null_arm = self.best["plan"] is None
+        if null_arm:
+            print("[holdout] no round beat the baseline; measuring the "
+                  "baseline as the run's null arm (A/A and MDE only)")
+            best_bin = self.baseline_bin()
+        else:
+            best_bin = os.path.join(self.out, self.best["label"], "bin")
+            if not os.path.isfile(best_bin):
+                print("[holdout] %s is gone (--keep-binaries)" % best_bin)
+                return
         shell = shell_config(self.target, "holdout")
         hdir = os.path.join(self.out, "holdout")
         os.makedirs(hdir, exist_ok=True)
@@ -1859,7 +1873,8 @@ class Search:
             self.holdout = {"error": err}
             return
         agg = stats["aggregate"]
-        self.holdout = {"plan": self.best["label"], "case_set": shell["bench_set"],
+        self.holdout = {"plan": self.best["label"], "null_arm": null_arm,
+                        "case_set": shell["bench_set"],
                         "cases": shell["workloads"],
                         "ratio": agg["cand"]["ratio"], "ci95": agg["cand"]["ci95"],
                         "aa": {"ratio": agg["aa"]["ratio"],

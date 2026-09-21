@@ -7859,3 +7859,380 @@ only inside the marks whose attribute changed).
   built from `merged.profdata` `4e879ce1…`. A different profile changes the
   70 zero-count sites and the whole hotness ordering, and a different
   inliner outcome changes the keys.
+
+## Experiment 3 (jaq): Jev vs random, 5 rounds
+
+The first real rounds of the SPEC.ja.md 1 (3) loop on jaq. Two runs,
+sequential, on the frozen site set of "Sites (jaq)" section 93: `--proposer
+jev --rounds 5`, then `--proposer random --rounds 5`, then one holdout
+measurement each. The oracle arm of decision 65 (f) has **not** been run.
+
+### 95. What was run
+
+```
+export TARGET=jaq
+scripts/jev_search.py --target jaq --marks targets/jaq/jev-marks.txt \
+    --sites targets/jaq/sites.json --site-set oracle.selected_keys_top3 \
+    --proposer jev --rounds 5 --measure-holdout \
+    --out artifacts/jaq-search/jev-r5/
+scripts/jev_search.py ... --proposer random --rounds 5 --measure-holdout \
+    --baseline-dir artifacts/jaq-search/jev-r5/baseline \
+    --out artifacts/jaq-search/random-r5/
+```
+
+Frozen values, all from `jev-opt.toml` and `scripts/target_common.sh`, and
+identical for both runs: `repetitions = 15`, `warmup = 3`, label order
+shuffled from `seed = 20260921` + the round number, `--gap-ms 250`,
+`taskset -c 4`, bootstrap 10000 resamples, vocabulary `v1-2026-09-22`, state
+format `state-v1-2026-09-22`, `build_knobs = []` (so the `__build__`
+pseudo-site of SPEC.ja.md 1 (2) row 4 **was not asked about in either run** ---
+no compiler-setting question exists yet). Rounds ran on the **training**
+case set (objsearch, strproc, readwrite), the holdout once at the end.
+
+Identities recorded in both `run-manifest.json`: rustc 1.100.0-nightly
+(bba531001 2026-09-20), `merged.profdata` `4e879ce1…`, plugin `695412d0…`,
+`jev-opt.toml` `a8029ac1…`, `jev-marks.txt` `40ef24cc…`.
+
+**One baseline, shared.** The random run was given
+`--baseline-dir artifacts/jaq-search/jev-r5/baseline`, so both arms were
+timed against the *same* baseline binary (`e183c81d…`) rather than against
+two independent builds of the same recipe --- on jaq those are not
+bit-identical ("Stage 0 (jaq)" section 53: mimalloc bakes `__TIME__` in).
+The manifests confirm the same `baseline_bin_sha256` in both runs.
+
+Site set, identical in both runs, from
+`targets/jaq/sites.json` → `oracle.selected_keys_topk_per_mark`:
+**15 function sites + 16 loop sites = 31 Choice questions per round**, two
+HTTP requests per round for the Jev arm.
+
+### 96. Jev, 5 rounds: `KEEP_DEFAULT` at every site, every round
+
+| round | phase A (15 fn sites) | phase B (16 loop sites) | plan entries | apply outcomes | correct | ratio | 95% CI | in-run A/A | accepted |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | KEEP_DEFAULT ×15 | KEEP_DEFAULT ×16 | 0 | — (empty plan) | yes | 0.9934 | [0.9862, 1.0006] | 0.9999 ±0.0073 | no |
+| 2 | KEEP_DEFAULT ×15 | KEEP_DEFAULT ×16 | 0 | — | yes | 0.9976 | [0.9915, 1.0039] | 0.9918 ±0.0078 | no |
+| 3 | KEEP_DEFAULT ×15 | KEEP_DEFAULT ×16 | 0 | — | yes | 1.0019 | [0.9968, 1.0071] | 1.0129 ±0.0068 | no |
+| 4 | KEEP_DEFAULT ×15 | KEEP_DEFAULT ×16 | 0 | — | yes | 0.9902 | [0.9846, 0.9958] | 1.0166 ±0.0073 | no |
+| 5 | KEEP_DEFAULT ×15 | KEEP_DEFAULT ×16 | 0 | — | yes | 1.0009 | [0.9947, 1.0073] | 0.9920 ±0.0076 | no |
+
+Every round refreshed 16 loop sites after phase A (an empty `fn_attrs` set
+leaves the keys where the baseline dump put them). `attached` 0,
+`consumed` 0, `ambiguous` 0, `vanished` 0, `unmatched` 0,
+`skipped_empty` 0 in all ten builds, because every plan was empty. No round
+met the acceptance rule, so **the run's best plan is the baseline itself**
+and `best-plan.json` is not written.
+
+**The five rounds are therefore five null arms.** Rebuilding round 1's empty
+`plan-b.json` and comparing with `scripts/norm_code_diff.py` against the
+baseline binary:
+
+```
+baseline: 4763 symbols, normalised whole-code hash 7ad6d9821bbed2fb
+empty plan: hash 7ad6d9821bbed2fb  IDENTICAL
+  symbols 4763, changed 0, only-in-base 0, only-here 0
+  profile share held by the changed symbols: 0.00%
+```
+
+What that makes measurable, on the training set, at the frozen `n = 15`:
+five timings of a **code-identical** binary gave 0.9902, 0.9934, 0.9976,
+1.0009, 1.0019 (spread 1.2 pp), while their in-run A/A copies of the same
+binary gave 0.9918 … 1.0166 (spread 2.5 pp) with reported half-widths of
+0.68–0.78%. Round 4's 95% CI, [0.9846, 0.9958], **excludes 1.0 for a binary
+that is code-identical to the baseline.** This is the in-sweep null panel of
+SPEC.ja.md 7, and the pre-registered `MDE = max(2 × A/A half-width, 3%)`
+is why no such interval is read as a speed claim.
+
+### 97. What Jev was asked and what it answered
+
+`artifacts/jaq-search/jev-r5/jev-log/jev-r5.log`, verbatim:
+
+```
+# ts round phase questions http_status latency_ms input_tokens output_tokens cost_usd
+2026-09-22T07:13:23.297934+09:00 r1 A        15 200   1698.7   35522   1163 0.00000000
+2026-09-22T07:14:14.179582+09:00 r1 B        16 503   1045.2       0      0 0.00000000  ERROR HTTP 503
+2026-09-22T07:18:35.329415+09:00 r2 A        15 200   1316.3   35681   1163 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+2026-09-22T07:19:25.363432+09:00 r2 B        16 503    945.0       0      0 0.00000000  ERROR HTTP 503
+2026-09-22T07:23:37.833023+09:00 r3 A        15 200   1857.5   36000   1163 0.00000000
+2026-09-22T07:24:20.967842+09:00 r3 B        16 200   1610.2   38588   2425 0.00000000
+2026-09-22T07:28:40.673838+09:00 r4 A        15 200   1562.3   36319   1163 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+2026-09-22T07:29:31.033435+09:00 r4 B        16 200   1398.2   38926   2425 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+2026-09-22T07:33:50.639732+09:00 r5 A        15 200   1232.4   36638   1163 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+2026-09-22T07:34:41.375144+09:00 r5 B        16 503   1129.7       0      0 0.00000000  ERROR HTTP 503
+
+# http requests      10
+# choice questions   155
+# latency total/avg/max ms  13795.7 / 1379.6 / 1857.5
+# tokens in/out      257674 / 10665
+# cost usd           0.00000000
+# wall clock of the run s   1786.9
+# jev share of the run      0.7720%
+```
+
+Cost: **$0.00000000 billed** (the gateway's Hobby free tier; the same
+257674 + 10665 tokens at list price is under 1 cent). **0.77% of the run's
+wall clock** was spent waiting for Jev.
+
+**Three of the ten requests never got an answer.** The gateway returned
+HTTP 503 on 17 of the 24 HTTP attempts the ten requests cost; `[jev]
+retries = 3` with a 2 s / 4 s backoff recovered four of them, and r1 B,
+r2 B and r5 B exhausted all three attempts. SPEC.ja.md 6 says such a
+request falls back to `KEEP_DEFAULT` with the reason recorded, and that is
+what the driver did: 48 of the 155 questions (3 × 16 loop questions) were
+never seen by Jev. **This did not change any plan**: all 75 function answers
+and both surviving sets of 16 loop answers were `KEEP_DEFAULT` too, so every
+round's plan would have been empty either way. The `.jsonl` line for each
+failed request carries `"error": "HTTP 503"` and `failed_attempts`.
+
+Distribution of the **107 answers actually received**:
+
+| | KEEP_DEFAULT | anything else |
+|---|--:|--:|
+| phase A (function attributes) | 75 | 0 |
+| phase B (loop hints) | 32 | 0 |
+| total | **107** | **0** |
+
+Confidence: n = 107, min 0.71, p25 0.93, median 0.97, p75 0.99, max 1.00,
+mean 0.950. Histogram: 0.7–0.8 → 3, 0.8–0.9 → 8, 0.9–1.0 → 85, 1.00 → 11.
+Phase A mean 0.935 (min 0.71), phase B mean 0.987 (min 0.92). No answer fell
+below `[jev] min_confidence = 0`, so the confidence rule never fired.
+
+Which candidate came second in the `probabilities`, counted per answer:
+`inline` 62, `vectorize_width_8` 24, `cold` 7, `inline_never` 6,
+`unroll_count_8` 4, `unroll_disable` 2, `vectorize_width_4` 2.
+
+One answer of each kind, verbatim from the `.jsonl`:
+
+```
+round 3, phase B, site  <&alloc::string::String as core::fmt::Display>::fmt @ macros.rs:180
+  {"choice": "KEEP_DEFAULT", "confidence": 1,
+   "probabilities": {"KEEP_DEFAULT": 1, "unroll_count_2": 0, "unroll_count_4": 0,
+                     "unroll_count_8": 0, "unroll_disable": 0,
+                     "vectorize_width_2": 0, "vectorize_width_4": 0,
+                     "vectorize_width_8": 0, "vectorize_width_16": 0,
+                     "interleave_count_1": 0, "interleave_count_2": 0,
+                     "interleave_count_4": 0}}
+
+the least confident of the 107, round 1, phase A, site
+  <jaq_std::base_run<…>::{closure#7} as core::ops::function::FnOnce<…>>::call_once
+  {"choice": "KEEP_DEFAULT", "confidence": 0.71,
+   "probabilities": {"KEEP_DEFAULT": 0.77, "inline": 0.23, "inline_never": 0,
+                     "cold": 0, "align_16": 0, "align_32": 0, "align_64": 0}}
+```
+
+### 98. Random, 5 rounds
+
+Uniform over the same candidate lists at the same 31 sites, seeded from
+`[evaluation] seed` and the round number. "fn sites" is the count of Choice
+answers, "plan entries" the linkage names they fan out to (decision 61 c:
+one Choice covers every monomorphization of the mark).
+
+| round | fn sites hinted | fn plan entries | loop sites hinted | ambiguous keys | apply outcomes | correct | ratio | 95% CI | in-run A/A | accepted |
+|---|--:|--:|--:|--:|---|---|---|---|---|---|
+| 1 | 12/15 | 119 | 16/16 | 3 | 119 consumed, 13 attached, 3 ambiguous+attached | yes | 0.9510 | [0.9453, 0.9571] | 0.9874 ±0.0050 | no |
+| 2 | 15/15 | 138 | 15/16 | 3 | 138 consumed, 12 attached, 3 ambiguous+attached | yes | 1.0017 | [0.9948, 1.0080] | 0.9991 ±0.0090 | no |
+| 3 | 13/15 | 136 | 14/16 | 3 | 136 consumed, 11 attached, 3 ambiguous+attached | yes | **1.0193** | [1.0053, 1.0353] | 1.0173 ±0.0144 | **yes** |
+| 4 | 14/15 | 137 | 14/16 | 3 | 137 consumed, 11 attached, 3 ambiguous+attached | yes | 0.9959 | [0.9893, 1.0022] | 0.9755 ±0.0719 | no |
+| 5 | 13/15 | 119 | 14/14 | 3 | 119 consumed, 11 attached, 3 ambiguous+attached | yes | 0.9134 | [0.9068, 0.9201] | 0.9896 ±0.0074 | no |
+
+Per-round hint mix (Choice answers, not plan entries):
+
+```
+r1 A  KEEP_DEFAULT 3, align_16 3, align_32 2, align_64 2, cold 3, inline 1, inline_never 1
+r1 B  interleave_count_1 2, interleave_count_2 4, unroll_count_2 3, unroll_count_4 2,
+      unroll_count_8 1, unroll_disable 2, vectorize_width_16 2
+r2 A  align_16 3, align_32 1, align_64 1, cold 5, inline 3, inline_never 2
+r2 B  KEEP_DEFAULT 1, interleave_count_1 2, interleave_count_2 2, interleave_count_4 1,
+      unroll_count_2 3, unroll_count_4 2, unroll_disable 1, vectorize_width_2 1,
+      vectorize_width_8 2, vectorize_width_16 1
+r3 A  KEEP_DEFAULT 2, align_16 3, align_32 2, align_64 3, cold 1, inline 4
+r3 B  KEEP_DEFAULT 2, interleave_count_4 4, unroll_count_4 1, unroll_count_8 2,
+      unroll_disable 2, vectorize_width_2 4, vectorize_width_16 1
+r4 A  KEEP_DEFAULT 1, align_16 3, align_32 3, align_64 2, cold 2, inline 4
+r4 B  KEEP_DEFAULT 2, interleave_count_2 2, interleave_count_4 2, unroll_count_2 2,
+      unroll_count_4 1, unroll_disable 2, vectorize_width_2 2, vectorize_width_4 1,
+      vectorize_width_16 2
+r5 A  KEEP_DEFAULT 2, align_16 2, align_32 4, align_64 1, cold 2, inline 1, inline_never 3
+r5 B  interleave_count_2 1, interleave_count_4 2, unroll_count_4 1, unroll_count_8 2,
+      unroll_disable 1, vectorize_width_2 2, vectorize_width_4 1, vectorize_width_8 1,
+      vectorize_width_16 3
+```
+
+Three observations that belong to the driver rather than to speed:
+
+* **Every plan entry took effect in every round.** `unmatched` 0,
+  `vanished` 0, `skipped_empty` 0 across all five rounds; the acceptance
+  rule's clause 2 never fired.
+* **Exactly 3 ambiguous keys every round**, the colliding keys of
+  section 91 (the hint goes on every copy and the count is recorded, not
+  failed --- decision 64).
+* **Round 5 refreshed only 14 loop sites, not 16.** Two of the 16 frozen
+  keys did not survive that round's function attributes, which is decision
+  61 (b) doing exactly what it says it does; those sites were not asked
+  about that round. Round 2–4 kept all 16 keys but 1–2 of them drew
+  `KEEP_DEFAULT`.
+* **Output was bit-identical to the baseline in all five rounds**, with
+  `-Cllvm-args=-hints-allow-reordering=false` pinned, including the rounds
+  that put `vectorize.width` on FP-carrying loops.
+
+Round 3 met all three clauses of the acceptance rule and became the run's
+best plan at 1.0193 --- **while its own in-run A/A, two stripped copies of
+the same baseline binary, read 1.0173 ±0.0144.**
+
+### 99. Holdout, once, after the best plans were frozen
+
+Both measured on the holdout case set with the same recipe, `n = 15`,
+warmup 3, `taskset -c 4`, gap 250 ms, three labels (`base` = baseline,
+`cand` = the run's best plan, `aa` = a second copy of the baseline).
+
+| run | cand | aggregate ratio | 95% CI | in-run A/A | A/A half-width | MDE (pre-registered) | MDE (bench.py, worst workload) |
+|---|---|---|---|---|--:|--:|--:|
+| jev-r5 | baseline (no round accepted) | **0.9787** | [0.9727, 0.9856] | 0.9906 | 0.94% | 3.00% | 3.95% |
+| random-r5 | round-03 | **0.9809** | [0.9764, 0.9857] | 0.9879 | 0.59% | 3.00% | 3.00% |
+
+Both holdouts used the same shuffle seed (`[evaluation] seed = 20260921`,
+with no round offset in `measure_holdout`), so the two runs drew the
+**same label permutation sequence**: their two A/A values, 0.9906 and
+0.9879, are not independent samples of the noise floor.
+
+The pre-registered MDE is `max(2 × A/A half-width, 3%)` on the **aggregate**
+A/A interval, which is 3.00% for both runs. `bench.py` computes the same
+formula from the **worst per-workload** half-width and prints 3.95% for the
+Jev run; both numbers are in `holdout/stats.md` and neither is exceeded by
+anything below.
+
+**The Jev run's holdout row is three copies of one binary.** No round was
+accepted, so the driver measured the baseline as the run's null arm
+(section 102): `base`, `cand` and `aa` are the same 33 MB file. They came
+out 1.0000 / 0.9787 / 0.9906 --- **a 2.1 pp spread between byte-identical
+binaries on the holdout set**, larger than anything either arm produced.
+Per workload, that null spread is objsearch 1.97%, strproc 0.71%,
+readwrite 1.61% (half-widths, worst label).
+
+### 100. Attribution: what the accepted binary actually changed
+
+`scripts/norm_code_diff.py baseline/bin random-r5/round-03/bin --profdata
+pgo/jaq/merged.profdata`:
+
+```
+baseline hash 7ad6d9821bbed2fb -> 29f818e81d950f85  DIFFERS
+  symbols 4763 (base 4763), changed 45, only-in-base 0, only-here 0
+  profile share held by the changed symbols: 14.79%
+    5.73%  432->413 insns  <jaq_std::base_run<…>::{closure#7} …>::call_once   (inline)
+    2.99%  240->317 insns  core::ptr::drop_glue::<jaq_json::Val>
+    1.93%  6562->6560 insns  <jaq_core::compile::TermId>::run::<…>            (align=64)
+    0.57%  76->105 insns  core::ptr::drop_glue::<alloc::boxed::Box<bytes::Bytes>>
+    0.43%  471->852 insns  <&alloc::string::String as core::fmt::Display>::fmt (align=16 + unroll.count=4)
+    0.40%  286->108 insns  core::ptr::drop_glue::<[indexmap::Bucket<Val, Val>]>
+    0.25%  730->573 insns  <jaq_json::Val>::index_opt
+    0.22%  271->87  insns  <Rc<IndexMap<Val, Val, …>>>::drop_slow             (inline + unroll.disable/count=8)
+    0.10%  1012->318 insns <Path<Val>::run::{closure#0} …>::call_once         (inline)
+    (35 more, each below 0.1% of the profile)
+```
+
+Of the 45 changed symbols, **11 carry the name of one of the 15 marks**
+(matched on the mark's last path segment, so this is an approximation); the
+other 34 are callers, monomorphizations and drop glue that moved because
+`inline` on four marks changed what the inliner saw. The Jev run has no such diff: its best plan is the baseline, and the
+empty-plan build is normalised-code-identical to it (section 96).
+
+Round-03's plan, for the record (`docs/experiments/jaq-exp3/random-r5-best-plan.json`):
+phase A `read::parse` align=64, `Lex::seq` cold, `str_fold` align=32,
+`write_until` align=16, `TermId::run` align=64, `write::write` inline,
+`funs::base{closure#3}` align=16, `Path::run{closure#0}` inline,
+`Adapter::write_str` KEEP_DEFAULT, `reserve_rehash` KEEP_DEFAULT,
+`Rc<IndexMap>::drop_slow` inline, `base_run{closure#7}` inline,
+`path::run` align=64, `Val::hash` align=32, `String::fmt` align=16;
+phase B 14 loop hints over 16 keys (2 KEEP_DEFAULT), listed in the plan file.
+
+### 101. What happened, in the pre-registered metrics only
+
+* **Jev's best plan is the baseline.** Jev answered `KEEP_DEFAULT` to
+  107 of 107 questions it answered, at mean confidence 0.950; 48 further
+  questions got `KEEP_DEFAULT` from the HTTP-503 fallback rule. No round
+  was accepted, so there is no Jev plan to measure: **+0.00% by
+  construction**, and the run's holdout row is the null arm at 0.9787
+  [0.9727, 0.9856].
+* **Random's best plan is −1.91% on holdout**: ratio 0.9809, 95% CI
+  [0.9764, 0.9857], against a training-set estimate of +1.93%
+  [+0.53%, +3.53%]. The sign reversed between the two case sets.
+* **MDE = 3.00%** for both runs (`max(2 × 0.94%, 3%)` and
+  `max(2 × 0.59%, 3%)`). Neither result exceeds it, in either direction, so
+  neither arm may be called faster or slower than the baseline.
+* **Neither arm produced a plan whose holdout interval clears the MDE.**
+  The only round that met the pre-registered acceptance rule (random round 3)
+  had an in-run A/A of 1.0173 ±0.0144 in the same measurement, i.e. the
+  identical-binary control moved almost as far as the candidate did.
+* **Correctness held everywhere**: 10 of 10 builds (5 Jev + 5 random) matched
+  the baseline's `run_correctness` output line for line, and 0 of 10 had an
+  `unmatched`, `vanished` or `skipped_empty` plan entry.
+
+### 102. Wall clock, driver fixes, deviations
+
+**Wall clock.** Per round (build A + build B + correctness + bench):
+
+```
+jev-r5     r1 304 s   r2 310 s   r3 295 s   r4 310 s   r5 310 s    total 1787 s (29.8 min)
+random-r5  r1 294 s   r2 291 s   r3 300 s   r4 340 s   r5 296 s    total 1726 s (28.8 min)
+```
+
+Plus one `JEV_MODE=dump` baseline build (~130 s including correctness,
+built once and shared) and two holdout measurements (~120 s each). The whole
+of Experiment 3 was **about 62 minutes of wall clock**, 07:11–08:13 JST
+2026-09-22. Jev's share of its own run was 0.77%; the cost was $0.
+
+**Two changes to `scripts/jev_search.py`, both records-only.** Neither
+touches the acceptance rule, the vocabulary, the state format or the site
+set, and both were made before the first round.
+
+1. `rec["wall_s"]` is now recorded per round, at the call site in `run()`
+   rather than inside `one_round` (which has six early returns). Nothing
+   reads it back; it is the table above.
+2. `measure_holdout` no longer skips the measurement when no round was
+   accepted. It measures the **baseline as the run's null arm** instead,
+   with `"null_arm": true` in `holdout.json`, because that is the only way
+   to obtain the holdout A/A half-width and the MDE for a run that accepted
+   nothing --- which is exactly what the Jev run did. The acceptance rule is
+   unchanged; the null arm is SPEC.ja.md 7's in-sweep null panel, not a
+   candidate.
+
+**Deviations, and what is not established.**
+
+* **No oracle arm.** Decision 65 (f) puts it third; it is 267 builds and
+  about 20 h and has not been run, so "Jev ÷ oracle" in SPEC.ja.md 2 is
+  still TBD and nothing here bounds how much was on the table.
+* **Jev never proposed anything, so this experiment did not test whether
+  Jev's hints make jaq faster.** It tested that the loop runs, that the
+  plan applies, and what Jev says when asked --- and Jev said
+  `KEEP_DEFAULT` 107 times out of 107. One run, one state format, one
+  vocabulary, one target.
+* **Three of ten requests failed with HTTP 503** and their 48 questions were
+  resolved by the fallback rule, not by Jev. The answered subset was
+  unanimous in the same direction, so no plan changed, but the arm is not a
+  clean 155-for-155 sample of Jev's judgement.
+* **The `__build__` question was never asked** (`build_knobs = []`), so the
+  compiler-setting row of SPEC.ja.md 1 (2) is untested in both arms.
+* **The Jev run's round binaries were deleted** by `--keep-binaries best`
+  (the default) because no round was accepted. The code-identity check of
+  section 96 is a *rebuild* of round 1's empty plan with the same recipe,
+  not the binary that was timed.
+* **`jev_totals["requests"]` counts `ask()` calls, not HTTP attempts**
+  (10 vs 24), and `latency_ms` sums only the attempt that returned. The
+  per-line `failed_attempts` field in the `.jsonl` carries the rest.
+* **Random's round 5 asked about 14 sites, not 16.** The two runs are not
+  matched question-for-question in that round, by construction (decision
+  61 b).
+* **Random round 4's in-run A/A half-width is 0.0719, ten times every other
+  round's** (0.0050–0.0090), while the same round's candidate interval is
+  the usual width. It is not a band shift: in that round's `samples.json`
+  every label/workload pair has one or more repetitions 1.4–2.4× its own
+  median, and they fall in a contiguous block of bench rounds (indices 0–5)
+  that hit all three labels. Random round 3 has the same shape at indices
+  11–14; the Jev rounds have none above 1.15× their median. `trim_rule =
+  "none"` is frozen, so nothing was trimmed and the bursts are inside every
+  number above. What caused them is not established --- the machine is WSL2
+  with no governor control (SPEC.ja.md 3) --- and the shuffle is what spreads
+  such a burst over labels unevenly, which is how a round's A/A ends up ten
+  times wider than its neighbours'.
+* **No claim is made about the direction of either holdout result.** Both
+  are inside the 3% MDE, and the Jev run's own null arm moved 2.1 pp on the
+  same case set.

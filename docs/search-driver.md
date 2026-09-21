@@ -178,6 +178,14 @@ Per round, in `round-NN/`:
   after the best plan is frozen, and only when `--measure-holdout` is given
   (SPEC.ja.md 7). A target with no training case set (the toy) falls back to
   its single set and every artifact says `case_set: holdout-as-search`.
+* when **no round was accepted**, the holdout still runs, with the baseline
+  itself as `cand` and `"null_arm": true` in `holdout.json`. It is not a
+  candidate: it is SPEC.ja.md 7's in-sweep null panel on the holdout set, and
+  it is the only way to get that set's A/A half-width and MDE out of a run
+  that accepted nothing (results.md "Experiment 3 (jaq)" 102). The
+  acceptance rule is untouched.
+* each round record carries `wall_s`, written at the call site in `run()`
+  because `one_round` has six early returns. Nothing reads it back.
 
 ## The state format (frozen)
 
@@ -307,10 +315,14 @@ a tracked artifact.
 * Remark attribution is by source location only --- the remark lines carry no
   function name (SPEC.ja.md 3) --- so a section can show a neighbouring
   function's remarks when both live within 40 lines of each other.
-* Only the toy has been run end to end (results.md "Search driver (smoke)"),
-  with `n=3` and one round. Nothing about speed follows from that, and at
-  that `n` the acceptance rule accepted a code-identical build, which is the
-  in-sweep null panel doing its job.
+* jaq has now been run end to end twice, five rounds each (results.md
+  "Experiment 3 (jaq)"). At the frozen `n=15` the acceptance rule still let
+  one random round through whose own in-run A/A moved almost as far as the
+  candidate, and a code-identical build's 95% CI excluded 1.0 in one Jev
+  round: the interval is only as good as the noise it is computed from, and
+  the null panel is what catches it. The earlier toy smoke run
+  (results.md "Search driver (smoke)") used `n=3` and one round; nothing
+  about speed follows from that.
 * The standard library's sources are not on this machine (`rust-src` is not
   installed), so a mark whose DWARF definition is in `library/core` gets no
   source excerpt. Five of jaq's fifteen are in that position.

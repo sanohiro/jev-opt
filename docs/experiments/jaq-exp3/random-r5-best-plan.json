@@ -1,0 +1,1074 @@
+{
+  "schema_version": 1,
+  "plan_id": "r3-b",
+  "vocab_version": "v1-2026-09-22",
+  "basis": "95d57f51be96c862e2eb3d5a4f960942b9a87437c102d48f0854e8a79863fded",
+  "fn_attrs": [
+    {
+      "fn": "_RINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtB8_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEB16_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtB8_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindECsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBA_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB2_4PartBA_ENtB2_3OptEEECsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBA_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB2_4PartBA_ENtB2_3OptEEECstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValTBA_INtNtB4_7rc_list4ListBA_EEINtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB2_4PartBA_ENtB2_3OptEEECstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCslKRKzoMO8pS_8jaq_json4read5parseINtCs6u2SwoadH4g_8hifijson9IterLexerNtNtNtCs2ubz5g4KsBC_4core2io5error5ErrorINtNtNtCsecSPvMcbw1R_5alloc2io4util5BytesNtNtNtCs1mKxMHUCrv1_3std2io5stdio9StdinLockEEECsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCslKRKzoMO8pS_8jaq_json4read5parseINtCs6u2SwoadH4g_8hifijson9IterLexerNtNtNtCs2ubz5g4KsBC_4core2io5error5ErrorINtNtNtCsecSPvMcbw1R_5alloc2io4util5BytesRShEEECsJiC9gTn727_8jaq_fmts",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerEB4_",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerECsJiC9gTn727_8jaq_fmts",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerECsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerECstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNCNvYBy_NtNtB5_3num8LexWrite14num_bytes_with0EB5_",
+      "align": 16,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endEB5_",
+      "align": 16,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECsJiC9gTn727_8jaq_fmts",
+      "align": 16,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECsayvNaZMR3fG_3jaq",
+      "align": 16,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECslKRKzoMO8pS_8jaq_json",
+      "align": 16,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECstofKklK7j5_7jaq_all",
+      "align": 16,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherEB6_",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherECsJiC9gTn727_8jaq_fmts",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherECsayvNaZMR3fG_3jaq",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherECstofKklK7j5_7jaq_all",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_3str8LexWrite8str_foldNtBG_5ErrorINtNtCsecSPvMcbw1R_5alloc3vec3VechENCINvNtCslKRKzoMO8pS_8jaq_json4read12parse_stringB3_E0NCB1T_s_0EB1Y_",
+      "align": 32,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_3str8LexWrite8str_foldNtBG_5ErrorINtNtCsecSPvMcbw1R_5alloc3vec3VechENCINvNtCslKRKzoMO8pS_8jaq_json4read12parse_stringB3_E0NCB1T_s_0ECsJiC9gTn727_8jaq_fmts",
+      "align": 32,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_3str8LexWrite8str_foldNtBG_5ErrorINtNtCsecSPvMcbw1R_5alloc3vec3VechENCINvNtCslKRKzoMO8pS_8jaq_json4read12parse_stringB3_E0NCB1T_s_0ECsayvNaZMR3fG_3jaq",
+      "align": 32,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_3str8LexWrite8str_foldNtBG_5ErrorINtNtCsecSPvMcbw1R_5alloc3vec3VechENCINvNtCslKRKzoMO8pS_8jaq_json4read12parse_stringB3_E0NCB1T_s_0ECstofKklK7j5_7jaq_all",
+      "align": 32,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_3str8LexWrite8str_foldNtBG_5ErrorINtNtCsecSPvMcbw1R_5alloc6borrow3CoweENCNvXs5_BG_B3_NtBG_8LexAlloc10str_string0NCB1W_s_0EB5_",
+      "align": 32,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::str::LexWrite>::str_fold",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_E0EB1f_",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_E0ECsJiC9gTn727_8jaq_fmts",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_E0ECsayvNaZMR3fG_3jaq",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_E0ECstofKklK7j5_7jaq_all",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_Es_0EB1f_",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_Es_0ECsJiC9gTn727_8jaq_fmts",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_Es_0ECsayvNaZMR3fG_3jaq",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvYNtCs6u2SwoadH4g_8hifijson10SliceLexerNtNtB5_5token3Lex3seqNtB5_5ErrorINvNtCslKRKzoMO8pS_8jaq_json4read5ws_tkB3_ENCINvB1d_5parseB3_Es_0ECstofKklK7j5_7jaq_all",
+      "cold": true,
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::token::Lex>::seq",
+      "jev_choice": "cold",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindE0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindE0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs0_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs0_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs1_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs1_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs2_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs2_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs3_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs3_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs4_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs4_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs5_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs5_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs6_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs6_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs7_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs7_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs8_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs8_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs9_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs9_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsa_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsa_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsb_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsb_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsc_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsc_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsd_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsd_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEse_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEse_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsf_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsf_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsg_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsg_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsh_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsh_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsi_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsi_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsj_0B18_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBa_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsj_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBC_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB4_4PartBC_ENtB4_3OptEEE0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBC_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB4_4PartBC_ENtB4_3OptEEE0CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBC_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB4_4PartBC_ENtB4_3OptEEEs_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBC_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB4_4PartBC_ENtB4_3OptEEEs_0CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValTBC_INtNtB6_7rc_list4ListBC_EEINtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB4_4PartBC_ENtB4_3OptEEE0CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValTBC_INtNtB6_7rc_list4ListBC_EEINtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB4_4PartBC_ENtB4_3OptEEEs_0CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseINtCs6u2SwoadH4g_8hifijson9IterLexerNtNtNtCs2ubz5g4KsBC_4core2io5error5ErrorINtNtNtCsecSPvMcbw1R_5alloc2io4util5BytesNtNtNtCs1mKxMHUCrv1_3std2io5stdio9StdinLockEEE0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseINtCs6u2SwoadH4g_8hifijson9IterLexerNtNtNtCs2ubz5g4KsBC_4core2io5error5ErrorINtNtNtCsecSPvMcbw1R_5alloc2io4util5BytesNtNtNtCs1mKxMHUCrv1_3std2io5stdio9StdinLockEEEs_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseINtCs6u2SwoadH4g_8hifijson9IterLexerNtNtNtCs2ubz5g4KsBC_4core2io5error5ErrorINtNtNtCsecSPvMcbw1R_5alloc2io4util5BytesRShEEE0CsJiC9gTn727_8jaq_fmts",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseINtCs6u2SwoadH4g_8hifijson9IterLexerNtNtNtCs2ubz5g4KsBC_4core2io5error5ErrorINtNtNtCsecSPvMcbw1R_5alloc2io4util5BytesRShEEEs_0CsJiC9gTn727_8jaq_fmts",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerE0B6_",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerE0CsJiC9gTn727_8jaq_fmts",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerE0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerE0CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerEs_0B6_",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerEs_0CsJiC9gTn727_8jaq_fmts",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerEs_0CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvNtCslKRKzoMO8pS_8jaq_json4read5parseNtCs6u2SwoadH4g_8hifijson10SliceLexerEs_0CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_json::read::parse",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherE0B8_",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherE0CsJiC9gTn727_8jaq_fmts",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherE0CsayvNaZMR3fG_3jaq",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherE0CstofKklK7j5_7jaq_all",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherEs_0B8_",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherEs_0CsJiC9gTn727_8jaq_fmts",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherEs_0CsayvNaZMR3fG_3jaq",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB8_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherEs_0CstofKklK7j5_7jaq_all",
+      "align": 32,
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "align_32",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs3_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs3_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs7_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs7_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs8_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs8_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsa_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsa_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsb_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsb_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsc_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsc_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsd_00B1a_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBc_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEsd_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBE_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB6_4PartBE_ENtB6_3OptEEEs_00CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValBE_INtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB6_4PartBE_ENtB6_3OptEEEs_00CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCINvNtCs3t0tOJGAbYW_8jaq_core4path3runNtCslKRKzoMO8pS_8jaq_json3ValTBE_INtNtB8_7rc_list4ListBE_EEINtNtNtCsecSPvMcbw1R_5alloc3vec9into_iter8IntoIterTINtB6_4PartBE_ENtB6_3OptEEEs_00CstofKklK7j5_7jaq_all",
+      "align": 64,
+      "jev_site_id": "fn:jaq_core::path::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBe_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs8_000B1c_",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNCNCNCINvMs5_NtCs3t0tOJGAbYW_8jaq_core6filterNtNtBe_7compile6TermId3runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs8_000CsayvNaZMR3fG_3jaq",
+      "align": 64,
+      "jev_site_id": "fn:<jaq_core::compile::TermId>::run",
+      "jev_choice": "align_64",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvMs6_NtCsecSPvMcbw1R_5alloc2rcINtB5_2RcINtNtCsNuX8N3CaRc_8indexmap3map8IndexMapNtCslKRKzoMO8pS_8jaq_json3ValB1h_NtNtCslj2nQK4LH1K_8foldhash4fast11RandomStateEE9drop_slowB1j_",
+      "inline": "hint",
+      "jev_site_id": "fn:<alloc::rc::Rc<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>>::drop_slow",
+      "jev_choice": "inline",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvNtCslKRKzoMO8pS_8jaq_json5write5write",
+      "inline": "hint",
+      "jev_site_id": "fn:jaq_json::write::write",
+      "jev_choice": "inline",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCs5QkulR4FCWo_9toml_span",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCsJiC9gTn727_8jaq_fmts",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCsayvNaZMR3fG_3jaq",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCsg1b7gZ2jIgs_8bitflags",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCskObJWaCwiDa_13saphyr_parser",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCslKRKzoMO8pS_8jaq_json",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvXs1i_NtCs2ubz5g4KsBC_4core3fmtRNtNtCsecSPvMcbw1R_5alloc6string6StringNtB6_7Display3fmtCstofKklK7j5_7jaq_all",
+      "align": 16,
+      "jev_site_id": "fn:<&alloc::string::String as core::fmt::Display>::fmt",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvYNCINvCs8murSGRldJT_7jaq_std8base_runNtNtCstofKklK7j5_7jaq_all4data8DataKindEs5_0INtNtNtCs2ubz5g4KsBC_4core3ops8function6FnOnceTTINtNtCs3t0tOJGAbYW_8jaq_core6filter3CtxBC_ENtCslKRKzoMO8pS_8jaq_json3ValEEE9call_onceBG_",
+      "inline": "hint",
+      "jev_site_id": "fn:<jaq_std::base_run<jaq_all::data::DataKind>::{closure#7} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once",
+      "jev_choice": "inline",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvYNCINvNtCslKRKzoMO8pS_8jaq_json4funs4baseNtNtCstofKklK7j5_7jaq_all4data8DataKindEs1_0INtNtNtCs2ubz5g4KsBC_4core3ops8function6FnOnceTTINtNtCs3t0tOJGAbYW_8jaq_core6filter3CtxBG_ENtB9_3ValEEE9call_onceBK_",
+      "align": 16,
+      "jev_site_id": "fn:<jaq_json::funs::base<jaq_all::data::DataKind>::{closure#3} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once",
+      "jev_choice": "align_16",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvYNCNvMs2_NtCs3t0tOJGAbYW_8jaq_core4pathINtBa_4PathNtCslKRKzoMO8pS_8jaq_json3ValE3run0INtNtNtCs2ubz5g4KsBC_4core3ops8function6FnOnceTINtBa_4PartBP_EBP_EE9call_onceCsayvNaZMR3fG_3jaq",
+      "inline": "hint",
+      "jev_site_id": "fn:<<jaq_core::path::Path<jaq_json::Val>>::run::{closure#0} as core::ops::function::FnOnce<(jaq_core::path::Part<jaq_json::Val>, jaq_json::Val)>>::call_once",
+      "jev_choice": "inline",
+      "answer_ref": null
+    },
+    {
+      "fn": "_RNvYNCNvMs2_NtCs3t0tOJGAbYW_8jaq_core4pathINtBa_4PathNtCslKRKzoMO8pS_8jaq_json3ValE3run0INtNtNtCs2ubz5g4KsBC_4core3ops8function6FnOnceTINtBa_4PartBP_EBP_EE9call_onceCstofKklK7j5_7jaq_all",
+      "inline": "hint",
+      "jev_site_id": "fn:<<jaq_core::path::Path<jaq_json::Val>>::run::{closure#0} as core::ops::function::FnOnce<(jaq_core::path::Part<jaq_json::Val>, jaq_json::Val)>>::call_once",
+      "jev_choice": "inline",
+      "answer_ref": null
+    }
+  ],
+  "loop_md": [
+    {
+      "key": "1ba7fbbfb4242b91-write-mod.rs-1653",
+      "stage": "lto",
+      "interleave_count": 4,
+      "jev_site_id": "jaq_json::write::write@mod.rs:1653:12#d1~2",
+      "jev_choice": "interleave_count_4",
+      "answer_ref": null
+    },
+    {
+      "key": "4e6f743e2fa2b86a-first_non_ascii_byte_slow-ascii.rs-208",
+      "stage": "lto",
+      "vectorize_width": 2,
+      "jev_site_id": "<jaq_json::funs::base<jaq_all::data::DataKind>::{closure#3} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once@ascii.rs:208:12#d2",
+      "jev_choice": "vectorize_width_2",
+      "answer_ref": null
+    },
+    {
+      "key": "5fa6b92c27426933--mod.rs-848",
+      "stage": "lto",
+      "unroll_count": 8,
+      "jev_site_id": "<alloc::rc::Rc<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>>::drop_slow@mod.rs:848:1#d1~2",
+      "jev_choice": "unroll_count_8",
+      "answer_ref": null
+    },
+    {
+      "key": "643959c965b7ca67-do_count_chars-count.rs-75",
+      "stage": "lto",
+      "vectorize_width": 2,
+      "jev_site_id": "<&alloc::string::String as core::fmt::Display>::fmt@count.rs:75:5#d1",
+      "jev_choice": "vectorize_width_2",
+      "answer_ref": null
+    },
+    {
+      "key": "72ffdfbe3b9a628a--mod.rs-4148",
+      "stage": "lto",
+      "vectorize_width": 2,
+      "jev_site_id": "<jaq_core::compile::TermId>::run@mod.rs:4148:9#d1",
+      "jev_choice": "vectorize_width_2",
+      "answer_ref": null
+    },
+    {
+      "key": "7a171b553e34d5fc-string_end-str.rs-194",
+      "stage": "lto",
+      "unroll_disable": true,
+      "jev_site_id": "jaq_json::read::parse@str.rs:194:13#d1",
+      "jev_choice": "unroll_disable",
+      "answer_ref": null
+    },
+    {
+      "key": "8081e84a5b238eeb-_closure_1_-read.rs-140",
+      "stage": "lto",
+      "vectorize_width": 16,
+      "jev_site_id": "jaq_json::read::parse@read.rs:140:27#d1",
+      "jev_choice": "vectorize_width_16",
+      "answer_ref": null
+    },
+    {
+      "key": "a48529f86e22591a-next-macros.rs-180",
+      "stage": "lto",
+      "unroll_count": 4,
+      "jev_site_id": "<&alloc::string::String as core::fmt::Display>::fmt@macros.rs:180:28#d2",
+      "jev_choice": "unroll_count_4",
+      "answer_ref": null
+    },
+    {
+      "key": "c2530364c88e4ee5-write-mod.rs-1653",
+      "stage": "lto",
+      "unroll_count": 8,
+      "jev_site_id": "jaq_json::write::write@mod.rs:1653:12#d1",
+      "jev_choice": "unroll_count_8",
+      "answer_ref": null
+    },
+    {
+      "key": "dac1a96aa8f59c8a-run_utf8_validation-validations.rs-165",
+      "stage": "lto",
+      "interleave_count": 4,
+      "jev_site_id": "jaq_json::read::parse@validations.rs:165:12#d1",
+      "jev_choice": "interleave_count_4",
+      "answer_ref": null
+    },
+    {
+      "key": "f3a7eccf6717e365-count-utf8.rs-127",
+      "stage": "lto",
+      "vectorize_width": 2,
+      "jev_site_id": "<jaq_json::funs::base<jaq_all::data::DataKind>::{closure#3} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once@utf8.rs:127:9#d1",
+      "jev_choice": "vectorize_width_2",
+      "answer_ref": null
+    },
+    {
+      "key": "f4b6fc28468cf02a--mod.rs-848",
+      "stage": "lto",
+      "unroll_disable": true,
+      "jev_site_id": "<alloc::rc::Rc<indexmap::map::IndexMap<jaq_json::Val, jaq_json::Val, foldhash::fast::RandomState>>>::drop_slow@mod.rs:848:1#d1",
+      "jev_choice": "unroll_disable",
+      "answer_ref": null
+    },
+    {
+      "key": "f53d7d9bce13a5bc-write-mod.rs-1653",
+      "stage": "lto",
+      "interleave_count": 4,
+      "jev_site_id": "jaq_json::write::write@mod.rs:1653:12#d2",
+      "jev_choice": "interleave_count_4",
+      "answer_ref": null
+    },
+    {
+      "key": "fd4b78443b0dcc85--macros.rs-279",
+      "stage": "lto",
+      "interleave_count": 4,
+      "jev_site_id": "<jaq_std::base_run<jaq_all::data::DataKind>::{closure#7} as core::ops::function::FnOnce<((jaq_core::filter::Ctx<jaq_all::data::DataKind>, jaq_json::Val),)>>::call_once@macros.rs:279:24#d1",
+      "jev_choice": "interleave_count_4",
+      "answer_ref": null
+    }
+  ]
+}

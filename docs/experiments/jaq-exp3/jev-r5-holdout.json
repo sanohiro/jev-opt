@@ -1,0 +1,20 @@
+{
+ "plan": "baseline",
+ "null_arm": true,
+ "case_set": "holdout",
+ "cases": [
+  "objsearch='.[] | select(.k == \"v\") | .id' /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-objects.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-objects.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-objects.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-objects.json",
+  "strproc='[.[] | .name | ascii_downcase | length] | add' /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-strings.json",
+  "readwrite=-c '.' /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-ndjson.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/hold-ndjson.json"
+ ],
+ "ratio": 0.9787482788241534,
+ "ci95": [
+  0.9727071766327114,
+  0.9856232767716603
+ ],
+ "aa": {
+  "ratio": 0.9906220805998844,
+  "halfwidth": 0.009442680625703637
+ },
+ "mde": 0.03946117143709227
+}
