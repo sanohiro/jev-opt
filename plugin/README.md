@@ -117,7 +117,10 @@ normalised demangled path
 
 Marks that matched nothing are listed in `unmatched_marks`, but only in
 reports whose `loop_ep_ran` is true — under fat LTO the pre-link modules never
-reach the loop extension point, so "unmatched there" means nothing.
+reach the loop extension point, so "unmatched there" means nothing. The field
+is still per report: a mark that matched only in a pre-link function table
+reads unmatched in the merged-LTO report, so the CLI has to take the
+intersection across every report of a build before calling a mark unmatched.
 
 A loop is related to a mark in one of two ways, and the dump says which:
 
@@ -159,6 +162,13 @@ A loop is related to a mark in one of two ways, and the dump says which:
 
 `inline` and `cold`/`hot` remove the opposing attribute first: the verifier
 rejects a function that is both `noinline` and `inlinehint`.
+
+A `fn` that names a **generic** function matches every monomorphization in
+the module. The attribute is applied to all of them, and the report also
+carries an `ambiguous` row saying how many. For a loop key `ambiguous` means
+"nothing was applied"; for a function name it does not. This is untested —
+the toy has no generics — and SPEC.ja.md should settle which behaviour is
+wanted before it is relied on.
 
 `loop_md` entry:
 

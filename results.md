@@ -6777,11 +6777,37 @@ normalised code diff (scripts/norm_code_diff.py), baseline = 5a-none1:
 `{"fn_attrs": [], "loop_md": []}`. Raw `.text` hash, normalised code hash and
 program output all agree. The gate passes.
 
-Worth recording because it was not obvious: putting `-Zllvm-plugins=<path>`
-into `CARGO_ENCODED_RUSTFLAGS` changes cargo's unit hash and therefore the
-crate disambiguator in every v0 symbol, yet `.text` is byte-identical. The
-disambiguator does not reach the code section on this target. (`debug = 1` is
-on in all four.)
+Checked rather than assumed: adding `-Zllvm-plugins=<path>` to
+`CARGO_ENCODED_RUSTFLAGS` does **not** move the v0 crate disambiguator, so
+the identical `.text` is not hiding a renaming.
+
+```
+$ nm artifacts/plugin-day3/bin-5a-none1 | grep -o 'Cs[A-Za-z0-9]*_3toy' | sort -u
+CsDjvIK8uPE8_3toy
+$ nm artifacts/plugin-day3/bin-5a-off   | grep -o 'Cs[A-Za-z0-9]*_3toy' | sort -u
+CsDjvIK8uPE8_3toy
+```
+
+(`debug = 1` is on in all four arms.)
+
+The refusals were tested too, since a plugin that fails open is worse than no
+plugin:
+
+```
+$ JEV_MODE=apply JEV_PLAN=<plan> JEV_PLAN_SHA=deadbeef rustc -O -Zllvm-plugins=... t.rs
+jev-plugin: fatal: JEV_PLAN_SHA mismatch: expected deadbeef, file is 22bced07f91c6ba2...
+(exit 1)
+
+$ JEV_MODE=bogus rustc -O -Zllvm-plugins=... t.rs
+jev-plugin: fatal: JEV_MODE must be off, dump, apply or apply-dump, got "bogus"
+
+$ JEV_PLAN=<relative path> ...
+jev-plugin: fatal: cannot read JEV_PLAN=artifacts/plugin-day3/plan-5c.json
+error: could not compile `toyloops` (lib)
+```
+
+All three stop the build. The last one is a real trap: the plan path must be
+absolute, because rustc runs with the crate directory as its cwd.
 
 `off` registers no callback at all — the plugin returns a
 `PassPluginLibraryInfo` with a null `RegisterPassBuilderCallbacks` — so the
@@ -6843,9 +6869,10 @@ the ordering the day-0 per-workload times imply.
 
 The function table is only populated in the pre-link reports, because by the
 merged stage `count_quotes` and `find_special` no longer exist as functions.
-`sum_indexed` never appears in any function table: it is gone before
-`PipelineStart` of either CGU (MIR-inlined). `dot_f64` is instantiated into
-the `toy` CGU, not `toyloops`. Entry counts (1400, 1402) come from `!prof`
+`sum_indexed` never appears in any function table: it is already gone at
+`PipelineStart` of either CGU. The mechanism was not established --- MIR
+inlining is the likely explanation, but it was not checked. `dot_f64` is
+instantiated into the `toy` CGU, not `toyloops`. Entry counts (1400, 1402) come from `!prof`
 and are only present in the `OptimizerEarly` snapshot, which is why the
 function table is written from two points in the pre-link pipeline.
 
@@ -6883,6 +6910,31 @@ Two things to note.
   operations. The hint was taken; the register width is a target fact.
 
 Program output unchanged (`a58406a7…` in both).
+
+**In the IR.** Rebuilding the same plan with `--emit=llvm-ir` added to the
+rustflags gives the post-LTO module (`.../out/toy.ll`) and the pre-link
+`toyloops` module. The hint strings themselves are **not** in the post-LTO
+IR, and their absence is the proof they were consumed: LoopVectorize's
+`setAlreadyVectorized` strips `vectorize.*` and `interleave.*` and puts
+`llvm.loop.isvectorized` there instead, and LoopUnroll replaces
+`unroll.count` with `unroll.disable`. What identifies the loops is the
+plugin's own marker:
+
+```
+loop id !1919: key=8d0b9cbf99f073bc--macros.rs-279
+   operands: jev.applied, jev.site, llvm.loop.estimated_trip_count,
+             llvm.loop.isvectorized, llvm.loop.unroll.runtime.disable
+loop id !2453: key=e46f821f746d117a-spec_next-range.rs-1103
+   operands: jev.applied, jev.site, llvm.loop.estimated_trip_count,
+             llvm.loop.isvectorized, llvm.loop.unroll.disable
+```
+
+Each key appears on 2--3 loop ids, because the transforms copy the loop id
+onto the vector loop and the remainder loops they create. A build with the
+empty plan has no `jev.site` in its IR at all (`grep -c` gives 0), so the
+markers are the plugin's and nothing else's. This also means `jev.site` is
+*not* a way to find the original loop again after a transform: it is now on
+several.
 
 **`-hints-allow-reordering=false` (decision 40), now measured.** Same plan
 shape, `vectorize_width: 8` on the `dot_f64` loop:
@@ -6931,6 +6983,22 @@ Plan: `inline: "never"` + `align: 64` on `toyloops::count_quotes`,
 -- checksums
   baseline  a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
   5d-apply  a58406a75c439ac40d8d0f50964258d235200bf43a70db7e229662926af99423
+```
+
+In the IR (`--emit=llvm-ir` again), with an empty-plan build as the control:
+
+```
+post-LTO toy.ll:
+  define internal fastcc ... @_RNvCs..._8toyloops12count_quotes(...) #96 align 64
+  attributes #96 = { noinline ... }
+
+pre-link toyloops.ll:
+  count_quotes -> #0 = { noinline ... }
+  find_special -> #1 = { cold ... }
+
+baseline (empty plan), pre-link toyloops.ll:
+  count_quotes -> #0 = { }   (no noinline, no cold, no align)
+  find_special -> #0 = { }
 ```
 
 `noinline` works: `count_quotes` is inlined away in every other build and
@@ -7051,7 +7119,16 @@ Not applied — SPEC.ja.md and `docs/decisions.ja.md` were not edited.
    measured, not argued: without it a `vectorize.width` hint on an FP
    reduction changes the program's answer (section 5). It belongs in
    `fixed_rustflags` for every arm, including the baseline.
-9. **8.6, schema.** The implemented plan and report schemas are in
+9. **8.3, `ambiguous` for `fn_attrs`.** The loop half and the function half
+   need different rules. A `fn_attrs` entry naming a generic function matches
+   every monomorphization in the module, and the implementation applies the
+   attribute to all of them *and* reports `ambiguous`. For a site key
+   `ambiguous` means "do not apply"; for a function name, applying to all
+   monomorphizations is probably what a human marking
+   `hifijson::str::write_until` meant. Untested --- the toy has no generics,
+   and jaq's marks do. The spec should decide which it is rather than leaving
+   the implementation to.
+10. **8.6, schema.** The implemented plan and report schemas are in
    `plugin/README.md`; they differ from 8.6 (which is the FP-reassociation
    shape of v0.4). `fn_attrs` + `loop_md` replace `entries[]`, and the
    outcome vocabulary gains `attached`, `consumed`, `skipped_empty` and
@@ -7072,6 +7149,12 @@ Not applied — SPEC.ja.md and `docs/decisions.ja.md` were not edited.
   imported modules `thinlto` and finds the same 8 sites, but in the post-link
   copy of the `toy` CGU, with 2 more in the post-link `toyloops` module. 16
   report files instead of 3. None of the acceptance tests ran under thin.
-* `hot` is implemented but untested.
+* `hot`, `already_vectorized` and `skipped_idempotent` are implemented but
+  never exercised: nothing in the toy tests applies a hint twice to the same
+  loop or aims one at a loop that is already vectorized at `VectorizerStart`.
+* `unmatched_marks` is per report. A mark that matched only in a pre-link
+  function table still reads unmatched in the merged-LTO report, so the union
+  across reports is the CLI's job and `scripts/plugin_report.py` does not do
+  it yet.
 * An empty plan writes no report. An auditable "I applied nothing" file would
   be better.

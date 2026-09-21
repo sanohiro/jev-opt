@@ -383,10 +383,13 @@ std::string demangleName(StringRef Linkage) {
 
 struct Marks {
   std::vector<std::string> Raw;         // as written in jev-marks.txt
-  mutable std::set<std::string> Hit;    // marks that matched at least once
 
   bool empty() const { return Raw.empty(); }
 
+  /// Which marks matched is tracked by the caller, per (module, stage),
+  /// under StateMutex --- not here, because this is called from function
+  /// passes that the pass manager may run concurrently.
+  ///
   /// Prefix/suffix tolerant: a mark matches when, after dropping generic
   /// arguments, the demangled path is the mark, ends with `::` + the mark
   /// (mark written without its crate), or starts with the mark + `::` (an
@@ -403,7 +406,7 @@ struct Marks {
                  D.compare(D.size() - N.size() - 2, 2, "::") == 0) ||
                 (D.size() > N.size() + 2 && D.compare(0, N.size(), N) == 0 &&
                  D.compare(N.size(), 2, "::") == 0);
-      if (Ok) { Hit.insert(M); return &M; }
+      if (Ok) return &M;
     }
     return nullptr;
   }
