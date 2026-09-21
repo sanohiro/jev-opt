@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 #
-# Headroom sweep on the toy PGO baseline (SPEC.ja.md 6.3, 13 day-0 item 5).
+# Headroom sweep on a target's PGO baseline (SPEC.ja.md 6.3, 13 day-0 item 5).
 #
 # Every configuration is the PGO baseline plus one (rarely two) -Cllvm-args
 # knobs: same merged.profdata, same debuginfo=1, same panic strategy, same
 # remark flags, explicit --target, its own CARGO_TARGET_DIR, clean build.
 #
 # Primary read is the remark diff (SPEC.ja.md 6.3): dump the sorted `remark:`
-# lines of the build log and compare to the baseline's. A configuration whose
-# remarks are unchanged did not change a decision and skips timing. Secondary
-# read is the interleaved timing of the configurations that did change.
+# lines of the build log and compare to the baseline's. Alongside it, the
+# `.text` hash --- results.md Day 0 section 17 found it the sharper skip
+# criterion, because a configuration whose `.text` is bit-identical to the
+# baseline's is the same machine code and cannot differ in time, whatever its
+# remarks say. Timing therefore runs for every configuration whose `.text`
+# changed, plus group 0 (the in-sweep noise probe).
+#
+# Correctness comes before any of it: run_correctness hashes every case's
+# output for every configuration, and a configuration whose output differs is
+# recorded as a correctness violation and excluded from the headroom
+# judgement (results.md Day 0 section 13: the toy's largest measured
+# "speedup" was a binary computing a different answer).
 #
 # Phases:
 #   build   build every configuration, collect checksums, .text hashes and
@@ -17,12 +26,12 @@
 #   time    one interleaved bench.py run over the baseline plus every
 #           configuration that changed something         (TIME=0 to skip)
 #
-# Usage:  scripts/toy_headroom.sh
-#         BUILD=0 scripts/toy_headroom.sh          # re-time only
-#         MDE=0.031 scripts/toy_headroom.sh        # override the frozen MDE
+# Usage:  TARGET=zopfli scripts/target_headroom.sh
+#         BUILD=0 scripts/target_headroom.sh       # re-time only
+#         MDE=0.031 scripts/target_headroom.sh     # override the frozen MDE
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/toy_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/target_common.sh"
 
 OUT="$REPO/artifacts/$TARGET-headroom"
 SWEEP_TD="$REPO/target-$TARGET-headroom"
@@ -57,7 +66,8 @@ CONFIGS=(
   "g1-tfstyle-data-and-control|-force-tail-folding-style=data-and-control"
   "g1-memcheck24|-runtime-memory-check-threshold=24"
   "g1-memcheck128|-runtime-memory-check-threshold=128"
-  "g1-earlyexit|-enable-early-exit-vectorization"
+  # -enable-early-exit-vectorization is NOT swept: results.md Day 0 section 12
+  # measured it default-on on LLVM 23.1.1, so passing it changes nothing.
   # group 2: inlining and unrolling
   "g2-inline325|-inline-threshold=325"
   "g2-inline500|-inline-threshold=500"
@@ -74,19 +84,21 @@ CONFIGS=(
   "g3-unswitch200|-unswitch-threshold=200"
   "g3-loop-flatten|-enable-loop-flatten"
   "g3-gvn-hoist|-enable-gvn-hoist"
+  # group 4: ISA and vector-width preference. These are rustc -C flags, not
+  # cl::opts; build_variant passes anything starting with -C through as is.
+  "g4-prefer256|-Ctarget-feature=+prefer-256-bit"
+  "g4-prefer128|-Ctarget-feature=+prefer-128-bit"
+  "g4-v3|-Ctarget-cpu=x86-64-v3"
 )
 
-# DebugLocs of the four toy loops on the PGO baseline (results.md Day 0 section
-# 6). Used to pull each configuration's decision for each loop out of its log.
-# The column is part of the key where the file is std's (that DebugLoc is
-# shared by every inlined instance of that std loop, SPEC.ja.md 7); objdump is
-# what settles which loop a decision belongs to.
-declare -A LOOP_LOC=(
-  [count_quotes]="library/core/src/slice/iter/macros.rs:279:24"
-  [find_special]="toyloops/src/lib.rs:26"
-  [sum_indexed]="library/core/src/iter/range.rs:1103:12"
-  [dot_f64]="toyloops/src/lib.rs:50"
-)
+# The decision column is target independent: vec_decisions (see
+# target_common.sh) keeps the normalized remark lines that ARE a vectorizer
+# decision --- "vectorized loop (vectorization width: N, interleaved count:
+# M)", "loop not vectorized: <reason>", and the two reduction verdicts --- and
+# the column says whether that set changed. The toy's hand-written table of
+# four DebugLocs does not generalize to a target with hundreds of loops, and
+# the objdump attribution (scripts/remark_attribution.py) is what settles
+# which function a changed decision belongs to.
 
 mkdir -p "$OUT/bin" "$OUT/strip" "$OUT/remarks" "$REMARK_DIR"
 
@@ -113,7 +125,7 @@ build_one() {           # build_one <name> <knob args...>
   remark_set "$log" "$OUT/remarks/$name.raw"
   remark_set_normalized "$log" "$OUT/remarks/$name.norm"
   # Correctness: the checksums must match the baseline's (SPEC.ja.md 10).
-  "$OUT/bin/$name" all > "$OUT/remarks/$name.checksums" 2>&1 || echo "RUN FAILED" >> "$OUT/remarks/$name.checksums"
+  run_correctness "$OUT/bin/$name" "$OUT/remarks/$name.checksums"
   text_hash "$OUT/bin/$name" > "$OUT/remarks/$name.texthash"
   rm -rf "$td"
 }
@@ -140,19 +152,8 @@ BASE_TEXT="$(cat "$OUT/remarks/baseline.texthash")"
 SUMMARY="$OUT/summary.tsv"
 printf 'config\tknobs\tchecksums\ttext_vs_base\traw_added\traw_removed\tnorm_added\tnorm_removed\tdecision_change\n' > "$SUMMARY"
 
-loop_decisions() {      # loop_decisions <name>  -> "count_quotes=...; ..."
-  local name="$1" out=""
-  for fn in count_quotes find_special sum_indexed dot_f64; do
-    local loc="${LOOP_LOC[$fn]}"
-    local d
-    d=$( { grep -F "$loc" "$OUT/remarks/$name.norm" || true; } \
-        | sed -E 's/^remark: [^ ]+ //' | sort -u | paste -sd'/' -)
-    out+="$fn={${d:-none}}; "
-  done
-  printf '%s' "$out"
-}
-
-loop_decisions baseline > "$OUT/baseline-decisions.txt"
+vec_decisions "$OUT/remarks/baseline.norm" "$OUT/remarks/baseline.decisions"
+echo "baseline vectorizer decisions: $(wc -l < "$OUT/remarks/baseline.decisions") lines"
 
 TIMING_SET=(baseline)
 for entry in "${CONFIGS[@]}"; do
@@ -167,20 +168,20 @@ for entry in "${CONFIGS[@]}"; do
   rr=$(comm -23 "$OUT/remarks/baseline.raw" "$OUT/remarks/$name.raw" | wc -l)
   na=$(comm -13 "$OUT/remarks/baseline.norm" "$OUT/remarks/$name.norm" | wc -l)
   nr=$(comm -23 "$OUT/remarks/baseline.norm" "$OUT/remarks/$name.norm" | wc -l)
-  loop_decisions "$name" > "$OUT/remarks/$name.decisions"
-  if diff -q "$OUT/baseline-decisions.txt" "$OUT/remarks/$name.decisions" >/dev/null; then dc=no; else dc=YES; fi
+  vec_decisions "$OUT/remarks/$name.norm" "$OUT/remarks/$name.decisions"
+  if diff -q "$OUT/remarks/baseline.decisions" "$OUT/remarks/$name.decisions" >/dev/null; then dc=no; else dc=YES; fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$knobs" "$sums" "$th" "$ra" "$rr" "$na" "$nr" "$dc" >> "$SUMMARY"
-  # Timing set: group 0 always (it is the in-sweep noise probe), plus anything
-  # whose normalized remarks or whose .text changed. A configuration with an
-  # identical .text is the same machine code and cannot differ in time.
-  if [ "${name#g0-}" != "$name" ] || [ "$na" != 0 ] || [ "$nr" != 0 ] || [ "$th" = differ ]; then
+  # Timing set: group 0 always (it is the in-sweep noise probe), plus every
+  # configuration whose .text changed. A configuration with an identical
+  # .text is the same machine code and cannot differ in time, however many
+  # remark lines moved (results.md Day 0 section 17).
+  if [ "${name#g0-}" != "$name" ] || [ "$th" = differ ]; then
     TIMING_SET+=("$name")
   fi
 done
 
 column -t -s$'\t' "$SUMMARY" | tee "$OUT/summary.txt"
 echo
-echo "baseline loop decisions: $(cat "$OUT/baseline-decisions.txt")"
 echo
 echo "timing set (${#TIMING_SET[@]}): ${TIMING_SET[*]}"
 printf '%s\n' "${TIMING_SET[@]}" > "$OUT/timing-set.txt"

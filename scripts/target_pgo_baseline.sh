@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Day 0, toy target: hand-run the PGO baseline end to end (SPEC.ja.md 3, 13-day-0).
+# Day 0: hand-run the PGO baseline end to end (SPEC.ja.md 3, 13-day-0).
 #
 # This is the manual version of what `jev-opt baseline` will later do:
 #   plain release build -> instrumented build -> training run -> llvm-profdata
@@ -9,52 +9,71 @@
 # Nothing here is a conclusion; every step prints the command's raw output so
 # results.md can quote it.
 #
-# Usage: scripts/toy_pgo_baseline.sh
+# Usage: TARGET=zopfli scripts/target_pgo_baseline.sh
 #
 # Environment:
-#   TARGET=toy          target name; only the artifact paths are parameterised
-#                       (pgo/<target>/, remarks/<target>/), the build itself is
-#                       still the toy workspace.
+#   TARGET=toy          which target (see scripts/target_common.sh).
 #   REUSE_PROFDATA=1    keep an existing pgo/<target>/merged.profdata and skip
 #                       the instrumented build and the training run. The
 #                       training run happens once per target (SPEC.ja.md 3);
-#                       re-running it is only allowed because the toy's
-#                       profdata was shown to be byte-reproducible.
+#                       re-running it is only allowed because the profdata was
+#                       shown to be byte-reproducible.
+#   REPRO=0             set to 1 to repeat the training run into a second
+#                       directory and compare the merged profdata byte for
+#                       byte (SPEC.ja.md 3's reproducibility requirement).
+#   DEBUG0=1            also build with debuginfo=0 and compare .text.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET="${TARGET:-toy}"
-TOY="$REPO/targets/toy"
-PGO_DIR="$REPO/pgo/$TARGET"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/target_common.sh"
+
 PROFRAW_DIR="$PGO_DIR/profraw"
-PROFDATA="$PGO_DIR/merged.profdata"
-REMARK_DIR="$REPO/remarks/$TARGET"
 LOG_DIR="$REPO/artifacts/$TARGET-day0"
 REUSE_PROFDATA="${REUSE_PROFDATA:-1}"
+REPRO="${REPRO:-0}"
+DEBUG0="${DEBUG0:-1}"
 
-TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
 SYSROOT="$(rustc --print sysroot)"
 LLVM_PROFDATA="$SYSROOT/lib/rustlib/$TRIPLE/bin/llvm-profdata"
 
 # Every variant gets its own CARGO_TARGET_DIR and is built from scratch: cargo
 # does not rebuild on an environment-variable change alone (SPEC.ja.md 4).
-TD_PLAIN="$REPO/target-toy-plain"
-TD_GEN="$REPO/target-toy-pgo-gen"
-TD_USE="$REPO/target-toy-pgo-use"
-TD_USE_D0="$REPO/target-toy-pgo-use-debug0"
+TD_PLAIN="$REPO/target-$TARGET-plain"
+TD_GEN="$REPO/target-$TARGET-pgo-gen"
+TD_USE="$REPO/target-$TARGET-pgo-use"
+TD_USE_D0="$REPO/target-$TARGET-pgo-use-debug0"
 
-# Fixed cargo release-profile values. The toy's own Cargo.toml already sets
-# these; they are repeated here so the variants that must differ (debug) differ
-# in exactly one place.
+# Fixed cargo release-profile values, identical to build_variant's. They are
+# repeated here so the variants that must differ (debug, profile-generate)
+# differ in exactly one place.
 export CARGO_PROFILE_RELEASE_OPT_LEVEL=3
 export CARGO_PROFILE_RELEASE_LTO=fat
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export CARGO_PROFILE_RELEASE_PANIC=unwind
 
-# CARGO_ENCODED_RUSTFLAGS is \x1f-separated.
-enc() { local out="$1"; shift; for a in "$@"; do out="$out$(printf '\x1f')$a"; done; printf '%s' "$out"; }
-
 banner() { printf '\n========== %s ==========\n' "$*"; }
+
+# run_training <binary> --- the training workload, once (SPEC.ja.md 3).
+# Runs in a scratch directory so a target that writes its output beside its
+# input (zopfli) does not litter the workload directory.
+run_training() {
+  local bin="$1" scratch base f
+  case "$TARGET" in
+    toy)
+      "$bin" "${TRAIN_ARGS[@]}"
+      ;;
+    zopfli)
+      scratch="$(mktemp -d)"
+      for f in "${TRAIN_ARGS[@]}"; do
+        base="$(basename "$f")"
+        cp "$f" "$scratch/$base"
+        "$bin" "$scratch/$base"
+        echo "  trained on $base -> $(stat -c%s "$scratch/$base.gz") bytes"
+        rm -f "$scratch/$base" "$scratch/$base.gz"
+      done
+      rmdir "$scratch"
+      ;;
+  esac
+}
 
 rm -rf "$TD_PLAIN" "$TD_GEN" "$TD_USE" "$TD_USE_D0" "$REMARK_DIR" "$LOG_DIR"
 if [ "$REUSE_PROFDATA" = 1 ] && [ -f "$PROFDATA" ]; then
@@ -67,57 +86,108 @@ mkdir -p "$PROFRAW_DIR" "$REMARK_DIR" "$LOG_DIR"
 
 banner "toolchain"
 rustc -vV
+echo "target:         $TARGET"
+echo "manifest:       $MANIFEST"
+echo "bin:            $BIN_NAME"
+echo "cargo extra:    ${CARGO_EXTRA[*]:-(none)}"
 echo "host triple:    $TRIPLE"
 echo "sysroot:        $SYSROOT"
 echo "llvm-profdata:  $LLVM_PROFDATA"
 "$LLVM_PROFDATA" --version
 
 # ---------------------------------------------------------------------------
-# 0. Plain (non-PGO) release build. Reference checksums come from this one.
+# Disqualification filter (SPEC.ja.md 6.1-2). Run before anything is built:
+# a target that fails it is not worth a profdata.
 # ---------------------------------------------------------------------------
-banner "0. plain release build (no PGO)"
+banner "disqualification filter (hand-written SIMD)"
+SRC_DIR="$(dirname "$MANIFEST")"
+echo "\$ cargo tree -e normal | grep -iE 'memchr|simd|wide|std_detect'"
+(cd "$SRC_DIR" && cargo tree -e normal "${CARGO_EXTRA[@]}" \
+  | grep -iE 'memchr|simd|wide|std_detect') || echo "(no match)"
+echo "\$ grep -rlE 'core::arch|_mm_|_mm256|target_feature' $SRC_DIR/src"
+(grep -rlE 'core::arch|_mm_|_mm256|target_feature' "$SRC_DIR"/src \
+  "$SRC_DIR"/*/src 2>/dev/null) || echo "(no match)"
+
+# ---------------------------------------------------------------------------
+# 0. Plain (non-PGO) release build. Reference checksums come from this one.
+#    Same opt-level / lto / codegen-units / debug / native as the baseline;
+#    the only differences are -Cprofile-use and the remark flags.
+# ---------------------------------------------------------------------------
+banner "0. plain release build (no PGO, no remarks)"
 CARGO_PROFILE_RELEASE_DEBUG=1 \
 CARGO_TARGET_DIR="$TD_PLAIN" \
 CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=v0')" \
-  cargo build --manifest-path "$TOY/Cargo.toml" --release --target "$TRIPLE" 2>&1 | tail -3
-BIN_PLAIN="$TD_PLAIN/$TRIPLE/release/toy"
-"$BIN_PLAIN" all | tee "$LOG_DIR/checksums-plain.txt"
+  cargo build --manifest-path "$MANIFEST" --release --target "$TRIPLE" \
+    "${CARGO_EXTRA[@]}" 2>&1 | tail -3
+BIN_PLAIN="$TD_PLAIN/$TRIPLE/release/$BIN_NAME"
+run_correctness "$BIN_PLAIN" "$LOG_DIR/checksums-plain.txt"
+cat "$LOG_DIR/checksums-plain.txt"
+
+banner "0b. output determinism (same binary, same inputs, twice)"
+run_correctness "$BIN_PLAIN" "$LOG_DIR/checksums-plain-2.txt"
+if diff -q "$LOG_DIR/checksums-plain.txt" "$LOG_DIR/checksums-plain-2.txt" >/dev/null; then
+  echo "OUTPUT DETERMINISM: MATCH"
+else
+  echo "OUTPUT DETERMINISM: MISMATCH"
+  diff -u "$LOG_DIR/checksums-plain.txt" "$LOG_DIR/checksums-plain-2.txt" || true
+fi
 
 # ---------------------------------------------------------------------------
-# a. Instrumented build. No remarks, no plugin (SPEC.ja.md 3).
+# a-c. Instrumented build, training run, merge. No remarks, no plugin
+#      (SPEC.ja.md 3).
 # ---------------------------------------------------------------------------
+build_instrumented() {   # build_instrumented <target-dir> <profraw-dir>
+  CARGO_PROFILE_RELEASE_DEBUG=1 \
+  CARGO_TARGET_DIR="$1" \
+  CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=v0' \
+      "-Cprofile-generate=$2")" \
+    cargo build --manifest-path "$MANIFEST" --release --target "$TRIPLE" \
+      "${CARGO_EXTRA[@]}" 2>&1 | tail -3
+}
+
 if [ "$REUSE" = 1 ]; then
 banner "a-c. reusing existing profdata (no instrumented build, no training run)"
 echo "profdata: $PROFDATA"
 sha256sum "$PROFDATA"
-"$LLVM_PROFDATA" show --all-functions "$PROFDATA" | tail -12
 else
 banner "a. instrumented build (-Cprofile-generate)"
-CARGO_PROFILE_RELEASE_DEBUG=1 \
-CARGO_TARGET_DIR="$TD_GEN" \
-CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=v0' "-Cprofile-generate=$PROFRAW_DIR")" \
-  cargo build --manifest-path "$TOY/Cargo.toml" --release --target "$TRIPLE" 2>&1 | tail -3
-BIN_GEN="$TD_GEN/$TRIPLE/release/toy"
+build_instrumented "$TD_GEN" "$PROFRAW_DIR"
+BIN_GEN="$TD_GEN/$TRIPLE/release/$BIN_NAME"
 
-# ---------------------------------------------------------------------------
-# b. Training run. `all` is the training workload for the toy.
-# ---------------------------------------------------------------------------
-banner "b. training run (instrumented, workload=all)"
+banner "b. training run (instrumented)"
 GEN_START=$(date +%s%N)
-"$BIN_GEN" all | tee "$LOG_DIR/checksums-instrumented.txt"
+run_training "$BIN_GEN"
 GEN_END=$(date +%s%N)
 echo "training run wall time: $(( (GEN_END - GEN_START) / 1000000 )) ms"
 ls -la "$PROFRAW_DIR"
 
-# ---------------------------------------------------------------------------
-# c. Merge with the pinned toolchain's llvm-profdata.
-# ---------------------------------------------------------------------------
 banner "c. llvm-profdata merge"
 echo "\$ $LLVM_PROFDATA merge -o $PROFDATA $PROFRAW_DIR/*.profraw"
 "$LLVM_PROFDATA" merge -o "$PROFDATA" "$PROFRAW_DIR"/*.profraw
 sha256sum "$PROFDATA"
-"$LLVM_PROFDATA" show --all-functions "$PROFDATA" | tail -12
+fi
 
+"$LLVM_PROFDATA" show "$PROFDATA" | head -20
+"$LLVM_PROFDATA" show --all-functions --counts "$PROFDATA" \
+  > "$LOG_DIR/profdata-functions.txt"
+echo "profdata function records: $(grep -c '^  Hash: ' "$LOG_DIR/profdata-functions.txt" || true)"
+echo "(full listing: $LOG_DIR/profdata-functions.txt)"
+
+if [ "$REPRO" = 1 ]; then
+banner "c2. profdata reproducibility (second training run, separate directory)"
+PROFRAW2="$PGO_DIR/profraw-repro"
+PROFDATA2="$PGO_DIR/merged-repro.profdata"
+rm -rf "$PROFRAW2"; mkdir -p "$PROFRAW2"
+build_instrumented "$REPO/target-$TARGET-pgo-gen2" "$PROFRAW2"
+run_training "$REPO/target-$TARGET-pgo-gen2/$TRIPLE/release/$BIN_NAME"
+"$LLVM_PROFDATA" merge -o "$PROFDATA2" "$PROFRAW2"/*.profraw
+sha256sum "$PROFDATA" "$PROFDATA2"
+if cmp -s "$PROFDATA" "$PROFDATA2"; then
+  echo "PROFDATA REPRODUCIBLE: byte-identical"
+else
+  echo "PROFDATA REPRODUCIBLE: NO --- the two merges differ"
+fi
+rm -rf "$REPO/target-$TARGET-pgo-gen2"
 fi
 
 # ---------------------------------------------------------------------------
@@ -130,23 +200,14 @@ fi
 # remark artifact.
 # ---------------------------------------------------------------------------
 banner "d. PGO baseline build (-Cprofile-use) + remarks"
-BUILD_LOG="$LOG_DIR/pgo-baseline-build.log"
-CARGO_PROFILE_RELEASE_DEBUG=1 \
-CARGO_TARGET_DIR="$TD_USE" \
-CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=v0' \
-    "-Cprofile-use=$PROFDATA" \
-    '-Cllvm-args=-pgo-warn-missing-function' \
-    '-Cllvm-args=-pass-remarks=.*' \
-    '-Cllvm-args=-pass-remarks-missed=.*' \
-    '-Cllvm-args=-pass-remarks-analysis=.*')" \
-  cargo build --manifest-path "$TOY/Cargo.toml" --release --target "$TRIPLE" >"$BUILD_LOG" 2>&1
+BUILD_LOG="$REMARK_DIR/baseline-build.log"
+build_variant "$TD_USE" "$BUILD_LOG"
 tail -3 "$BUILD_LOG"
-BIN_USE="$TD_USE/$TRIPLE/release/toy"
+BIN_USE="$TD_USE/$TRIPLE/release/$BIN_NAME"
+cp "$BUILD_LOG" "$LOG_DIR/pgo-baseline-build.log"
 
 echo "--- remark lines total ---"
 grep -c '^remark: ' "$BUILD_LOG" || true
-echo "--- loop-vectorize remarks for the toyloops loops ---"
-grep '^remark: .*toyloops/src/lib.rs' "$BUILD_LOG" | sort -u || true
 echo "--- -Cprofile-use warnings: hash mismatch ---"
 grep -c 'hash mismatch' "$BUILD_LOG" || true
 echo "--- -Cprofile-use warnings: no profile data available for function ---"
@@ -154,12 +215,15 @@ grep -c 'no profile data available for function' "$BUILD_LOG" || true
 echo "--- all warning: lines ---"
 grep -c '^warning: ' "$BUILD_LOG" || true
 grep '^warning: ' "$BUILD_LOG" | sed 's/^/    /' | sort | uniq -c | sort -rn | head -20 || true
+echo "--- .text sha256 ---"
+text_hash "$BIN_USE"
 
 # ---------------------------------------------------------------------------
-# e. Correctness: PGO baseline must produce the plain build's checksums.
+# e. Correctness: PGO baseline must produce the plain build's output.
 # ---------------------------------------------------------------------------
 banner "e. checksum comparison (plain release vs PGO baseline)"
-"$BIN_USE" all | tee "$LOG_DIR/checksums-pgo.txt"
+run_correctness "$BIN_USE" "$LOG_DIR/checksums-pgo.txt"
+cat "$LOG_DIR/checksums-pgo.txt"
 if diff -u "$LOG_DIR/checksums-plain.txt" "$LOG_DIR/checksums-pgo.txt"; then
   echo "CHECKSUMS: MATCH"
 else
@@ -169,6 +233,7 @@ fi
 # ---------------------------------------------------------------------------
 # f. .text hash with debuginfo=1 vs debuginfo=0 (SPEC.ja.md 3).
 # ---------------------------------------------------------------------------
+if [ "$DEBUG0" = 1 ]; then
 banner "f. .text hash, debug=1 vs debug=0"
 CARGO_PROFILE_RELEASE_DEBUG=0 \
 CARGO_TARGET_DIR="$TD_USE_D0" \
@@ -178,26 +243,27 @@ CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=
     '-Cllvm-args=-pass-remarks=.*' \
     '-Cllvm-args=-pass-remarks-missed=.*' \
     '-Cllvm-args=-pass-remarks-analysis=.*')" \
-  cargo build --manifest-path "$TOY/Cargo.toml" --release --target "$TRIPLE" >"$LOG_DIR/pgo-baseline-debug0-build.log" 2>&1
-BIN_USE_D0="$TD_USE_D0/$TRIPLE/release/toy"
+  cargo build --manifest-path "$MANIFEST" --release --target "$TRIPLE" \
+    "${CARGO_EXTRA[@]}" >"$LOG_DIR/pgo-baseline-debug0-build.log" 2>&1
+BIN_USE_D0="$TD_USE_D0/$TRIPLE/release/$BIN_NAME"
 
-H1=$(objcopy -O binary --only-section=.text "$BIN_USE" /dev/stdout | sha256sum | cut -d' ' -f1)
-H0=$(objcopy -O binary --only-section=.text "$BIN_USE_D0" /dev/stdout | sha256sum | cut -d' ' -f1)
+H1=$(text_hash "$BIN_USE")
+H0=$(text_hash "$BIN_USE_D0")
 echo "debug=1 .text sha256: $H1"
 echo "debug=0 .text sha256: $H0"
 if [ "$H1" = "$H0" ]; then echo "TEXT HASH: MATCH"; else echo "TEXT HASH: DIFFER"; fi
-"$BIN_USE_D0" all > "$LOG_DIR/checksums-pgo-debug0.txt"
+run_correctness "$BIN_USE_D0" "$LOG_DIR/checksums-pgo-debug0.txt"
 diff -q "$LOG_DIR/checksums-pgo.txt" "$LOG_DIR/checksums-pgo-debug0.txt" \
   && echo "debug=0 checksums: MATCH" || echo "debug=0 checksums: MISMATCH"
+fi
 
 # ---------------------------------------------------------------------------
-# Disqualification filter (SPEC.ja.md 6.1-2). Trivially clean for the toy, but
-# run it here so the same command is on record for zopfli and jaq.
+# g. Reference arm R (SPEC.ja.md 9): the target's own release profile, with no
+#    override at all. Only the effective profile values are recorded here; the
+#    arm itself is measured in Stage 1.
 # ---------------------------------------------------------------------------
-banner "disqualification filter (hand-written SIMD)"
-echo "\$ cargo tree -e normal | grep -iE 'memchr|simd|wide|std_detect'"
-(cd "$TOY" && cargo tree -e normal | grep -iE 'memchr|simd|wide|std_detect') || echo "(no match)"
-echo "\$ grep -rlE 'core::arch|_mm_|_mm256|target_feature' targets/toy/*/src"
-(cd "$REPO" && grep -rlE 'core::arch|_mm_|_mm256|target_feature' targets/toy/*/src) || echo "(no match)"
+banner "g. reference arm R: the target's own [profile.release]"
+sed -n '/^\[profile\.release\]/,/^\[/p' "$MANIFEST" | sed 's/^/    /' \
+  || echo "    (the manifest sets no [profile.release])"
 
 banner "done"

@@ -27,3 +27,8 @@ run-manifest.json
 
 # working notes (not tracked)
 /work/
+
+# zopfli generated workloads and their compressor output (regenerable:
+# targets/zopfli/workloads/gen.py, fixed seeds)
+/targets/zopfli/workloads/*.dat
+/targets/zopfli/workloads/*.gz

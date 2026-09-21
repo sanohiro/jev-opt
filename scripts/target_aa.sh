@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# A/A noise floor on the toy PGO baseline (SPEC.ja.md 10, 13 day-0 item 5).
+# A/A noise floor on a target's PGO baseline (SPEC.ja.md 10, 13 day-0 item 5).
 #
 # Build the PGO baseline once, copy the same binary to two labels A1 and A2,
 # and measure them interleaved. Any difference between two copies of one
@@ -8,18 +8,19 @@
 # ratio is the noise floor, and the minimum detectable effect is
 # max(2 x half-width, 3%).
 #
-# Usage: scripts/toy_aa.sh [runs] [warmup]        (defaults 30 / 5)
+# Usage: TARGET=zopfli scripts/target_aa.sh [runs] [warmup]   (defaults 30 / 5)
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/toy_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/target_common.sh"
 
-RUNS="${1:-30}"
-WARMUP="${2:-5}"
+RUNS="${1:-${RUNS:-30}}"
+WARMUP="${2:-${WARMUP:-5}}"
 OUT="$REPO/artifacts/$TARGET-aa"
 TD="$REPO/target-$TARGET-aa"
 
 rm -rf "$OUT"; mkdir -p "$OUT" "$REMARK_DIR"
 
+echo "== target: $TARGET =="
 echo "== toolchain =="
 rustc -vV | sed -n '1p;$p'
 echo "profdata: $PROFDATA"
