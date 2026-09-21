@@ -7168,10 +7168,11 @@ that the driver owns) and `docs/search-driver.md` (usage, acceptance rule,
 state format, file layout).
 
 **These runs are smoke tests**: the toy, one or two rounds, `n = 3`,
-`warmup = 1`. They exist to show that the loop closes --- plan applies,
-output matches, statistics come out --- and **no speed claim may be read out
-of them**. The toy was flat under hints on day 0 (section 37) and `n = 3` is
-below any usable precision anyway.
+`warmup = 1`, plus zero-build probes against the jaq site list. They exist to
+show that the loop closes --- plan applies, output matches, statistics come
+out --- and **no speed claim may be read out of them**. The toy was flat
+under hints on day 0 (section 37) and `n = 3` is below any usable precision
+anyway; section 7 below has a demonstration of exactly that.
 
 ### 1. What was run
 
@@ -7186,10 +7187,15 @@ scripts/jev_search.py --target toy --marks artifacts/plugin-day3/marks/toy-all.t
 scripts/jev_search.py ... --proposer random --rounds 2 --resume ...   # resume
 scripts/jev_search.py ... --proposer oracle --dry-run ...             # arm list
 scripts/jev_search.py ... --print-state ...                           # state, no HTTP
+# and, against the site list of "Sites (jaq)" with no build at all:
+scripts/jev_search.py --target jaq --marks targets/jaq/jev-marks.txt \
+    --sites targets/jaq/sites.json --site-set oracle.selected_keys_top3 \
+    --proposer jev --baseline-dir <the dump build of scripts/jaq_sites.sh> \
+    --dry-run | --print-state --out artifacts/jaq-search/_probe
 ```
 
-A whole round is 28 s on the toy: two clean fat-LTO builds, one correctness
-run and one `bench.py` run of 3 repetitions over 4 cases and 3 labels.
+A whole toy round is 26 s: two clean fat-LTO builds, one correctness run and
+one `bench.py` run of 3 repetitions over 4 cases and 3 labels.
 
 ### 2. Site resolution
 
@@ -7198,7 +7204,7 @@ and the site list together (SPEC.ja.md 8.2). On the four toy marks:
 
 ```
 3 function sites, 4 loop sites, 0 build site
-  fn     fn:toyloops::count_quotes        (2 linkage names: the fn and its closure)
+  fn     fn:toyloops::count_quotes        (its {closure#0} is excluded, see 3)
   fn     fn:toyloops::dot_f64
   fn     fn:toyloops::find_special
   loop   toyloops::sum_indexed@range.rs:1103:12#d2
@@ -7215,87 +7221,141 @@ nothing is an error" rule of SPEC.ja.md 1(1) has to test both. The first
 version of the driver tested only the function table and stopped on a
 perfectly good mark.
 
-### 3. The plan applies
+On jaq, against the frozen site set of "Sites (jaq)": **15 function sites +
+16 loop sites = 31 questions per round**, two HTTP requests. `--site-set
+oracle.selected_keys_top3` names the pre-registered list in
+`targets/jaq/sites.json` (`oracle.selected_keys_topk_per_mark`), and the
+same list is used by all three proposers, which is what makes jev, random
+and oracle comparable (SPEC.ja.md 2). Without it the driver would see 127
+loop sites and stop on `[search] max_sites = 40`.
 
-Round 1 of the random arm (five `fn_attrs` entries, because two marks fan out
-to two linkage names each, and four `loop_md` entries), merged over the
-per-module reports:
+### 3. A function attribute goes on the mark, not on what it defines
+
+The plugin's mark rule reaches inner items on purpose: a loop inside a
+closure is a loop of the marked function. A function *attribute* must not
+follow it there --- `inline(never)` on `jaq_json::write::write` is a
+statement about that function, and putting `noinline` on the eight closures
+it defines as well would stop LLVM inlining them into the mark's own loops,
+which is a different intervention from the one the human asked for. So one
+Choice fans out to the mark's own functions and **every monomorphization**
+(decision 61c) and the inner items are excluded and listed in the round
+record's `fn_fanout`. `--fn-attr-scope all` restores the plugin's own reach.
+The spec does not settle this; it is the driver's choice and it is written
+down in `docs/search-driver.md`.
+
+Telling the two apart is not "does the name contain `::{`". Since the
+plugin started reporting the full demangled name (commit 82a22ca), a
+monomorphization's generic arguments routinely contain a closure path:
 
 ```
-phase A (JEV_MODE=apply-dump)         phase B (JEV_MODE=apply)
-  ..._8toyloops12count_quotes   consumed cold        8d0b9cbf...-macros.rs-279     attached unroll.count=8
-  ..._8toyloops12count_quotes0B3_ consumed cold      68a90983...-lib.rs-26         attached unroll.count=2
-  ..._8toyloops12find_special   consumed align=16    e46f821f...-range.rs-1103     attached interleave.count=2
-  ..._8toyloops12find_special0B3_ consumed align=16  42899cdd...-range.rs-1103     attached unroll.count=2
-  ..._8toyloops7dot_f64         consumed align=64    + the five fn rows again, consumed
+<hifijson::SliceLexer as hifijson::token::Lex>::seq
+  ::<hifijson::Error, jaq_json::read::ws_tk<hifijson::SliceLexer, ...{closure#1}>>
 ```
 
-`vanished` 0, `ambiguous` 0, `unmatched` 0, `skipped_empty` 0. Output hashes
-match the baseline on all four cases.
+The naive test filed six of jaq's fifteen marks as inner items and dropped
+them from the attribute phase entirely. What separates them is the suffix
+*after the mark*: `::<...>` is a monomorphization, `::{closure#0}` or
+`::helper` is an item defined inside it.
+
+### 4. The plan applies
+
+Round 1 of the random arm on the toy (three `fn_attrs` entries and four
+`loop_md` entries), merged over the per-module reports:
+
+```
+phase A (JEV_MODE=apply-dump)          phase B (JEV_MODE=apply)
+  ..._8toyloops12count_quotes  consumed cold     8d0b9cbf…-macros.rs-279  attached unroll.count=8
+  ..._8toyloops12find_special  consumed align=16 68a90983…-lib.rs-26      attached unroll.count=2
+  ..._8toyloops7dot_f64        consumed align=64 42899cdd…-range.rs-1103  attached unroll.count=2
+                                                 e46f821f…-range.rs-1103  attached interleave.count=2
+                                                 + the three fn rows again, consumed
+```
+
+`vanished` 0, `ambiguous` 0, `unmatched` 0, `skipped_empty` 0, and
+`run_correctness`'s output matches the baseline line for line.
 
 Three things this settles that were open:
 
 * **The plugin tolerates unknown plan fields.** The plan carries `basis`,
   `vocab_version`, and `jev_site_id` / `jev_choice` / `answer_ref` per entry;
   `loadPlanOnce` only `get`s the keys it knows, and the build is unaffected.
-  That was read out of the source in the morning and is now measured.
+  That was read out of the source and is now measured.
 * **`apply-dump` with an empty `fn_attrs` still dumps the loops.** The Jev
   arm chose `KEEP_DEFAULT` everywhere, so phase A applied nothing, and phase
   B still got its four refreshed sites. The fallback to the baseline dump
   that the driver carries for this case was not needed.
 * **The refreshed keys really are different keys.** `dot_f64`'s loop is
-  `e46f821f...` in the baseline dump and `42899cdd...` after the attributes
-  of round 1; the site key moves with inlining exactly as decision 61 says,
+  `e46f821f…` in the baseline dump and `42899cdd…` after the attributes of
+  round 1; the site key moves with inlining exactly as decision 61 says,
   which is why the driver keys its history on the coarser `site_id`
   (`<mark>@<file>:<line>:<col>#d<depth>`) and never on the key.
 
-### 4. One real Jev call per phase
+`ambiguous` is **not** a failure. On jaq 13 of 127 keys resolve to 2--9
+loops, the plugin attaches the hint to every copy and says so, and a plan
+entry is an instruction about a key: such an arm moves several loops at once
+and cannot separate them. The driver counts those entries per round
+(`n_ambiguous`, a column in `summary.md`) and fails a round only on
+`vanished`, `unmatched` or `skipped_empty`.
 
-`--proposer jev`, round 1, two HTTP requests (`artifacts/toy-search/smoke-jev/jev-log/`):
+### 5. One real Jev call per phase
+
+`--proposer jev`, round 1 on the toy, two HTTP requests
+(`artifacts/toy-search/smoke-jev/jev-log/`):
 
 ```
 ts                                r phase  q  status  latency_ms  in    out  cost
-2026-09-22T06:43:10.720136+09:00 r1 A     3  200     1036.3      5973  234  0.00000000
-2026-09-22T06:43:14.687721+09:00 r1 B     4  200      703.3      9397  607  0.00000000
-# 2 requests, 7 choice questions, 1.74 s total latency, 15370 + 841 tokens,
-# $0.00000000 billed ($0.00065 at list price), 7.36% of the run's wall clock
+2026-09-22T07:02:55.901012+09:00 r1 A     3  200      687.7      5947  234  0.00000000
+2026-09-22T07:02:59.759160+09:00 r1 B     4  200      707.7      9397  607  0.00000000
+# 2 requests, 7 choice questions, 1.40 s total latency, 15344 + 841 tokens,
+# $0.00000000 billed ($0.00065 at list price), 6.15% of the run's wall clock
 ```
 
-Jev answered `KEEP_DEFAULT` to all seven, with high confidence and the
-probability mass concentrated there:
+Jev answered `KEEP_DEFAULT` to all seven, with high confidence:
 
 ```
-q0 (count_quotes, function attribute)  KEEP_DEFAULT conf 0.86
-   KEEP_DEFAULT 0.89  inline 0.11  inline_never 0  cold 0  align_16/32/64 0
-q0 (the count_quotes loop, macros.rs:279)  KEEP_DEFAULT conf 0.85
-   KEEP_DEFAULT 0.87  vectorize_width_4 0.06  vectorize_width_8 0.04
-   unroll_count_8 0.02  unroll_disable 0.01  everything else 0
+phase A  q0 0.95  q1 0.93  q2 0.97      (the three marked functions)
+phase B  q0 0.85  q1 0.94  q2 0.97  q3 0.84   (their loops)
+probabilities, count_quotes: KEEP_DEFAULT 0.89, inline 0.11, everything else 0
+probabilities, its loop:     KEEP_DEFAULT 0.87, vectorize_width_4 0.06,
+                             vectorize_width_8 0.04, unroll_count_8 0.02, rest 0
 ```
 
 Consistent with `docs/jev-samples/01-*`, where the same loop with "LLVM
 already vectorized this at VF=4 IC=4" in the state also came back
-`keep_default`. The state of this driver says the same thing in the
+`keep_default`; the driver's state says the same thing in its
 `already vectorized` and remark lines. Nothing here says whether the answer
 is *right* --- that needs jaq and real rounds --- but the arm runs, the empty
-plan is a legal outcome, and it costs nothing.
+plan is a legal outcome, and it costs nothing. One request came back 503 and
+the retry succeeded; the log line names the failed attempt.
 
-### 5. Resume, oracle, state
+### 6. State, resume, oracle
 
+* `--print-state` prints both phases' state without making a request. The
+  toy is 13.3 KB for 3 function questions and 17.8 KB for 4 loop questions;
+  jaq's 31 questions are 59 KB (phase A) and 70 KB (phase B), under the
+  120 KB at which `[search] max_state_chars` splits a round into several
+  requests.
+* Source excerpts. The plugin's function table has no source location, so
+  the marked function's source is found with `nm` + `addr2line` on the
+  baseline binary, which is exact and is why SPEC.ja.md 3 pins
+  `-Cdebuginfo=1` and `strip=none`; a definition search over the vendored
+  tree and the Cargo.lock-pinned registry crates is the fallback, and the
+  leaf location of one of the mark's loops is the last resort. On jaq's 15
+  marks that gives source for 10; the remaining 5 are trait-object shims
+  whose DWARF definition is in the standard library, and `rust-src` is not
+  installed on this machine, so the state says "not available" rather than
+  guessing. An earlier version matched such a path to any file with the
+  same basename and put an unrelated `jaq-json/tests/common/mod.rs` in the
+  state.
 * `--resume` on the 1-round run with `--rounds 2` read `rounds.jsonl`,
-  reported `1 rounds already recorded, best = baseline (1.0000)`, ran only
-  round 2, and rewrote `summary.md`. Re-running it with `--rounds 2` again
-  ran no round at all.
+  reported `1 rounds already recorded`, ran only round 2, and rewrote
+  `summary.md`. Re-running it with `--rounds 2` again ran no round at all.
 * `--proposer oracle --dry-run` enumerated **62 one-factor arms + 1
   combination** for the toy (3 function sites x 6 candidates + 4 loop sites x
-  11 candidates), without building anything. That is the arm count
-  SPEC.ja.md 2 wants recorded before the sweep starts; on jaq it is what
-  `[search] max_sites` exists to bound.
-* `--print-state` prints both phases' state without making a request. Round 1
-  on the toy is 13.3 KB for 3 function questions and 17.8 KB for 4 loop
-  questions. `[search] max_state_chars` (120 KB) is what splits a round into
-  several requests, and the split is recorded as phase `A.1` / `B.1`.
+  11 candidates) without building anything. On jaq's frozen set it is
+  15x6 + 16x11 + 1 = 267, the number "Sites (jaq)" prices at 20 h.
 
-### 6. Two build-recipe changes, and why they are safe
+### 7. Two build-recipe changes, and why they are safe
 
 `scripts/target_common.sh`'s `build_variant` gained two things:
 
@@ -7304,7 +7364,7 @@ plan is a legal outcome, and it costs nothing.
 * **An extra knob equal to a fixed flag, or repeated, is dropped.** An LLVM
   `cl::opt` is `cl::Optional`, so passing the same `-Cllvm-args` option twice
   aborts rustc. This matters for `-Cllvm-args=-hints-allow-reordering=false`,
-  which SPEC.ja.md 2 pins for every arm: the jaq branch now sets it through
+  which SPEC.ja.md 2 pins for every arm: the jaq branch sets it through
   `FIXED_RUSTFLAGS` and the search driver also passes it, and the build gets
   exactly one copy either way.
 
@@ -7312,28 +7372,37 @@ Checked by replaying `build_variant` with a stub `cargo`: with no extra
 knobs the encoded rustflags are identical to the pre-change ones flag for
 flag, so nothing recorded earlier in this file moves.
 
-### 7. What is not established
+### 8. What is not established
 
-* **Only the toy.** No jaq run, no timing worth the name, no oracle sweep
-  and no holdout measurement have been made with this driver.
+* **Only the toy has been built.** The jaq side of this section is the site
+  list, the state and the arm count, all produced without a build. No jaq
+  round, no oracle sweep and no holdout measurement have been run.
+* **The acceptance rule promoted a code-identical build.** The Jev arm's
+  round 1 applied an empty plan --- the same program as the baseline --- and
+  measured 1.0058 with a 95% CI of [1.0007, 1.0137], so the pre-registered
+  rule accepted it as the new best. That is the in-sweep null panel of
+  SPEC.ja.md 7 firing on the smoke run: at `n = 3` the paired bootstrap's
+  interval is not trustworthy, and the rule is only as good as the interval
+  it is given. The frozen `[evaluation] repetitions = 15` is the number for
+  a real run, and the null arm has to stay in the panel to catch this.
+* **The correctness gate was vacuous until it was fixed.** It compared the
+  first two whitespace-separated fields of each line of `run_correctness`'s
+  output, which is `name sha256` on jaq but `quotes len=… reps=… checksum=…`
+  on the toy --- the checksum was never read. It now compares whole lines,
+  which works for every target's format, and the recorded smoke runs were
+  re-checked: baseline and round output were in fact identical.
 * **`basis` is enforced by the driver, not by the plugin.** SPEC.ja.md 8.4
   asks the plugin to stop the build on a mismatch; the plugin ignores the
-  field. In-round the check is tautological (the same attribute set wrote
-  both plans); it only bites on `--resume` and on a hand-edited plan.
+  field. Within one round the check is a tautology (the same attribute set
+  wrote both plans); it bites on `--resume` and on a hand-edited plan.
 * **The confidence threshold is off.** SPEC.ja.md 6 wants low-confidence
   answers replaced by `KEEP_DEFAULT` but fixes no threshold, and the one
   sample response answered decisively at confidence 0.47, so
   `[jev] min_confidence = 0` is the frozen default rather than an invented
-  number.
-* **Source excerpts are found by a heuristic.** The dump gives a source
-  location for loops but not for functions, so the marked function's source
-  is found by searching the vendored tree for `fn <last identifier>`. A mark
-  defined outside the vendored tree gets no excerpt, and the state says so
-  rather than guessing.
-* **The in-run A/A was 0.28% to 1.74% half-width** across these smoke runs,
-  and one empty-plan build measured 0.9875 with a CI that excludes 1.0. At
-  `n = 3` that is the noise, not a result; it is recorded only so that
-  nobody later reads those numbers as a measurement.
+  number. The seven answers of the smoke run were 0.84 to 0.97.
+* **Remark attribution is by source location only** --- the remark lines
+  carry no function name (SPEC.ja.md 3) --- so a state section can show a
+  neighbouring function's remarks when both live within 40 lines.
 
 ## Sites (jaq) --- resolving the marks and enumerating the loops inside them
 

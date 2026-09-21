@@ -33,6 +33,10 @@ scripts/jev_search.py --target jaq \
 Useful flags:
 
 ```
+--site-set PATH     the frozen loop-site key list inside sites.json, e.g.
+                    oracle.selected_keys_top3. All three proposers must be
+                    given the same one (SPEC.ja.md 2)
+--fn-attr-scope     own (default) or all; see "Sites" below
 --dry-run           list the sites (or the oracle's arms) and stop
 --print-state       print the round-1 state of both phases and stop; no HTTP
 --n N --warmup W    bench.py --runs / --warmup for the rounds
@@ -63,15 +67,18 @@ phase A   one Choice per marked function (+ the __build__ pseudo-site)
 phase B   one Choice per refreshed loop_in_mark site
           -> plan-b.json: the same fn_attrs + loop_md
           -> build with JEV_MODE=apply
-          -> correctness: sha256 of every case's output vs the baseline
+          -> correctness: run_correctness's output, line for line, vs the
+             baseline's
           -> timing: bench.py, cand vs base vs an in-run A/A copy of base
 ```
 
 `plan-b.json` carries `basis`, the sha256 of the attribute set the dump its
-loop keys came from was taken under, and the driver refuses to build when it
-does not match. SPEC.ja.md 8.4 asks the *plugin* to enforce this; the plugin
-as built ignores unknown plan fields and never reads `basis`, so the check is
-the driver's. `jev_site_id`, `jev_choice` and `answer_ref` ride along in each
+loop keys came from was taken under, and the driver checks it before
+building. SPEC.ja.md 8.4 asks the *plugin* to enforce this; the plugin as
+built ignores unknown plan fields and never reads `basis`, so the check is
+the driver's --- and within one round it is a tautology, since the same
+attribute set wrote both plans. It bites on `--resume` and on a hand-edited
+plan. `jev_site_id`, `jev_choice` and `answer_ref` ride along in each
 plan entry for the same reason --- they are for the record, not for the
 plugin, and the toy smoke run confirmed the plugin tolerates them.
 
@@ -88,6 +95,21 @@ the in-sweep null arm of SPEC.ja.md 7, not a failure.
   per resolved **linkage name** (decision 61c). Naming linkage names rather
   than the Rust path is exact: `JevApplyFnAttrs` matches `F.getName()` first,
   so nothing else can match by accident.
+  **Inner items are excluded from the fan-out.** The plugin's mark rule
+  reaches `::{closure#N}` and other inner items on purpose, so that a loop
+  inside a closure is attributed to the marked function. A function
+  attribute must not follow it there: `inline(never)` on a mark is a
+  statement about that function, and putting `noinline` on every closure it
+  defines would also stop LLVM inlining those closures into the mark's own
+  loops --- a different intervention from the one the human asked for. The
+  excluded names are recorded per round in `fn_fanout`, and
+  `--fn-attr-scope all` restores the plugin's own reach. The spec does not
+  settle this; this is the driver's choice.
+  Telling the two apart is not "does the name contain `::{`": since the
+  plugin reports the full demangled name, a monomorphization's generic
+  arguments routinely contain a closure path. What separates them is the
+  suffix *after the mark* --- `::<...>` is a monomorphization, `::{closure#0}`
+  or `::helper` is an item defined inside it.
 * **loop sites** are the `loop_in_mark` records only. `mark_in_loop` --- the
   caller's loop around an inlined copy of a marked function --- is excluded
   (decision 61a).
@@ -95,7 +117,19 @@ the in-sweep null arm of SPEC.ja.md 7, not a failure.
   (SPEC.ja.md 1(1)). A mark that resolves to a loop but not to a function is
   legal and gets only a loop question: the toy's `sum_indexed` is one, MIR
   inlined it away before the plugin ever sees the module.
-* `[search] max_sites` counts both phases and is a hard error.
+* `[search] max_sites` counts both phases and is a hard error. `--site-set`
+  is how a run stays under it on jaq: `targets/jaq/sites.json` carries the
+  pre-registered mechanical rule (drop the keys the training profile never
+  entered, drop trip count < 2, keep the top 3 by hotness per mark) and the
+  16 keys it selects, which with the 15 marks makes 31 questions a round.
+  All three proposers take the same list, which is what makes them
+  comparable.
+* **a site key is not always one loop.** On jaq 13 of 127 keys resolve to
+  2--9 loops; the plugin attaches the hint to every copy and reports the key
+  `ambiguous` as well. A plan entry is an instruction about a key, so such an
+  arm moves several loops at once and cannot separate them. That is counted
+  per round (`n_ambiguous`), shown in `summary.md`, and is **not** a failure.
+  `vanished`, `unmatched` and `skipped_empty` are failures.
 
 `site_id` --- `<mark>@<file>:<line>:<col>#d<depth>` --- is a coarser identity
 than the site key, and is what round-to-round history and the oracle's
@@ -106,12 +140,16 @@ attributes move. The key is still the only thing a plan ever names.
 
 A round becomes the best so far **only if all three hold**:
 
-1. its output matches the baseline on every case, byte for byte
-   (`run_correctness`'s sha256 per case);
-2. every plan entry took effect --- no `unmatched`, `vanished`, `ambiguous`
-   or `skipped_empty` in the merged apply report (merged over modules, as
+1. its output matches the baseline on every case, byte for byte:
+   `run_correctness` from `target_common.sh` writes one line per case
+   (`name sha256` on jaq, zopfli and oxipng; the toy's own checksum block on
+   the toy) and the whole output is compared line for line, so the gate does
+   not depend on any target's line shape;
+2. every plan entry took effect --- no `unmatched`, `vanished` or
+   `skipped_empty` in the merged apply report (merged over modules, as
    `plugin_report.py apply` does: an entry naming a function of one crate is
-   legitimately unmatched in every other module);
+   legitimately unmatched in every other module). `ambiguous` is counted,
+   not failed;
 3. the **lower end of its 95% CI is above the best point estimate so far**.
    The baseline is the first best, at ratio 1.0000.
 
@@ -183,13 +221,17 @@ what LLVM said about this region in the baseline build: <remarks>
 ```
 
 Two notes on the source excerpts. The dump carries a source location for
-loops but not for functions, so a mark's own source is found by searching the
-vendored tree for its definition (`fn <last identifier>`, scored by how much
-of the module path the file path repeats); when that fails the state says
-"source:" and nothing, rather than guessing. And a loop's `leaf` location is
-usually inside core's iterator machinery (`range.rs`, `macros.rs`), not in
-the marked function, which is why both excerpts are shown and the state says
-which is which.
+loops but not for functions, so a mark's own source is found in three steps:
+`nm` plus `addr2line` on the baseline binary, which is exact and is why
+SPEC.ja.md 3 pins `-Cdebuginfo=1` and `strip=none`; then a definition search
+(`fn <last identifier>`, scored by how many of the mark's identifiers the
+file path repeats) over the vendored tree and the registry crates
+Cargo.lock pins; then the leaf location of one of the mark's loops. When all
+three fail the state says "source:" and nothing, rather than guessing --- a
+path that resolves to a file shorter than the recorded line is treated as
+not resolved. And a loop's `leaf` location is usually inside core's iterator
+machinery (`range.rs`, `macros.rs`), not in the marked function, which is
+why both excerpts are shown and the state says which is which.
 
 `criteria` is an object (decision 19; an array is `invalid_request`), the
 candidate ids are the keys, and the descriptions are the frozen ones in
@@ -255,11 +297,20 @@ a tracked artifact.
 
 ## Known limits
 
-* `basis` is checked by the driver, not by the plugin (above).
+* `basis` is checked by the driver, not by the plugin, and within one round
+  the check is a tautology (above).
+* A function attribute goes on the mark's own functions only, never on the
+  closures defined inside it (above). Loop attribution is unaffected: a loop
+  inside such a closure is still a site of the mark.
 * The function-source search is a heuristic, and a mark whose definition is
   outside the vendored tree gets no source excerpt at all.
 * Remark attribution is by source location only --- the remark lines carry no
   function name (SPEC.ja.md 3) --- so a section can show a neighbouring
   function's remarks when both live within 40 lines of each other.
 * Only the toy has been run end to end (results.md "Search driver (smoke)"),
-  with `n=3` and one round. Nothing about speed follows from that.
+  with `n=3` and one round. Nothing about speed follows from that, and at
+  that `n` the acceptance rule accepted a code-identical build, which is the
+  in-sweep null panel doing its job.
+* The standard library's sources are not on this machine (`rust-src` is not
+  installed), so a mark whose DWARF definition is in `library/core` gets no
+  source excerpt. Five of jaq's fifteen are in that position.

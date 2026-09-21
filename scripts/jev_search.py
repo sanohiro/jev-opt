@@ -23,10 +23,12 @@ decision 61b):
                A/A copy of it)
 
 `basis` links the two: plan B carries the sha256 of the fn_attrs set the
-dump that produced its loop keys was taken under, and the driver refuses to
-build if it does not match. SPEC.ja.md 8.4 asks the *plugin* to enforce this;
-the plugin as built does not parse `basis` at all (it ignores unknown plan
-fields), so the check lives here and `docs/search-driver.md` says so.
+dump that produced its loop keys was taken under, and the driver checks it
+before building. SPEC.ja.md 8.4 asks the *plugin* to enforce this; the plugin
+as built does not parse `basis` at all (it ignores unknown plan fields), so
+the check lives here, and within one round it is a tautology --- the same
+attribute set wrote both plans. It bites on `--resume` and on a hand-edited
+plan, and `docs/search-driver.md` says so.
 
 Proposers (--proposer):
   jev      one HTTP request per phase, one Choice question per site, state in
@@ -353,8 +355,19 @@ class SourceBook:
                     found = cand
                     break
         if found is None:
+            # Suffix match: the longest tail of the recorded path that
+            # identifies exactly one indexed file. A bare basename is not
+            # enough --- `mod.rs` and `lib.rs` exist in every crate, and
+            # matching one of them to a std path that is not on this machine
+            # puts a stranger's source in the state.
             self._walk_index()
-            found = self.index.get(os.path.basename(path))
+            parts = path.replace("\\", "/").split("/")
+            for n in range(min(4, len(parts)), 1, -1):
+                tail = "/".join(parts[-n:])
+                hits = [q for q in self.paths if q.endswith("/" + tail)]
+                if len(hits) == 1:
+                    found = hits[0]
+                    break
         self.cache[path] = found
         return found
 
@@ -384,28 +397,45 @@ class SourceBook:
         module path the file path repeats. A heuristic, and the state says
         "source:" with nothing under it when it fails.
         """
-        ident = None
-        parts = [p for p in re.split(r"::", re.sub(r"<[^<>]*>", "", mark))
-                 if p and not p.startswith("{")]
-        if parts:
-            ident = re.sub(r"[^A-Za-z0-9_]", "", parts[-1])
+        ident, rest = None, mark
+        while True:
+            stripped = re.sub(r"<[^<>]*>", "", rest)
+            if stripped == rest:
+                break
+            rest = stripped
+        tail = [p for p in rest.split("::") if p and not p.startswith("{")]
+        if tail:
+            ident = re.sub(r"[^A-Za-z0-9_]", "", tail[-1])
         if not ident:
             return (None, None)
         pat = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?"
                          r"(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?"
                          r"(?:extern\s+\"[^\"]*\"\s+)?fn\s+" +
                          re.escape(ident) + r"\b")
-        hints = [p.lower() for p in parts[:-1]]
+        # Score by the identifiers of the whole mark --- including the ones
+        # inside `<...>`, which for a trait-impl mark like
+        # `<jaq_core::compile::TermId>::run` are the only thing that says
+        # which crate and module to look in. `-` and `_` are the same
+        # character for this purpose (crate `jaq_core`, directory
+        # `jaq-core`). A best score of 0 means "found nothing that belongs
+        # to this mark", and the state then says the source is unavailable
+        # rather than showing an unrelated `fn` of the same name.
+        hints = {h.lower() for h in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", mark)
+                 if h.lower() not in ("core", "alloc", "std", "closure", "as",
+                                      ident.lower())}
         best = None
         for path in self._walk_index():
             try:
                 lines = open(path, errors="replace").read().splitlines()
             except OSError:
                 continue
+            key = path.lower().replace("-", "_")
+            score = sum(1 for h in hints if h.replace("-", "_") in key)
+            if score == 0 or (best and score < best[0]):
+                continue
             for n, line in enumerate(lines, 1):
                 if pat.match(line):
-                    score = sum(1 for h in hints if h in path.lower())
-                    if best is None or score > best[0]:
+                    if best is None or score > best[0] or len(path) < len(best[1]):
                         best = (score, path, n)
                     break
         if best is None:
@@ -420,6 +450,8 @@ class SourceBook:
             lines = open(real, errors="replace").read().splitlines()
         except OSError:
             return None
+        if int(line) > len(lines):
+            return None          # resolved to the wrong file; say nothing
         lo = max(1, int(line) - ctx)
         hi = min(len(lines), int(line) + ctx)
         body = "\n".join("%5d %s%s" % (n, ">" if n == int(line) else " ",
@@ -470,37 +502,55 @@ class RemarkBook:
 # sites.json produced outside this driver
 # ---------------------------------------------------------------------------
 
+def as_share(x):
+    """A percentage as a float, from 29.29, "29.29", "29.29%" or None."""
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+    m = re.search(r"-?\d+(?:\.\d+)?", str(x))
+    return float(m.group(0)) if m else None
+
+
 def load_sidecar(path):
     """Optional extra facts about the marks, produced by the marking step.
 
-    The file this driver was written against is `targets/jaq/sites.json`
-    (resolved marks plus `loop_in_mark` sites with keys, hotness and trip
-    counts), which is produced concurrently and whose exact schema is not
-    fixed here. Only these keys are read, all of them optional, and anything
-    else in the file is ignored:
+    Written against `targets/jaq/sites.json` as
+    `scripts/jaq_sites_report.py` emits it:
 
-        marks[] / functions[]  {mark|fn|name, share|profile_share|share_pct,
-                                file, line, reach, insns}
-        sites[]                {key|site_id, share|profile_share, notes,
-                                candidates[]}
-        search.max_sites, search.max_candidates_per_site
+        marks[]   {mark, matched, functions[], n_sites_owned, ...}
+        sites[]   the plugin's `loop_in_mark` records plus stage, module_id,
+                  key_copies, key_unique
+        oracle.selected_keys_topk_per_mark / selected_keys_top20_overall
+                  the mechanical caps on how many loop sites a sweep covers
 
-    A plugin dump report (or a directory of them) is also accepted, so the
-    same flag can point at a `JEV_REPORT_DIR`.
+    Everything is optional and everything unknown is ignored, so a differently
+    shaped file degrades to "no extra facts" instead of failing. A few
+    alternative spellings are accepted (`fn`/`name` for a mark, `share`/
+    `profile_share`/`share_pct` for a share) and a plugin report directory is
+    accepted in place of the file.
     """
     if not path:
-        return {"marks": {}, "sites": {}, "caps": {}}
+        return {"marks": {}, "sites": {}, "caps": {}, "site_allow": set(),
+                "raw": {}}
     docs = []
     if os.path.isdir(path):
         docs = [rep for _, rep in plugin_report.load(path)]
     else:
         docs = [json.load(open(path))]
 
-    marks, sites, caps = {}, {}, {}
+    marks, sites, caps, allow = {}, {}, {}, set()
     for doc in docs:
         if not isinstance(doc, dict):
             continue
         caps.update(doc.get("search") or doc.get("caps") or {})
+        oracle = doc.get("oracle") or {}
+        for field in ("selected_keys_topk_per_mark",
+                      "selected_keys_top20_overall", "site_keys"):
+            if field == "selected_keys_top20_overall" and allow:
+                continue                       # the per-mark cap wins
+            allow |= set(oracle.get(field) or (doc.get("search") or {}).get(field)
+                         or [])
         rows = doc.get("marks") or doc.get("functions") or []
         if isinstance(rows, dict):
             rows = [dict(v, mark=k) for k, v in rows.items()]
@@ -516,19 +566,162 @@ def load_sidecar(path):
                              ("file", "file"), ("line", "line"),
                              ("insns", "insns"), ("notes", "notes")):
                 if r.get(src) is not None and dst not in cur:
-                    cur[dst] = r[src]
+                    cur[dst] = (as_share(r[src]) if dst in ("share", "reach")
+                                else r[src])
         for r in doc.get("sites") or []:
             if not isinstance(r, dict):
                 continue
             ident = r.get("site_id") or r.get("key")
             if ident:
                 sites[ident] = r
-    return {"marks": marks, "sites": sites, "caps": caps}
+    return {"marks": marks, "sites": sites, "caps": caps, "site_allow": allow,
+            "raw": docs[0] if len(docs) == 1 and isinstance(docs[0], dict)
+                   else {}}
+
+
+MARK_SHARE_RE = re.compile(r"\bshare\s+(\d+(?:\.\d+)?)%")
+MARK_REACH_RE = re.compile(r"\breach\s+(\d+(?:\.\d+)?)%")
+
+
+def shares_from_marks_file(path):
+    """{mark: {share, reach}} from the comment block above each mark.
+
+    targets/jaq/jev-marks.txt carries the profile numbers of
+    targets/jaq/jev-marks.rationale.md in the comment that introduces each
+    mark ("# share 29.29%, reach 29.29% (...)"). Reading them here is what
+    puts a profile share in the state without a second source of truth.
+    """
+    out, block = {}, []
+    if not path or not os.path.isfile(path):
+        return out
+    for line in open(path):
+        t = line.strip()
+        if not t:
+            block = []
+        elif t.startswith("#"):
+            block.append(t)
+        else:
+            text = " ".join(block)
+            sh, re_ = MARK_SHARE_RE.search(text), MARK_REACH_RE.search(text)
+            if sh or re_:
+                out[t] = {"share": float(sh.group(1)) if sh else None,
+                          "reach": float(re_.group(1)) if re_ else None}
+            block = []
+    return out
 
 
 # ---------------------------------------------------------------------------
 # items: one question each
 # ---------------------------------------------------------------------------
+
+def registry_roots(lockfile, wanted):
+    """Crate directories in ~/.cargo/registry for the named dependencies.
+
+    DWARF records a registry crate's files by a path relative to that crate
+    (`src/raw/mod.rs`), so the crate directory has to be in the search roots
+    for such a path to resolve at all. Cargo.lock pins which version, so
+    there is no guessing between the five hashbrown copies on this machine.
+    """
+    out = []
+    if not (lockfile and os.path.isfile(lockfile)):
+        return out
+    name = ver = None
+    pairs = []
+    for line in open(lockfile):
+        line = line.strip()
+        if line.startswith("name = "):
+            name = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("version = "):
+            ver = line.split("=", 1)[1].strip().strip('"')
+            if name:
+                pairs.append((name, ver))
+                name = None
+    low = {w.lower().replace("_", "-") for w in wanted}
+    for n, v in pairs:
+        if n.lower().replace("_", "-") not in low:
+            continue
+        out += sorted(glob.glob(os.path.expanduser(
+            "~/.cargo/registry/src/*/%s-%s" % (n, v))))
+    return out
+
+
+class DwarfDecl:
+    """linkage name -> (file, line) of its definition, out of the binary.
+
+    The plugin's function table has no source location, and searching the
+    tree for `fn <name>` guesses. The baseline is built with
+    `-Cdebuginfo=1` and `strip=none` (SPEC.ja.md 3) precisely so that this
+    kind of question has an exact answer: `nm` for the address, `addr2line`
+    for the file and line DWARF records for it. A function that fat LTO
+    inlined everywhere has no symbol left and gets no answer here; the
+    caller falls back.
+    """
+
+    def __init__(self, binary):
+        self.binary = binary
+        self.addr = None
+
+    def _load(self):
+        if self.addr is not None:
+            return
+        self.addr = {}
+        if not (self.binary and os.path.isfile(self.binary)):
+            return
+        p = subprocess.run(["nm", "--defined-only", self.binary],
+                           text=True, capture_output=True)
+        for line in p.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[1].lower() in ("t", "w"):
+                self.addr.setdefault(parts[2], parts[0])
+
+    def locate(self, linkages, limit=8):
+        """The (file, line) most of the given symbols agree on."""
+        self._load()
+        want = [(n, self.addr[n]) for n in linkages if n in self.addr][:limit]
+        if not want:
+            return (None, None)
+        p = subprocess.run(["addr2line", "-e", self.binary] +
+                           ["0x" + a for _, a in want],
+                           text=True, capture_output=True)
+        best = {}
+        for line in p.stdout.splitlines():
+            f, _, ln = line.strip().rpartition(":")
+            ln = ln.split(" ")[0]
+            if not f or f == "??" or not ln.isdigit():
+                continue
+            best.setdefault(f, []).append(int(ln))
+        if not best:
+            return (None, None)
+        f = max(best, key=lambda k: len(best[k]))
+        return (f, min(best[f]))
+
+
+def crate_roots_of(sites):
+    """Crate directories of the source files a dump named, for the search.
+
+    Ascends from each existing leaf file to the nearest directory holding a
+    Cargo.toml, so a dependency's sources can be searched without walking
+    the whole cargo registry.
+    """
+    out = []
+    seen = set()
+    for s in sites:
+        f = (s.get("leaf") or {}).get("file")
+        if not f or not os.path.isabs(f) or not os.path.isfile(f):
+            continue
+        d = os.path.dirname(f)
+        for _ in range(6):
+            if os.path.isfile(os.path.join(d, "Cargo.toml")):
+                if d not in seen:
+                    seen.add(d)
+                    out.append(d)
+                break
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+    return out
+
 
 class Item:
     """One site: a marked function, a loop, or the `__build__` pseudo-site."""
@@ -541,21 +734,64 @@ class Item:
         self.qname = None         # assigned per request
 
 
-def fn_items(by_mark, marks, sidecar):
+def is_inner_item(demangled, mark):
+    """Is this function an item defined *inside* the mark, not the mark?
+
+    The plugin matches a mark against the full demangled name and accepts
+    `mark::...` continuations, which is what makes a loop inside a closure a
+    site of the marked function (plugin/README.md "Marks file"). For a
+    function *attribute* the two have to be told apart, and the only honest
+    signal is what follows the mark:
+
+        <mark>                       the function itself
+        <mark>::<...>                a monomorphization of it
+        <mark>::{closure#0}          an item defined inside it  -> inner
+        <mark>::helper                       likewise           -> inner
+
+    The naive test "does the name contain `::{`" is wrong: a
+    monomorphization's generic arguments routinely contain a closure path
+    (`...::seq::<hifijson::Error, jaq_json::read::ws_tk<...{closure#1}>>`),
+    and on jaq it misfiled six of fifteen marks as inner items.
+    """
+    if demangled == mark or not demangled.startswith(mark + "::"):
+        return False
+    return not demangled[len(mark) + 2:].startswith("<")
+
+
+def fn_items(by_mark, marks, sidecar, scope="own"):
     items = []
     for mark in marks:
         fns = by_mark.get(mark, [])
         if not fns:
             continue
         info = sidecar["marks"].get(mark, {})
+        # The plugin's mark rule deliberately reaches inner items so that a
+        # loop inside a closure is attributed to the marked function
+        # (plugin/README.md "Marks file"). A function *attribute* must not
+        # follow it there: `inline(never)` on a mark is a statement about
+        # that function, and putting `noinline` on every closure it defines
+        # would also stop LLVM inlining the closures into the mark's own
+        # loops. So the attribute goes to the mark's own functions --- every
+        # monomorphization, decision 61(c) --- and the inner items are
+        # excluded and recorded.
+        if scope == "all":
+            own, inner = list(fns), []
+        else:
+            own = [f for f in fns
+                   if not is_inner_item(f.get("demangled") or "", mark)]
+            inner = sorted(f["linkage"] for f in fns
+                           if is_inner_item(f.get("demangled") or "", mark))
+        if not own:
+            continue
         meta = {
             "mark": mark,
-            "linkages": [f["linkage"] for f in fns],
-            "demangled": sorted({f.get("demangled", "") for f in fns}),
-            "inst_count": sum(f.get("inst_count") or 0 for f in fns),
-            "self_loops": sum(f.get("self_loops") or 0 for f in fns),
-            "entry_count": max([f.get("entry_count") or 0 for f in fns] + [0]),
-            "attributes": sorted({f.get("attributes", "") for f in fns}) or [""],
+            "linkages": [f["linkage"] for f in own],
+            "excluded_inner": inner,
+            "demangled": sorted({f.get("demangled", "") for f in own}),
+            "inst_count": sum(f.get("inst_count") or 0 for f in own),
+            "self_loops": sum(f.get("self_loops") or 0 for f in own),
+            "entry_count": max([f.get("entry_count") or 0 for f in own] + [0]),
+            "attributes": sorted({f.get("attributes", "") for f in own}) or [""],
             "share": info.get("share"),
             "reach": info.get("reach"),
             "file": info.get("file"),
@@ -563,7 +799,12 @@ def fn_items(by_mark, marks, sidecar):
             "notes": info.get("notes"),
         }
         items.append(Item("fn", "fn:" + mark, mark, meta))
-    items.sort(key=lambda i: (-(i.meta["share"] or 0), i.label))
+    # `share` is the mark's own post-LTO symbol, `reach` adds the code
+    # inlined into it. A mark can have only the second (jev-marks.txt gives
+    # `reach` alone for a function that is inlined everywhere), so the order
+    # falls back to it.
+    items.sort(key=lambda i: (-(i.meta["share"] or i.meta["reach"] or 0),
+                              i.label))
     return items
 
 
@@ -675,7 +916,9 @@ def state_header(ctx, n_sites):
     marks = []
     for it in ctx["fn_items"]:
         marks.append("  %-60s  profile share %s, %d loop site(s)"
-                     % (it.label[:60], fmt_share(it.meta["share"]),
+                     % (it.label[:60],
+                        fmt_share(it.meta["share"] if it.meta["share"]
+                                  is not None else it.meta["reach"]),
                         ctx["loops_by_mark"].get(it.meta["mark"], 0)))
     for mark in sorted(ctx["loops_by_mark"]):
         if mark not in {i.meta["mark"] for i in ctx["fn_items"]}:
@@ -734,17 +977,31 @@ def state_section(item, ctx):
         out.append("site kind      one marked function (function attribute)")
         out.append("function       %s" % item.label)
         if len(m["linkages"]) > 1:
-            out.append("               %d monomorphizations; the attribute is "
-                       "applied to all of them" % len(m["linkages"]))
-        out.append("profile share  %s of the program's user cycles%s"
-                   % (fmt_share(m["share"]),
-                      "" if m["reach"] is None
-                      else (", %s counting code inlined into it"
-                            % fmt_share(m["reach"]))))
+            out.append("               %d monomorphizations of it exist in "
+                       "this build; the attribute goes on all of them"
+                       % len(m["linkages"]))
+        if m.get("excluded_inner"):
+            out.append("               (%d closure(s) defined inside it keep "
+                       "their own attributes)" % len(m["excluded_inner"]))
+        if m["share"] is not None:
+            out.append("profile share  %s of the program's user cycles%s"
+                       % (fmt_share(m["share"]),
+                          "" if m["reach"] is None
+                          else (", %s counting the code inlined into it"
+                                % fmt_share(m["reach"]))))
+        elif m["reach"] is not None:
+            out.append("profile share  %s of the program's user cycles, "
+                       "counting the code inlined into it wherever LTO put "
+                       "it (it has no hot symbol of its own)"
+                       % fmt_share(m["reach"]))
+        else:
+            out.append("profile share  unknown")
         out.append("size after LTO %d LLVM instructions, %d loop(s) inside it"
                    % (m["inst_count"], m["self_loops"]))
-        attrs = ", ".join(a for a in m["attributes"] if a) or "(none)"
-        out.append("attributes now %s" % attrs)
+        attrs = " | ".join(a for a in m["attributes"] if a) or "(none)"
+        out.append("attributes now %s%s"
+                   % (attrs, "  (the distinct sets over all of them)"
+                      if len(m["linkages"]) > 1 else ""))
         if m.get("notes"):
             out.append("note           %s" % m["notes"])
         src_file, src_line = m.get("file"), m.get("line")
@@ -782,6 +1039,15 @@ def state_section(item, ctx):
                       "yes" if m.get("has_fp_reduction") else "no"))
         out.append("already vectorized when the hint is attached: %s"
                    % ("yes" if m.get("already_vectorized") else "no"))
+        if m.get("key_copies", 1) > 1:
+            out.append("this site key resolves to %d loops in the build; a "
+                       "hint on it is attached to all of them and cannot be "
+                       "given to one of them alone" % m["key_copies"])
+        others = [x for x in (m.get("marks_in_chain") or [])
+                  if x != m.get("mark")]
+        if others:
+            out.append("other marked functions on this loop's inline chain: "
+                       "%s" % ", ".join(others))
         out.append("function attributes this round already applied: %s"
                    % (ctx["fn_choice_text"] or "none"))
         if m.get("notes"):
@@ -886,6 +1152,7 @@ class JevClient:
         body = {"model": self.model, "state": state, "questions": questions}
         payload = json.dumps(body).encode()
         status, resp, latency, err = None, None, 0.0, None
+        attempts = []
         for attempt in range(1, int(self.cfg["retries"]) + 1):
             req = urllib.request.Request(
                 self.url, data=payload, method="POST",
@@ -898,6 +1165,7 @@ class JevClient:
                     status = r.status
                     resp = json.loads(r.read().decode())
                 latency = (time.monotonic() - t0) * 1e3
+                err = None          # a retry that succeeded is not an error
                 break
             except urllib.error.HTTPError as e:
                 latency = (time.monotonic() - t0) * 1e3
@@ -907,11 +1175,13 @@ class JevClient:
                 except Exception:
                     resp = None
                 err = "HTTP %d" % e.code
+                attempts.append(err)
                 if e.code < 500:
                     break
             except Exception as e:                       # timeout, DNS, ...
                 latency = (time.monotonic() - t0) * 1e3
                 err = "%s: %s" % (type(e).__name__, e)
+                attempts.append(err)
             if attempt < int(self.cfg["retries"]):
                 time.sleep(2.0 * attempt)
 
@@ -930,7 +1200,7 @@ class JevClient:
                   "state_format": STATE_FORMAT_VERSION,
                   "site_map": site_map, "request": body, "response": resp,
                   "http_status": status, "latency_ms": round(latency, 1),
-                  "error": err}
+                  "error": err, "failed_attempts": attempts}
         with open(self.jsonl_path, "a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -946,7 +1216,10 @@ class JevClient:
                     % (record["ts"], round_no, phase, len(questions),
                        status, latency, int(usage.get("input_tokens") or 0),
                        int(usage.get("output_tokens") or 0), cost,
-                       "" if err is None else ("  ERROR " + err)))
+                       ("  ERROR " + err) if err else
+                       ("  (after %d failed attempt(s): %s)"
+                        % (len(attempts), ", ".join(attempts))
+                        if attempts else "")))
 
         if resp is None or "answers" not in (resp or {}):
             return None, line_no
@@ -1248,14 +1521,15 @@ def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples):
 
 
 def read_correctness(path):
-    rows = {}
-    for line in open(path):
-        parts = line.split()
-        if len(parts) >= 2:
-            rows.setdefault(parts[0], []).append(parts[1])
-        elif parts:
-            rows.setdefault(parts[0], []).append("MISSING")
-    return rows
+    """The whole of run_correctness's output, line for line.
+
+    Not a parse: the per-target procedures in target_common.sh write
+    different shapes (`name sha256` for jaq/zopfli/oxipng, the toy's own
+    checksum block for the toy), so anything that picks a field out of a line
+    silently stops checking on some target. Comparing the lines themselves is
+    the correctness gate of SPEC.ja.md 2 for every target at once.
+    """
+    return [line.rstrip("\n") for line in open(path)]
 
 
 # ---------------------------------------------------------------------------
@@ -1326,6 +1600,55 @@ class Search:
         self.base_dir = bdir
         return meta
 
+    def site_set_keys(self):
+        """The frozen loop-site set for the experiment.
+
+        SPEC.ja.md 2 compares jev, random and oracle over the SAME site set,
+        and `targets/jaq/sites.json` carries the pre-registered mechanical
+        rule that produced it (drop keys the training profile never entered,
+        drop trip count < 2, keep the top 3 by hotness per mark: 16 keys).
+        `--site-set` names which list in that file to use; without it the
+        per-mark cap is preferred and the driver falls back to every
+        `loop_in_mark` site when the file carries none.
+        """
+        doc = self.sidecar["raw"]
+        name = self.args.site_set
+        if not name:
+            return self.sidecar["site_allow"]
+        node, path = doc, []
+        for part in name.split("."):
+            path.append(part)
+            node = (node or {}).get(part) if isinstance(node, dict) else None
+        if not isinstance(node, list):
+            avail = []
+            for section, body in (doc or {}).items():
+                if isinstance(body, dict):
+                    avail += ["%s.%s" % (section, k) for k, v in body.items()
+                              if isinstance(v, list) and v
+                              and isinstance(v[0], str)]
+            # One alias, because the frozen site set is referred to by the
+            # rule that made it ("top 3 by hotness per mark") and by the
+            # field scripts/jaq_sites_report.py writes it under.
+            alias = {"oracle.selected_keys_top3":
+                     "oracle.selected_keys_topk_per_mark",
+                     "selected_keys_top3":
+                     "oracle.selected_keys_topk_per_mark"}.get(name)
+            if alias and alias in avail:
+                sec, _, field = alias.partition(".")
+                node = doc[sec][field]
+                print("[sites] --site-set %s resolved to %s" % (name, alias))
+            else:
+                sys.exit("--site-set %s is not a list of keys in %s; "
+                         "available: %s" % (name, self.args.sites,
+                                            ", ".join(sorted(avail)) or "none"))
+        return set(node)
+
+    def pick_loops(self, sites):
+        items = loop_items(sites, self.sidecar)
+        if self.site_allow is None:
+            return items
+        return [i for i in items if i.id in self.site_allow]
+
     def plugin_knobs(self, extra=()):
         # -Zllvm-plugins and the pinned reordering flag. build_variant drops
         # an exact duplicate, so passing the reordering flag here is safe even
@@ -1360,8 +1683,28 @@ class Search:
                 sys.exit("SPEC.ja.md 1(1): " + msg)
             print("[warn] " + msg)
 
-        self.fn_list = fn_items(by_mark, self.marks, self.sidecar)
-        self.base_loops = loop_items(self.base_sites, self.sidecar)
+        for mark, info in shares_from_marks_file(self.args.marks).items():
+            cur = self.sidecar["marks"].setdefault(mark, {})
+            for k, v in info.items():
+                if cur.get(k) is None and v is not None:
+                    cur[k] = v
+        # A mechanical cap on the loop sites, from sites.json. Keys move
+        # between rounds (decision 61), so the cap is translated to site_ids
+        # once, against the baseline dump, and applied by site_id after that.
+        self.site_allow = None
+        allow_keys = set() if self.args.no_site_cap else self.site_set_keys()
+        if allow_keys:
+            # Through loop_items, so the `~2` suffix a repeated site_id gets
+            # is the same string on both sides.
+            self.site_allow = {i.id for i in loop_items(self.base_sites,
+                                                        self.sidecar)
+                               if i.meta["key"] in allow_keys}
+            print("[sites] sites.json caps the loop sweep at %d of %d sites"
+                  % (len(self.site_allow), len(self.base_sites)))
+
+        self.fn_list = fn_items(by_mark, self.marks, self.sidecar,
+                                self.args.fn_attr_scope)
+        self.base_loops = self.pick_loops(self.base_sites)
         self.build_list = [build_item(self.knobs)] if self.knobs else []
 
         cap = self.sidecar["caps"].get("max_sites",
@@ -1373,11 +1716,28 @@ class Search:
                      % (n_sites, len(self.fn_list), len(self.base_loops),
                         len(self.build_list), cap))
 
-        self.source = SourceBook([self.shell.get("filter_src_root"),
-                                  os.path.join(REPO, "targets", self.target),
-                                  REPO])
+        # The vendored tree, plus the crate directory of every source file
+        # the dump actually named: jaq's hot marks live in hifijson, indexmap
+        # and hashbrown, which cargo keeps in ~/.cargo/registry. REPO itself
+        # is NOT a root --- it holds 70 target-* build trees.
+        roots = [self.shell.get("filter_src_root"),
+                 os.path.join(REPO, "targets", self.target)]
+        roots += crate_roots_of(self.base_sites)
+        crates = {re.split(r"[^A-Za-z0-9_]", m.lstrip("<&"))[0]
+                  for m in self.marks}
+        crates |= {w for m in self.marks
+                   for w in re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", m)}
+        roots += registry_roots(
+            os.path.join(os.path.dirname(self.shell["manifest"]), "Cargo.lock"),
+            crates)
+        roots += registry_roots(
+            os.path.join(self.shell.get("filter_src_root") or "", "Cargo.lock"),
+            crates)
+        self.source = SourceBook(roots)
         self.remarks = RemarkBook(meta["log"])
-        self.share_by_mark = {i.meta["mark"]: i.meta["share"]
+        self.share_by_mark = {i.meta["mark"]: (i.meta["share"]
+                                               if i.meta["share"] is not None
+                                               else i.meta["reach"])
                               for i in self.fn_list}
         self.loops_by_mark = {}
         for s_ in self.base_sites:
@@ -1388,12 +1748,17 @@ class Search:
         # iterator machinery, so the definition search comes first and the
         # leaf location is the last resort.
         self.fn_source = {}
+        dwarf = DwarfDecl(meta.get("bin"))
+        by_id = {i.id: i for i in self.fn_list}
         for mark in sorted(set(self.marks)):
             info = self.sidecar["marks"].get(mark, {})
             if info.get("file"):
                 self.fn_source["fn:" + mark] = (info["file"], info.get("line"))
                 continue
-            f, ln = self.source.find_definition(mark)
+            it = by_id.get("fn:" + mark)
+            f, ln = dwarf.locate(it.meta["linkages"]) if it else (None, None)
+            if not f:
+                f, ln = self.source.find_definition(mark)
             if f:
                 self.fn_source["fn:" + mark] = (f, ln)
         for s in self.base_sites:
@@ -1550,7 +1915,11 @@ class Search:
         knob_flags = build_knob_flags(picks_a, self.knobs)
         rec["phase_a"] = {"choices": picks_a, "why": why_a,
                           "fn_attrs": fn_attrs, "basis": basis,
-                          "plan_sha256": sha_a, "build_knobs": knob_flags}
+                          "plan_sha256": sha_a, "build_knobs": knob_flags,
+                          "fn_fanout": {i.meta["mark"]: {
+                              "linkages": i.meta["linkages"],
+                              "excluded_inner": i.meta["excluded_inner"]}
+                              for i in self.fn_list}}
         print("[A] %d/%d functions hinted, build knobs %s"
               % (sum(1 for k, v in picks_a.items() if v != V.KEEP_DEFAULT
                      and k != V.BUILD_SITE_ID), len(self.fn_list),
@@ -1582,7 +1951,7 @@ class Search:
             # the sites are then the baseline's, by construction.
             sites_b = self.base_sites
             rec["phase_a"]["sites_from"] = "baseline dump (apply-dump wrote none)"
-        items_b = loop_items(sites_b, self.sidecar)
+        items_b = self.pick_loops(sites_b)
         rec["phase_a"]["n_loop_sites"] = len(items_b)
         print("[A] refreshed loop sites: %d" % len(items_b))
 
@@ -1622,13 +1991,30 @@ class Search:
 
         outcomes = merged_apply_outcomes(reports_b)
         rec["phase_b"]["apply"] = outcomes
+        # `ambiguous` is NOT a failure. On jaq 13 of 127 site keys resolve
+        # to 2-9 loops; the plugin attaches the hint to every copy and says
+        # so (results.md "Sites (jaq)"). A plan entry is an instruction about
+        # a key, so such an arm moves several loops at once and cannot
+        # separate them --- which is a property of the arm, recorded as a
+        # count. `vanished` and `unmatched` are failures: the hint went
+        # nowhere.
         wanted = ([e["fn"] for e in fn_attrs] + [e["key"] for e in loop_md])
-        bad = {w: outcomes.get(w, {"outcome": "no-report"})["outcome"]
-               for w in wanted
-               if outcomes.get(w, {"outcome": "no-report"})["outcome"]
-               not in ("attached", "consumed", "already_vectorized",
-                       "skipped_idempotent")}
+        got = {w: outcomes.get(w, {"outcome": "no-report"})["outcome"]
+               for w in wanted}
+        ok = ("attached", "consumed", "already_vectorized",
+              "skipped_idempotent")
+        bad = {w: o for w, o in got.items()
+               if not all(part in ok or part == "ambiguous"
+                          for part in o.split("+"))}
+        ambiguous = sorted(w for w, o in got.items()
+                           if "ambiguous" in o.split("+") and w not in bad)
         rec["phase_b"]["bad_outcomes"] = bad
+        rec["phase_b"]["ambiguous_entries"] = ambiguous
+        rec["phase_b"]["n_ambiguous"] = len(ambiguous)
+        if ambiguous:
+            print("[B] %d plan entries named a key that resolves to several "
+                  "loops (attached to all of them, recorded not failed)"
+                  % len(ambiguous))
         if bad:
             print("[B] plan entries that did not take: %s" % bad)
 
@@ -1642,10 +2028,12 @@ class Search:
         got = read_correctness(corr)
         correct = (got == self.base_correctness)
         rec["correct"] = correct
-        rec["correctness_diff"] = None if correct else {
-            k: [self.base_correctness.get(k), got.get(k)]
-            for k in set(got) | set(self.base_correctness)
-            if got.get(k) != self.base_correctness.get(k)}
+        rec["correctness_diff"] = None if correct else [
+            {"line": i, "baseline": b, "candidate": c}
+            for i, (b, c) in enumerate(
+                zip(self.base_correctness + [None] * len(got),
+                    got + [None] * len(self.base_correctness)))
+            if b != c][:20]
         print("[B] correctness: %s" % ("OK" if correct else "MISMATCH"))
 
         if not correct:
@@ -1815,17 +2203,19 @@ class Search:
                    "the lower end of its 95% CI is above the best point "
                    "estimate so far (the baseline, 1.0000, is the first).")
         out.append("")
-        out.append("| round | fn hints | loop hints | apply problems | correct "
-                   "| ratio | 95% CI | in-run A/A | accepted |")
-        out.append("|---|---|---|---|---|---|---|---|---|")
+        out.append("| round | fn hints | loop hints | ambiguous keys | apply "
+                   "problems | correct | ratio | 95% CI | in-run A/A | "
+                   "accepted |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|")
         for r in rows:
             pa, pb = r.get("phase_a") or {}, r.get("phase_b") or {}
             ci = ("[%.4f, %.4f]" % tuple(r["ci95"])) if r.get("ci95") else "-"
             aa = ("%.4f ±%.4f" % (r["aa"]["ratio"], r["aa"]["halfwidth"])) \
                 if r.get("aa") else "-"
-            out.append("| %d | %d | %d | %s | %s | %s | %s | %s | %s |"
+            out.append("| %d | %d | %d | %d | %s | %s | %s | %s | %s | %s |"
                        % (r["round"], len(pa.get("fn_attrs") or []),
                           len(pb.get("loop_md") or []),
+                          pb.get("n_ambiguous") or 0,
                           ", ".join("%s=%s" % kv for kv in
                                     (pb.get("bad_outcomes") or {}).items()) or "none",
                           "yes" if r.get("correct") else "NO",
@@ -1915,6 +2305,19 @@ def main():
                         "holdout cases (SPEC.ja.md 7)")
     p.add_argument("--keep-binaries", default="best",
                    choices=("best", "all"))
+    p.add_argument("--site-set", default=None, metavar="DOTTED.PATH",
+                   help="the list of loop site keys in sites.json that this "
+                        "experiment is frozen to, e.g. "
+                        "oracle.selected_keys_topk_per_mark. All three "
+                        "proposers must use the same one (SPEC.ja.md 2)")
+    p.add_argument("--fn-attr-scope", default="own", choices=("own", "all"),
+                   help="own (default): a function attribute goes on the "
+                        "mark's own functions and every monomorphization, "
+                        "not on the closures defined inside it. all: on "
+                        "every function the plugin's mark rule reaches")
+    p.add_argument("--no-site-cap", action="store_true",
+                   help="ignore the loop-site cap sites.json carries and "
+                        "sweep every loop_in_mark site")
     p.add_argument("--allow-unresolved", action="store_true",
                    help="do not stop when a mark resolves to nothing")
     p.add_argument("--ignore-apply-failures", action="store_true",
