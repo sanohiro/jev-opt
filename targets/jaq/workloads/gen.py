@@ -47,6 +47,18 @@ SEEDS = {
     ("hold", "ndjson"): 20260921303,
 }
 
+# One more file, and it is not part of the frozen case set: the *user sample*
+# that Experiment 2's `S_sample1` arm models. SPEC.ja.md's `jev-opt/samples/`
+# idea is that a user who is not satisfied with what `jev-opt build` found in
+# the repository may drop one representative input next to the project; this
+# is the smallest such gesture, one 2 MiB file. It is the `objects` kind
+# because that is the only kind all three Stage 0 filters accept (`.k`, and
+# `.name` as a string), and its seed is new, so it shares no content with
+# either the training or the holdout inputs.
+SAMPLE_SEED = 20260922401
+SAMPLE_KIND = "objects"
+SAMPLE_SIZE = 2 * 1024 * 1024
+
 # Target sizes in bytes, and how many times each case names its file on the
 # jaq command line (`jaq FILTER f.json f.json ...`, which parses and runs the
 # filter over each file in turn).
@@ -191,9 +203,25 @@ def main():
     p.add_argument("--out-dir", default=os.path.dirname(os.path.abspath(__file__)))
     p.add_argument("--check", action="store_true",
                    help="only print the sha256 of the files that exist")
+    p.add_argument("--sample", action="store_true",
+                   help="only (re)generate sample-objects.json, the 2 MiB "
+                        "user sample Experiment 2's S_sample1 arm trains on; "
+                        "the six frozen files are left alone")
     args = p.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
+    if args.sample:
+        path = os.path.join(args.out_dir, f"sample-{SAMPLE_KIND}.json")
+        if not args.check:
+            data = GENERATORS[SAMPLE_KIND](random.Random(SAMPLE_SEED),
+                                           SAMPLE_SIZE)
+            with open(path, "wb") as f:
+                f.write(data)
+        with open(path, "rb") as f:
+            blob = f.read()
+        print(f"{hashlib.sha256(blob).hexdigest()}  {len(blob):>9}  "
+              f"{os.path.basename(path)}  seed={SAMPLE_SEED}")
+        return
     for (split, kind), seed in sorted(SEEDS.items(),
                                       key=lambda kv: (kv[0][0], kv[0][1])):
         path = os.path.join(args.out_dir, f"{split}-{kind}.json")

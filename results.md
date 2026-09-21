@@ -5317,3 +5317,866 @@ where it is terrible.
   `pgo/jaq/merged.profdata` = `4e879ce11687fa3c…`,
   `pgo/jaq/profraw/default_15401585175505616370_0.profraw` =
   `92f435725faa963f…`, both as recorded in section 53.
+
+## Experiment 2 (jaq) --- the within-repo ceiling, and deterministic selectors
+
+Date: 2026-09-22, same machine, same pinned toolchain (rustc
+1.100.0-nightly bba531001 / LLVM 23.1.1), same jaq submodule commit
+`c866e70303b5dbc37d83a0b0cbacf10e90af9c8c` (v3.1.1), same frozen
+instrumented binary and same PGO-use recipe as Experiment 1. Sections are
+numbered from 70.
+
+Experiment 1's +17.7% was measured against `T_real`, which is 71 MiB of JSON
+**this repository does not contain**. It is an upper bound on selection, not
+a product claim. This experiment asks the two questions that stand between
+that bound and a shippable `jev-opt build`:
+
+1. **What is the within-repo ceiling?** The best holdout speed reachable
+   using only candidates that exist in the jaq repository, plus the scale
+   knob for the parametric ones.
+2. **How good is a deterministic selector on this pool**, i.e. how much room
+   is left for Jev's judgment?
+
+and one product question that turned out to matter more than either:
+
+3. How much does **one small user-provided sample** recover?
+
+Predictions for all of it were written down after the selectors had run and
+before any binary was built (`artifacts/jaq-exp2/predictions.txt`, scored in
+section 76). Three of nine were wrong, and the two biggest are the result.
+
+Reproduce with:
+
+```
+export TARGET=jaq EXP=exp2
+scripts/jaq_candidate_profile.py \
+    --binary target-jaq-pgo-gen/x86_64-unknown-linux-gnu/release/jaq \
+    --ref pgo/jaq/merged.profdata --profraw-dir $SCRATCH/cand \
+    --out artifacts/jaq-exp2/candidates.jsonl --progress
+scripts/jaq_scale_probe.py \
+    --plain target-jaq-plain/x86_64-unknown-linux-gnu/release/jaq \
+    --binary target-jaq-pgo-gen/x86_64-unknown-linux-gnu/release/jaq \
+    --ref pgo/jaq/merged.profdata --profraw-dir $SCRATCH/cand-scaled \
+    --out artifacts/jaq-exp2/candidates-scaled.jsonl
+python3 targets/jaq/workloads/gen.py --sample
+scripts/jaq_select_arms.py groups
+scripts/jaq_select_arms.py select --out-dir artifacts/jaq-exp2/arms \
+    --profraw-dir $SCRATCH/cand --scaled-profraw-dir $SCRATCH/cand-scaled
+CAND_CACHE=$SCRATCH/cand SCALED_CACHE=$SCRATCH/cand-scaled
+for arm in B_cover B_shape B_datapath E_expert E_expert_noscale S_sample1; do
+    ARM_SPEC=artifacts/jaq-exp2/arms/$arm.json scripts/pgo_train_arm.sh $arm
+done
+scripts/profdata_sanity.py --wall-from-manifest pgo/jaq/arms/*/merged.profdata
+# then section 73's single interleaved bench.py run
+```
+
+**New in this experiment.** `scripts/jaq_candidate_profile.py` (one
+instrumented profile per pool candidate, reduced to selector features),
+`scripts/jaq_scale_probe.py` (the scale knob: every parametric bench run as
+large as bench.sh's range allows), `scripts/jaq_select_arms.py` (the
+grouping and the four deterministic/expert selectors),
+`scripts/jaq_arm_profile.py` (an arm spec -> a merged profdata, reusing the
+per-candidate profraws) and `scripts/profdata_sanity.py` (section 63's
+poison check, made a reusable gate). `scripts/bench.py` gained `--shuffle`
+(section 69 asked for it; the default is unchanged),
+`scripts/pgo_train_arm.sh` gained the `ARM_SPEC` path and an `EXP` prefix,
+`targets/jaq/workloads/gen.py` gained `--sample`. Nothing else changed;
+`pgo/jaq/merged.profdata` = `4e879ce11687fa3c…` and
+`pgo/jaq/profraw/default_…` = `92f435725faa963f…` were verified unchanged at
+the end, as in section 69.
+
+### 70. One instrumented profile per candidate, for 72 seconds
+
+Section 68 claimed profile shape is observable per candidate "at the same
+cost" as a dry run. It is, and this prices it exactly. Every one of the 1182
+non-poisoned pool items (section 63's three are excluded everywhere) is run
+once under the frozen instrumented binary with its own `LLVM_PROFILE_FILE`,
+and `llvm-profdata show --all-functions --counts` is run straight on the
+profraw --- no merge step, 17 ms each:
+
+```
+artifacts/jaq-exp2/candidates.jsonl: 1182 candidates, 72.1 s wall
+  (14.1 s of it inside jaq), 0 did not terminate normally
+```
+
+**72 seconds for the whole pool**, of which 14 s is jaq and 58 s is
+`llvm-profdata` plus Python. For a build tool that already spends minutes in
+LTO, per-candidate profiling is free. Every arm below is then an
+`llvm-profdata merge` of a subset of those 1182 profraws, so no candidate is
+ever run twice and two arms cannot differ by anything except which profraws
+went into the merge.
+
+Functions are bucketed into layers by an ordered substring match on the
+demangled name (first match wins; the rule is in
+`scripts/jaq_candidate_profile.py` and `other` is reported so leaks are
+visible). The split puts `jaq_json::read::parse::<hifijson::SliceLexer>` in
+`json_read` and `<hifijson::SliceLexer as ...>::write_until` in `hifijson`,
+where section 67's `--grep hifijson` lumped them together; `hifijson +
+json_read` reproduces that 42.8%.
+
+**The distribution over the pool:**
+
+```
+                     p10        p50        p90        p99        max
+total_count      2.17e+05   2.18e+05   2.22e+05   1.89e+08   4.33e+08
+hot20_share        1.72%      1.75%      2.12%     40.4%      42.4%
+datapath/startup   0.0105     0.0118     0.0212     191.9      672.3   (+36 inf)
+instrumented ms      4.4        4.7        5.2        362        797
+```
+
+Three things in that table decide the rest of the experiment.
+
+**The median candidate is 79% startup.** Half the pool sits within 2% of
+218 000 block counts, and 78.7% of the median candidate's counts are
+`jaq_core::load` + `jaq_core::compile` --- lexing the filter text and loading
+~200 stdlib definitions. That fixed cost is **0.01%** of the reference
+profile's `core_load`. The pool is, to three significant figures, 1100 copies
+of jaq starting up.
+
+**Nothing in the repository feeds the lexer.** 1115 of 1182 candidates have
+a nonzero `hifijson` count --- a five-byte `null` still goes through the
+lexer, which is why section 64's `-pgo-warn-missing-function` stayed silent
+--- so "touches the lexer at all" is true of 94% of the pool and carries no
+information. Weighted, it collapses: **14 candidates spend more than 1% of
+their own counts in hifijson, and exactly one spends more than 5%.**
+
+That one is `bench-0022`, `examples/benches/to-fromjson.jq`:
+
+```
+[range(.) | tojson] | join(",") | "[" + . + "]" | fromjson | length
+```
+
+It serialises n numbers, concatenates them into one JSON document and parses
+it back. At the repository's n = 65536 it holds 1.89 M hifijson counts; the
+runner-up in the entire pool holds **2210**. It is the only place in jaq's
+repository where the program is handed a large JSON text --- which turns
+out not to be the property that matters (section 75).
+
+**And no candidate covers the hot set: all 1182 leave at least one of the
+reference's top-20 functions at zero.** Section 45 predicted this; it is why
+selection is a set-cover problem and not a ranking.
+
+**The scale knob** (`scripts/jaq_scale_probe.py`). The 27
+`examples/benches/*.jq` items take n on stdin, and the distinct n in
+`examples/benches.json` --- 7, 17, 23, 128, 8192, 16384, 65536, 131072,
+524288, 1048576 --- are "bench.sh's range". Each bench is walked *up* that
+ladder from its own n on the plain binary, keeping the largest rung that
+still exits 0 inside bench.sh's own `timeout 10`, and the chosen rung is then
+required to survive the instrumented binary too:
+
+```
+8 of 27 scaled above the repository's n; 26.5 s instrumented in total
+  upto 8192->1048576   reduce-update 16384->1048576   kv 131072->1048576
+  kv-update 131072->1048576   kv-entries 131072->1048576 (3.52 s)
+  pyramid 524288->1048576   to-fromjson 65536->1048576  str-slice 8192->65536
+  ack stays at 7, tree-{contains,flatten,update,paths} stay at 17-23,
+  range-prop stays at 128
+```
+
+Walking up rather than starting at the top is load-bearing, and so is
+checking the exit status: `ack.jq` is `ack(3; .)`, and at n = 1048576 it
+overflows the stack and aborts **in 19 ms**. A probe that accepted a rung on
+wall time alone would have picked a run that produces no profile at all.
+
+Scaling `to-fromjson` 16x multiplies its counts by 16 and barely moves its
+shape, because its startup was already amortised:
+
+| n | total counts | hifijson | json_read | json_write | json_val | core_load | hot-20 share |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 65536 | 32 961 578 | 5.74% | 3.78% | 1.59% | 39.90% | 0.36% | 24.18% |
+| 262144 | 132 438 017 | 6.37% | 3.76% | 1.58% | 40.02% | 0.09% | 25.01% |
+| 1048576 | 531 647 578 | 6.69% | 3.75% | 1.58% | 40.01% | 0.02% | 25.41% |
+
+### 71. Grouping: 30 groups, and the one that matters has one member
+
+The grouping is mechanical and is shared by the deterministic selectors and,
+later, by Jev: **(source, the set of layers holding more than 5% of that
+candidate's own block counts)**. `scripts/jaq_select_arms.py groups`:
+
+```
+1182 candidates, layer threshold 5% of the candidate's own counts
+30 groups
+
+    n source          counts   hot20    dp/su  layers > threshold
+  528 test         115555295   1.77%     0.01  core_load core_compile core_run
+  493 doctest      108002675   1.78%     0.01  core_load core_compile core_run
+   26 doccli         5698306   1.95%     0.02  core_load core_compile core_run
+   26 test              6900   5.65%      inf  alloc other
+   20 doccli          100399  38.32%   165.49  json_val alloc other
+   13 clitest        2853970   1.83%     0.02  core_load core_compile core_run
+   11 bench       2033861604  11.92%     2.85  json_val core_compile core_run
+   11 bench       2060385143  11.61%     3.30  json_val core_compile core_run alloc
+   10 doctest           2659   5.64%      inf  alloc other
+    9 test           2042132   1.66%     0.01  core_load core_compile core_run other
+    6 doctest        1408246   1.64%     0.01  core_load core_compile core_run other
+    6 clitest          27841  40.40%   171.91  json_val alloc other
+    2 doctest         517560   3.14%     0.01  core_load core_compile core_run alloc other
+    2 test          24198020  12.88%     2.68  json_val core_compile core_run
+    2 bench         54440212   3.87%    34.64  json_val core_run
+    2 bench         32635219   0.02%     0.00  core_load core_compile core_run
+    2 example        2560521  10.78%     1.54  json_val core_load core_compile core_run alloc
+    1 doctest         129447   2.48%     0.01  core_load
+    1 test           1659685  10.47%     0.75  json_val core_load core_compile core_run alloc
+    1 test            129221   2.49%     0.01  core_load
+    1 test            575988   8.65%     0.69  json_val core_load core_compile core_run
+    1 test            257328   3.15%     0.01  core_load core_compile core_run alloc other
+    1 clitest           5562  38.48%   271.70  json_read json_write json_val alloc other
+    1 clitest           5915  34.18%   258.20  json_read json_val core_run alloc other
+    1 bench        117666630   0.00%   672.28  json_val
+    1 bench         88169406  15.47%    33.85  json_val core_run alloc
+    1 bench         32961578  24.18%     5.88  hifijson json_val core_compile core_run alloc other
+    1 bench         373403875   0.16%    82.20  json_val other
+    1 example       25850113  10.41%     2.38  json_val core_compile core_run alloc
+    1 example         139501   2.42%     0.01  core_load
+```
+
+1047 of 1182 candidates fall into the three `core_load core_compile
+core_run` groups --- "a jaq that started up and did a little interpreting".
+**Exactly one group has `hifijson` in its signature, and it has one member**:
+`bench-0022`, `to-fromjson`. The grouping, which knows nothing about the
+holdout, isolates the candidate that moves the most JSON bytes, all by
+itself.
+
+That looks like the positive result of the grouping, and sections 74 and 75
+are what happens when a selector trusts it. The candidate that actually
+decides the experiment, `doccli-0044`, sits anonymously in the 26-member
+`doccli / core_load core_compile core_run` group, indistinguishable at this
+resolution from 25 neighbours --- because what makes it special is not which
+*layers* its counts fall in but *which symbols inside a layer*, and the
+signature aggregates exactly that away.
+
+### 72. The arms
+
+Six new PGO binaries, plus four labels reused unchanged from Experiment 1.
+Every new arm's profile is a merge of cached per-candidate profraws, so the
+instrumented binary, the merge tool and the PGO-use flags are Experiment 1's
+exactly. Reference = the reference profile's top 20 functions by max block
+count (71.16% of it), the same set `scripts/profdata_cover.py` uses.
+
+| arm | selector | items | training wall | profdata sha256 | total count | hot-20 share | zero of 20 |
+|---|---|---:|---:|---|---:|---:|---:|
+| `T0` | no PGO | 0 | --- | --- | --- | --- | --- |
+| `T_all` | every pool item (Exp. 1) | 1182 | 13.1 s | `b454f7b160bc92ad…` | 5 085 349 161 | 10.16% | 0 |
+| `T_real` | the 71 MiB Stage 0 set (Exp. 1) | 3 | 5.6 s | `4e879ce11687fa3c…` | 3 438 334 653 | 71.16% | 0 |
+| `B_cover` | greedy weighted set cover | 2 | 0.01 s | `bad1d2e65bda3278…` | 444 329 | 3.45% | 0 |
+| `B_cover_scaled` | the same, scaled universe | 2 | 0.01 s | `bad1d2e65bda3278…` | 444 329 | 3.45% | 0 |
+| `B_shape` | greedy shape match, may scale | 1 | 0.97 s | `3d31b449cb41aafc…` | 531 647 573 | 25.41% | **8** |
+| `B_datapath` | top 50 by data-path / startup | 50 | 6.44 s | `e33e63bd2a99f9f4…` | 3 682 616 849 | 10.39% | **6** |
+| `E_expert` | 10 hand-picked, 1 scaled | 10 | 1.01 s | `e7789ac2ce6e1a7a…` | 531 693 923 | 25.41% | **8** |
+| `E_expert_noscale` | the same 10 at the repo's n | 10 | 0.10 s | `d934e1d2713b9926…` | 33 007 928 | 24.20% | **8** |
+| `S_sample1` | one 2 MiB user sample x 3 filters | 3 | 0.21 s | `c6754b6fab51acdf…` | 86 685 373 | **73.46%** | 0 |
+
+No arm produced a single profile-use warning (`hash mismatch` 0,
+`no profile data available for function` 0, `warning:` 0 for all six), and
+all six produce byte-identical output to `T_real` on all six correctness
+cases (three training, three holdout) after `strip -s`.
+
+**`B_cover`: the literal greedy weighted set cover saturates after two
+candidates.** Universe = the 20 reference-hot functions weighted by their
+reference share; a candidate covers a function if its own count there is
+nonzero; stop below 1% marginal gain or at 50 picks.
+
+```
+ 1. doccli-0044    +65.436pp -> 65.436pp of 71.162pp, 19/20 functions
+ 2. doctest-0450   + 5.726pp -> 71.162pp of 71.162pp, 20/20 functions
+stop: best marginal gain 0.0000pp < 0.7116pp
+     doccli-0044    tot=    226604 hot20= 5.08%  docs/stdlib.dj:2284
+     doctest-0450   tot=    217725 hot20= 1.75%  docs/stdlib.dj:1419
+```
+
+`doccli-0044` is `jaq --slurp input_filename examples/benches.json`, a
+documentation example that names a JSON file on the command line; it covers
+19 of the 20 hot functions on its own, and a five-byte doc test covers the
+twentieth. Section 75 is why that one line of documentation is the most
+valuable object in the repository. The third pick would add **exactly
+zero**. So on this pool, *boolean* coverage of the hot set is not a selection
+signal at all: the answer is "any two candidates", the training set is
+444 329 block counts, and `B_cover_scaled` --- the same procedure over a
+universe where every parametric bench is at its scaled n --- produces a
+**bit-identical profdata** (`bad1d2e65bda3278…` both), because the greedy
+never reaches a parametric candidate. `B_cover_scaled` is therefore not
+timed separately; it is the same binary.
+
+**`B_shape`: the steelman.** Since boolean coverage degenerates, the
+experiment also carries the strongest mechanical selector we could write:
+greedy maximisation of the **histogram intersection** between the merged
+profile's distribution over (top-20 functions + one "rest" bin) and the
+reference's. Its universe contains both the repository's n and the scaled n
+for every parametric bench, so it can use the scale knob. It asks "is this
+function executed in the right *proportion*", which is the number section 67
+said ordered Experiment 1's arms.
+
+```
+ 1. bench-0022     n= 1048576 +44.601pp -> intersection  44.60% of the reference shape
+stop: best gain 0.0693pp < 0.1000pp  (intersection 44.60%)
+```
+
+It picks `to-fromjson` at the top of bench.sh's range and stops: nothing else
+in the pool adds a tenth of a point.
+
+**`B_datapath`: top 50 by (hifijson + jaq_json) / (jaq_core::load +
+::compile)**, among the 1135 candidates whose dry run exited 0. The
+exit-status filter is hygiene, not tuning: 36 of the literal top 50 are pool
+items that fail immediately (`jaq -1` with an empty filter), whose whole
+profile is 264 counts and whose startup denominator is 0, so the literal rule
+selects 9559 counts of crashed processes. With the filter the ratio ranks the
+heavy benches above every doc test and the arm is 3.68e9 counts. The stated
+budget --- "K such that training <= 30 s" --- does not bind, because the
+*entire* pool is 14.1 s instrumented; K = 50 was used instead, to mirror
+`B_cover`'s cap.
+
+**`E_expert`: the hand-picked set.** Written into
+`scripts/jaq_select_arms.py` before anything was built, and reproduced here
+verbatim because the point of the arm is the reasoning:
+
+> What the holdout does: read a 20-25 MiB JSON document, walk every value,
+> and (in one of the three cases) write it all back out. In the reference
+> profile that is hifijson 27.6% + `jaq_json::read` 15.3% + `jaq_json::write`
+> 8.3% + Val 20.9% + allocator 11.4%, against `jaq_core::load` 0.01%.
+>
+> 1. Exactly one candidate makes jaq parse a large JSON *text*:
+>    `examples/benches/to-fromjson.jq`. It is the only pool item whose
+>    hifijson count is above 2.2 k (1.9 M at the repository's n = 65536; the
+>    runner-up is 2.2 k), and at n = 1048576 it is 531 M counts shaped
+>    hifijson 6.7% / read 3.8% / write 1.6% / Val 40.0% / load 0.02%. That is
+>    the closest thing to the production shape the repository can produce,
+>    and the scale knob is what makes it large enough to dominate a merge. It
+>    is pick 1, at the largest n in bench.sh's range.
+> 2. Everything else in the pool is startup: the median candidate spends 78%
+>    of its counts in `jaq_core::load` + `::compile`, which is 3.3% of
+>    production. Adding such items cannot improve the shape, and adding
+>    *heavy* ones actively destroys it, because the merge is weighted by
+>    absolute counts: the pool without to-fromjson is 5.05e9 counts of
+>    interpreter work and would drown pick 1 ten to one. So the expert's
+>    second decision is a negative one --- do not add the other 26 benches,
+>    and do not scale them.
+> 3. to-fromjson prints only `length`, so the buffered writer to stdout
+>    (`BufWriter::write`, 1.6% of the reference, the function section 67 saw
+>    lose 80% of its instructions) never runs hot. The pool items that do
+>    print JSON through it are the doccli/clitest ones that pipe a real JSON
+>    producer into jaq. They are ~5 k counts each, i.e. 0.001% of the arm, so
+>    they cannot shift a share; they are included as the cheapest available
+>    insurance that no hot-set function is left at zero, and the expert's own
+>    prediction is that they change nothing.
+
+The ten picks are `bench-0022` at n = 1048576, plus `clitest-0016..0019` and
+`doccli-0012,0013,0014,0028,0031`. `E_expert_noscale` is the same ten at the
+repository's n, and is the only pair in the experiment that isolates the
+scale knob.
+
+**`S_sample1`: one file a user drops in.** `targets/jaq/workloads/gen.py
+--sample` writes one 2 MiB `objects`-kind document (seed 20260922401, shared
+with neither the training nor the holdout inputs; sha256
+`0822c6c194c41452…`, 2 097 194 bytes), and the arm is three invocations ---
+that one file through the three Stage 0 filters. `objects` is the only kind
+all three filters accept. This models `jev-opt/samples/` (decisions.ja.md
+entry 46): the user writes no training workload, they drop in one
+representative input. It is 1/150 of `T_real`'s bytes.
+
+### 73. Holdout timing: ten labels, one interleaved run, shuffled order
+
+The Stage 0 recipe (section 55) with one change section 69 asked for: the
+label order is a **seeded shuffle per (round, workload)** instead of a
+rotation, so the in-run A/A pair is no longer always adjacent and therefore
+prices whole-round drift rather than one-slot drift.
+
+```
+$ scripts/bench.py run --cpu 4 --warmup 3 --runs 15 --stdout devnull \
+    --gap-ms 250 --shuffle 20260922 \
+    --label T0=... --label T_all=... --label T_real=... --label T_realB=... \
+    --label B_cover=... --label B_shape=... --label B_datapath=... \
+    --label E_expert=... --label E_expert_noscale=... --label S_sample1=... \
+    --workload "objsearch='.[] | select(.k == \"v\") | .id' hold-objects.json x4" \
+    --workload "strproc='[.[] | .name | ascii_downcase | length] | add' hold-strings.json x8" \
+    --workload "readwrite=-c '.' hold-ndjson.json x2" \
+    --out artifacts/jaq-exp2/holdout.json
+artifacts/jaq-exp2/holdout.json: 450 timed samples, 10 labels x 3 workloads x 15 rounds
+12m44s
+```
+
+**In-run A/A** (`T_realB` against `T_real`, the same bytes at two paths,
+`cceee7768c3ed6eb…`):
+
+| workload | ratio | 95% CI | half-width |
+|---|---|---|---|
+| objsearch | 0.9979 | [0.9843, 1.0127] | **1.42%** |
+| strproc | 1.0152 | [1.0100, 1.0200] | 0.50% |
+| readwrite | 0.9820 | [0.9737, 0.9914] | 0.88% |
+| **aggregate (geomean)** | 0.9983 | [0.9923, 1.0041] | 0.59% |
+
+Worst per-workload half-width over **all** non-base labels is 2.03%
+(`B_cover` on objsearch), so **MDE = max(2 x 2.03%, 3%) = 4.07%**, up from
+Experiment 1's 3.00%. That is the shuffle doing its job, not the machine
+getting worse: the A/A pair now lands anywhere in the round.
+
+**Against T0** (ratio > 1 means faster than no PGO):
+
+| label | objsearch | strproc | readwrite | aggregate | 95% CI | half-width |
+|---|---|---|---|---|---|---|
+| `T_real` | 1.1883 | 1.0617 | 1.4508 | **1.2232** | [1.2168, 1.2293] | 0.62% |
+| `T_realB` | 1.1859 | 1.0778 | 1.4247 | 1.2211 | [1.2144, 1.2280] | 0.68% |
+| `S_sample1` | 1.1913 | 1.0762 | 1.4095 | **1.2180** | [1.2103, 1.2256] | 0.77% |
+| `B_cover` | 1.1310 | 0.9622 | 1.1620 | **1.0814** | [1.0745, 1.0888] | 0.72% |
+| `T_all` | 1.0816 | 1.0393 | 1.0789 | **1.0664** | [1.0602, 1.0729] | 0.64% |
+| `T0` | 1.0000 | 1.0000 | 1.0000 | 1.0000 | --- | --- |
+| `B_datapath` | 0.9356 | 0.9030 | 0.9765 | **0.9379** | [0.9324, 0.9429] | 0.52% |
+| `E_expert_noscale` | 0.9104 | 0.8723 | 1.0021 | **0.9267** | [0.9208, 0.9330] | 0.61% |
+| `B_shape` | 0.9051 | 0.8817 | 0.9845 | **0.9227** | [0.9163, 0.9298] | 0.68% |
+| `E_expert` | 0.9160 | 0.8731 | 0.9753 | **0.9205** | [0.9159, 0.9252] | 0.47% |
+
+**Against T_real** (ratio < 1 means slower than the realistic training set):
+
+| label | aggregate | 95% CI | gap vs T_real |
+|---|---|---|---|
+| `T_realB` | 0.9983 | [0.9923, 1.0041] | -0.2% (A/A) |
+| `S_sample1` | **0.9957** | [0.9921, 0.9994] | **-0.4%** |
+| `B_cover` | 0.8841 | [0.8794, 0.8888] | -13.1% |
+| `T_all` | 0.8718 | [0.8667, 0.8774] | -14.7% |
+| `T0` | 0.8175 | [0.8135, 0.8218] | -22.3% |
+| `B_datapath` | 0.7667 | [0.7622, 0.7713] | -30.4% |
+| `E_expert_noscale` | 0.7576 | [0.7529, 0.7627] | -32.0% |
+| `B_shape` | 0.7543 | [0.7492, 0.7599] | -32.6% |
+| `E_expert` | 0.7525 | [0.7486, 0.7566] | -32.9% |
+
+### 74. Judgment
+
+**1. The within-repo ceiling is +8.1%, and it is not distinguishable from
+doing no selection at all.** The best repository-only arm is `B_cover` at
+**1.0814** over T0 --- the arm whose entire training set is *two documentation
+examples worth 444 329 block counts between them*. `T_all`, the naive "run
+everything", is 1.0664. The gap is **1.4%**, far below the 4.07% MDE. Every
+other selector in this experiment, including the expert one, is **below T0**.
+So:
+
+> On jaq, selecting a PGO training set out of the repository is worth
+> nothing measurable over running the whole repository, and the whole-repo
+> answer is itself worth only about +7% of the +22% PGO can give.
+
+Experiment 1 measured the *headroom* correctly (`T_real / T_all`, +14.7% in
+this run, +17.7% in Experiment 1's). Experiment 2 shows that headroom is
+**not reachable from inside this repository**. The 17.7% is a statement about
+the value of the right input, not about the value of selection.
+
+**2. Judgment did not beat mechanism, and the one selector that won did so for
+a reason none of the others could see.** `B_shape` (the mechanical shape
+matcher) picked `bench-0022` at n = 1048576 and stopped. `E_expert` (a human
+reading `candidates.jsonl` and the filters behind it) picked `bench-0022` at n
+= 1048576 plus nine items worth 0.008% of the arm. They land at 0.9227 and
+0.9205, a difference of 0.2%, well inside the A/A. **Mechanism and judgment
+reached the same answer, and the answer was wrong**: both are about 8% *slower
+than no PGO* and 14% slower than `T_all`.
+
+The comparison that was supposed to price Jev's value instead priced the
+*objective* both were given. Section 75 shows that the one selector which
+beat `T_all` --- the "degenerate" boolean set cover --- beat it because its
+objective is stated over the exact profdata symbols, and it therefore found
+the single candidate in the whole repository that runs the code the holdout
+runs. Judgment lost to mechanism here not by a margin but by a category: the
+expert reasoned about data volume and profile shape and threw that candidate
+away.
+
+**3. One 2 MiB sample recovers the entire gap.** `S_sample1` reaches
+**1.2180** over T0 and **0.9957** of `T_real`, against an A/A of 0.9983 and
+an MDE of 4.07%: it is **indistinguishable from training on 71 MiB**, from
+three invocations totalling 6 MiB and 0.21 s. Its hot-set share is 73.46%,
+slightly *above* the reference's own 71.16%. This is the product result of
+the experiment: the thing that closes the +14.7% gap is not a cleverer
+selector, it is one representative file.
+
+**4. The scale knob is worth nothing here.** `E_expert` (to-fromjson at
+n = 1048576) against `E_expert_noscale` (the same ten picks at the
+repository's n) is 0.9205 vs 0.9267, i.e. scaling made it **0.7% slower**,
+sub-MDE and of the wrong sign. The reason is now clear: scaling multiplies
+every counter by 16 and LLVM's ProfileSummary cutoffs are percentiles, so a
+uniform rescaling is invisible to it (section 70's table shows the shape
+moves by under one point). The knob can only matter as a *relative* weight
+inside a merge that also contains junk --- a case no arm here contains,
+because every selector that picked to-fromjson picked essentially nothing
+else. And `B_cover_scaled` shows the other half: a selector whose objective
+never reaches a parametric candidate cannot use the knob at all.
+
+**5. Not doing PGO still beats doing it badly, and "badly" now includes the
+best-reasoned choice available.** Ordering: S_sample1 (1.2180) ~ T_real
+(1.2232) >> B_cover (1.0814) ~ T_all (1.0664) > **T0 (1.0000)** >
+B_datapath (0.9379) > E_expert_noscale (0.9267) ~ B_shape (0.9227) ~
+E_expert (0.9205). Four of the six new arms ship a binary slower than
+`cargo build --release`. Section 66's conclusion --- `jev-opt build` needs a
+holdout self-check that can fall back to T0 --- is now not a precaution but
+the main line of defence.
+
+### 75. Attribution: one candidate of 1182 runs the production symbols
+
+Section 67 dismissed the zero-count column as "the blunt instrument the
+day-0 checklist asks for", because it was 0 for five of Experiment 1's seven
+arms, and promoted *share* as the discriminating number. With five more arms
+that verdict inverts, and cleanly.
+
+`scripts/profdata_cover.py pgo/jaq/merged.profdata <every arm> --top 20`,
+joined with section 73's aggregate:
+
+| arm | zero of 20 | hot-20 share | vs T0 |
+|---|---:|---:|---:|
+| `T_real` | 0 | 71.16% | 1.2232 |
+| `S_sample1` | 0 | 73.46% | 1.2180 |
+| `B_cover` | 0 | 3.45% | 1.0814 |
+| `T_all` | 0 | 10.16% | 1.0664 |
+| `B_datapath` | **6** | 10.39% | 0.9379 |
+| `E_expert_noscale` | **8** | 24.20% | 0.9267 |
+| `B_shape` | **8** | 25.41% | 0.9227 |
+| `E_expert` | **8** | 25.41% | 0.9205 |
+
+**Among arms that pass the section 77 poison check, every arm with a
+zero-count hot function is slower than no PGO and every arm without one is
+faster.** The separation is total, and it holds on Experiment 1's arms too:
+`T_bench` was the only Experiment 1 arm with zeros (8 of 20) and the only
+*unpoisoned* one below T0 (0.9217); `T_readme` and `T_big` had 0 zeros and
+1.84% / 9.90% shares and were both above T0. Twelve arms across two
+experiments, no exception --- but the qualifier is load-bearing, because
+`T_allraw` has **0 zeros and is 0.9011**: a poisoned profile is a second,
+independent failure mode, and the rule only holds downstream of the gate
+that catches it.
+
+Share, by contrast, is not even monotone: `B_cover` at 3.45% beats `T_all`
+at 10.16%, and both beat `E_expert` at 25.41%.
+
+**Which functions, and why `to-fromjson` fails.** The eight the expert's pick
+never executes:
+
+| # | reference share | function |
+|---:|---:|---|
+| 1 | 22.52% | `<hifijson::SliceLexer as hifijson::write::Write>::write_until` (the byte search) |
+| 17 | 7.26% | `jaq_json::read::parse::<hifijson::SliceLexer>` |
+| 2 | 5.73% | `jaq_std::base_run::{closure#7}` |
+| 5 | 4.66% | `jaq_json::read::ws_tk::<hifijson::SliceLexer>` |
+| 16 | 3.32% | `jaq_json::read::parse_string::<hifijson::SliceLexer>` |
+| 12 | 1.70% | `<alloc::raw_vec::RawVecInner>::finish_grow` |
+| 13 | 1.54% | `<alloc::raw_vec::RawVecInner>::grow_amortized` |
+| 11 | 1.10% | `<alloc::vec::Vec<u8>>::reserve` |
+
+**47.8% of production's block counts land on functions this arm never
+executes**, while the arm still reports a 25.41% hot-set share off the other
+twelve. Chasing that down is the most useful thing in this experiment, and
+the answer is not "the wrong data" --- it is **the wrong symbol for the same
+source code**, twice over.
+
+**(a) stdin and a file argument are different monomorphisations.** The
+holdout runs `jaq FILTER hold-objects.json …`, and jaq maps a file argument
+into a byte slice and parses it with `hifijson::SliceLexer`. Fed on stdin
+instead, jaq streams and uses `hifijson::IterLexer<…, StdinLock>`. These are
+separate instantiations with separate counters. `clitest-0018` and
+`doccli-0013` --- two of the nine items the expert added precisely as
+"insurance that no hot-set function is left at zero" --- do parse real JSON,
+and their counts land on
+`jaq_json::read::parse::<hifijson::IterLexer<…, StdinLock>>`, which is not in
+the reference's hot set and never will be. They leave **nine** of the hot 20
+at zero on their own.
+
+**(b) the same instantiation is duplicated per codegen unit, and the call
+site picks the copy.** `jaq_json::read::parse::<hifijson::SliceLexer>` exists
+as **five** separate entries in the profdata, one per CGU that instantiated
+it (`hifijson`, `jaq`, `jaq_all`, `jaq_fmts`, `jaq_json`). The reference
+executes the `jaq_fmts` copy (249 592 342 counts). `bench-0022`'s `fromjson`
+executes the `jaq_all` copy (13 631 519 counts) and leaves the `jaq_fmts` one
+at zero. Same source function, same generic arguments, different counters. So
+even "this candidate runs the production parser" is not enough; the call path
+decides which copy it runs, and `-Cprofile-use` attaches counts per copy.
+
+Put together, over the whole pool:
+
+```
+candidates executing production's read::parse copy:  1 / 1182
+candidates executing production's write_until copy:  1 / 1182
+    doccli-0044   jaq --slurp input_filename examples/benches.json
+```
+
+**One candidate out of 1182 touches the code path the holdout spends 42% of
+its time in**, and it is a documentation example that happens to name a file
+on the command line --- the repository's own `examples/benches.json` --- and
+to pass `--slurp`, which buffers the input into a slice. Its counts there are
+tiny (1108 on `parse`, 1350 on `write_until`), which is why no share-based
+feature can see it.
+
+That is also the whole explanation of section 74:
+
+* `B_cover` picked `doccli-0044` **first**, with a marginal gain of 65.4 of
+  the 71.2 available points, because boolean coverage is computed over the
+  exact profdata symbols. The "degenerate" greedy found the only candidate in
+  the repository on the production path, for exactly the right reason, and
+  stopped because there was nothing left to find.
+* `T_all` contains it too (it contains everything), which is why `T_all` also
+  has no zeros --- but 1108 counts against 5.09e9 of interpreter work.
+* `B_datapath` ranks it 0.054 on data-path/startup and does not select it:
+  6 zeros. `B_shape` and `E_expert` reject it as negligible: 8 zeros.
+* The expert's reasoning was about data volume and profile shape, and the
+  candidate that mattered is invisible in both. The expert **excluded the
+  only useful item in the pool** and kept nine that exercise the wrong
+  lexer.
+
+Every crate- or layer-level metric in this experiment --- `hifijson` share,
+data-path/startup, the 44.60% histogram intersection, the layer signature the
+grouping uses --- was blind to all of this, because all of them aggregate
+away the symbol. The per-symbol zero check was not.
+
+**What the profiles did to the code** (`scripts/norm_code_diff.py
+target-jaq-exp1-T_real/…/jaq <arm>/…/jaq --profdata pgo/jaq/merged.profdata`;
+instruction counts are T_real -> arm, percentages are the reference share):
+
+| function | share | S_sample1 | B_cover | T_all | B_datapath | E_expert |
+|---|---:|---|---|---|---|---|
+| `hifijson::…::write_until` | 22.52% | 42 -> 84 | 42 -> 84 | 42 -> 84 | 42 -> 42 | 42 -> 42 |
+| `jaq_json::read::parse` | 7.26% | 4426 -> 4031 | 4426 -> 3716 | 4426 -> 2952 | 4426 -> 2725 | 4426 -> 2976 |
+| `jaq_json::write::write` | 4.33% | 2390 -> 2318 | 2390 -> 1257 | 2390 -> 1607 | 2390 -> 1269 | 2390 -> 1720 |
+| `TermId::run` (interpreter) | 1.93% | 6562 -> 7505 | 6562 -> 4478 | 6562 -> 11802 | 6562 -> **19554** | 6562 -> 5167 |
+| `BufWriter<StdoutLock>::write` | 1.56% | 229 -> 240 | 229 -> 45 | 229 -> 45 | 229 -> 45 | 229 -> 45 |
+| changed symbols hold | | 70.9% | 86.3% | 88% | 89.0% | 88.2% |
+
+Two corrections to section 67 fall out of this table.
+
+* **The `write_until` doubling is not the damage.** Section 67 read
+  42 -> 84 instructions as "a second copy chosen for a loop LLVM now believes
+  is cold". `S_sample1` is statistically identical to `T_real` and **also**
+  has 84, while `E_expert` and `B_datapath` keep 42 (they never execute it,
+  so LLVM has no profile for it and leaves the static shape, which is
+  `T_real`'s). The instruction count of that loop is not what separates the
+  arms.
+* **`BufWriter::write` collapsing from 229 to 45 is common to every
+  repository-derived arm**, including the two that beat T0. It costs
+  something --- `B_cover` and `T_all` give up most of their readwrite
+  advantage --- but it is not what makes an arm slower than no PGO.
+
+And no column of that table orders the arms either. `TermId::run` is
+grossly inflated under `B_datapath` (19554, 3.0x) and `T_all` (11802) but
+*shrinks* under `E_expert` (5167) --- `to-fromjson` is one tight interpreter
+loop that LLVM specialises hard for the wrong filter --- and `T_all` is
+above T0 while `E_expert` is below it. `jaq_json::write::write` is smaller
+in `B_cover` (1257) than in `E_expert` (1720), and `B_cover` is 17% faster.
+
+**The machine code says what happened; it does not say which arm wins.** The
+one quantity in this experiment that does is the zero-count column at the
+top of this section, and section 75's explanation of it: an arm is fast if
+and only if something in its training set executed the exact symbols the
+holdout executes. Of the repository's 1182 candidates, one did.
+
+### 76. Predictions, scored
+
+Nine were written down (`artifacts/jaq-exp2/predictions.txt`) after the
+selectors ran and before any binary was built.
+
+| # | prediction | outcome |
+|---|---|---|
+| a | `B_cover` is degenerate, 1.00-1.06 vs T0 | **wrong where it counts**: the saturation was predicted exactly (2 picks, third gain 0.0000pp), but "degenerate" was the wrong reading --- it is the *best* repository arm at 1.0814, and section 75 shows it saturated because it had already found the only candidate on the production path |
+| b | `B_cover_scaled` is bit-identical to `B_cover` | **right** (`bad1d2e65bda3278…` both) |
+| c | `B_shape` and `E_expert` are the same answer, within A/A | **right** (0.9227 vs 0.9205, 0.2%) |
+| d | the ceiling is 1.10-1.16 vs T0, beating `T_all` by more than the MDE | **wrong, and the main result**: `E_expert`/`B_shape` are 0.92, i.e. *below T0*. The hot-set-share interpolation that produced this number is exactly the metric section 75 shows is broken |
+| e | the scale knob is worth less than the MDE | **right** (0.7%, and of the wrong sign) |
+| f | `B_datapath` reproduces `T_bench`, 0.92-1.00 | **right** (0.9379; `T_bench` was 0.9217) |
+| g | `S_sample1` is within the MDE of `T_real` | **right** (0.9957, against an A/A of 0.9983) |
+| h | shuffling raises the A/A half-width to 1.2-2.5% and the MDE to 3.0-5.0% | **right** (2.03%, MDE 4.07%) |
+| i | the poison check passes on every Experiment 2 arm and flags `T_allraw` | **right** (section 77) |
+| j | (the expert's own pick 3) the nine small doccli/clitest items are "insurance that no hot-set function is left at zero" and "change nothing" | **wrong on the first, right on the second**: they change nothing (`E_expert` vs `B_shape` is 0.2%), but they are not insurance --- they feed JSON on **stdin**, so their parser counts land on the `IterLexer<StdinLock>` instantiation and each leaves nine of the hot 20 at zero by itself (section 75) |
+
+The two that were badly wrong, (a) and (d), were wrong for the same reason:
+both reasoned about hot-set *share*, the feature Experiment 1 promoted and
+this experiment retires. (d) interpolated a speed from a share; (a) called an
+arm degenerate because its share was 3.45%. The arm with the lowest share of
+all was the best of them.
+
+### 77. The poison check as a reusable step
+
+`scripts/profdata_sanity.py` makes section 63's finding a gate. A block
+cannot have executed more often than the training run had time for, so with
+`--max-ipc` retired instructions per second as the ceiling, any block above
+`wall_seconds * max_ipc` is not a count. The default 5e9/s is about one
+instruction per cycle on a 5 GHz core, generous by several times for a
+single-threaded program. Exit status is 1 if any profile fails, so it can
+gate a build; `scripts/jaq_arm_profile.py` records each arm's training wall
+in `<profdata>.manifest.json` so `--wall-from-manifest` needs no argument.
+
+```
+$ scripts/profdata_sanity.py --wall-from-manifest pgo/jaq/arms/*/merged.profdata
+profile                             wall s       limit        max block            total  verdict
+B_cover/merged.profdata               0.01    4.89e+07            20645           444329  ok
+B_cover_scaled/merged.profdata        0.01    4.89e+07            20645           444329  ok
+B_shape/merged.profdata               0.97    4.85e+09          8388642        531647573  ok
+B_datapath/merged.profdata            6.44    3.22e+10         62669245       3682616849  ok
+E_expert/merged.profdata              1.01    5.03e+09          8388657        531693923  ok
+E_expert_noscale/merged.profdata      0.10    4.88e+08           524337         33007928  ok
+S_sample1/merged.profdata             0.21    1.03e+09          3456858         86685373  ok
+
+7 profiles, 0 poisoned
+```
+
+and the positive control, Experiment 1's unguarded arm:
+
+```
+$ scripts/profdata_sanity.py --wall 13.1 pgo/jaq/arms/T_all/merged.profdata \
+      pgo/jaq/arms/T_allraw-merged.profdata
+T_all/merged.profdata                13.10    6.55e+10         82883240       5085349161  ok
+T_allraw-merged.profdata             13.10    6.55e+10   39582476944192   39587563369240  POISONED
+                                   culprit: counter 150 of 161 in num_bigint::biguint::convert::to_radix_le
+                                            39582476944192 = 0x2400037a4340 (604x the limit)
+```
+
+It names the function and the counter index, and the value prints as a
+pointer into mimalloc's arena region, which is what makes the diagnosis
+immediate. The margin is comfortable at both ends: the tightest honest
+profile here is `B_cover`, whose 0.01 s of training gives a limit of 4.89e7
+against a real maximum of 20 645 (2400x of headroom), and the poisoned one is
+604x *over*. No threshold tuning was needed.
+
+### 78. Implications for the Jev Choice design
+
+Written from what actually separated these arms.
+
+**1. Two gates in sequence, and together they have no exception.** First the
+poison check of section 77; then, *among profiles that pass it*, per-symbol
+zero counts on a reference hot set. Twelve arms across two experiments:
+poisoned -> slower than no PGO (`T_allraw`, 0.9011, despite zero zeros); of
+the rest, zeros present -> slower than no PGO, zeros absent -> faster. Both
+are computable before the PGO-use build from one `llvm-profdata show` each,
+neither needs a timing run, and the second would have rejected both the
+mechanical and the expert answer here. `jev-opt build` should treat both as
+hard preconditions and fall back to T0 when either fails. The open problem
+is that the second needs a *reference* hot set, which in production means
+either the user's sample (`S_sample1` supplies one) or a first-run profile
+of the user's own workload.
+
+**2. The unit of a PGO profile is the symbol, and "the same function" is
+not one symbol.** Section 75: production's JSON parse is
+`jaq_json::read::parse::<hifijson::SliceLexer>` *in the `jaq_fmts` codegen
+unit*. Feed the same bytes on stdin instead of as a file argument and the
+counts go to an `IterLexer<StdinLock>` instantiation. Reach the same
+instantiation from `fromjson` instead of from the CLI and the counts go to
+the `jaq_all` copy of it. Both leave production's symbol at zero. Every
+aggregate feature this experiment built --- hifijson share,
+data-path/startup, the histogram intersection, the layer signature the
+grouping uses --- was fooled by this, and the per-symbol comparison was not.
+Whatever Jev is shown must be per-symbol at the hot end, with the CGU
+qualifier intact.
+
+**2b. How a candidate is invoked is a selection decision, not a harness
+detail.** All 1182 pool candidates were extracted to run with their input on
+**stdin**, because that is what the repository's own test runners do
+(section 62). That single convention put 1181 of them on the wrong lexer.
+The one candidate that lands on the production path, `doccli-0044`, does so
+because it names a file on the command line. So `jev-opt build` should treat
+*argv shape* --- file argument vs stdin, `--slurp`, `--raw-input`, `-n` ---
+as part of the candidate, and where a candidate's input could be presented
+either way, it should consider presenting it the way the user's production
+invocation does. On this target that one decision is worth more than every
+other feature in the experiment combined, and it was not measured as an arm
+because it was not anticipated; it is the first thing Experiment 3 should
+test.
+
+**3. Counts on the right symbols, then as little else as possible.**
+`B_cover`'s 444 329 counts produce the best repository-only binary for two
+reasons that both matter: it is the only arm whose selector found the one
+candidate on the production path (section 75), *and* what it adds on top is
+two orders of magnitude too small to push LLVM off its static heuristics
+anywhere else. `T_all` has the same good candidate and 5.09e9 counts of
+interpreter work on top, and gives up 1.4%; `B_datapath` has 3.68e9 counts
+of interpreter work and no good candidate, and gives up 13%. A selector that
+cannot find a representative input should deliberately select *less*, not
+more --- which is the opposite of section 66's "recall beats precision", and
+holds for the opposite reason: there the good candidate was 40% of the
+merge, here it is 0.02%.
+
+**4. What separated `E_expert`'s picks from a mechanical cover, and why it
+went the wrong way.** This experiment was set up to ask whether judgment
+beats mechanism. It answered the question, but not in the direction it was
+posed.
+
+The expert used three things no mechanical rule here had: the *meaning* of a
+filter (`fromjson` parses a document, so `to-fromjson` is categorically
+unlike the other 26 benches), the *negative* decision that the pool's mass is
+startup and must be excluded, and the scale knob on exactly one candidate.
+All three are sound as reasoning, all three are visible in the profile shape
+--- which is why `B_shape`, given a shape objective, reproduced them
+mechanically and landed within 0.2% --- and all three are **about aggregate
+quantities**. The information that actually decided the outcome was not an
+aggregate: it was *which profdata symbols a candidate's counters land on*,
+and by that measure the pool contains exactly one useful item, worth 1108
+counts, which both the expert and the shape matcher discarded as noise.
+
+So the design conclusion is not "Jev's judgment is worth more than a cover".
+On this pool it was worth 0.2%, and the reasoning that felt most insightful
+(a scaled `to-fromjson` is the closest thing to production) produced the
+second-worst arm. The conclusion is: **give any chooser, human or model, a
+per-symbol acceptance test it is scored against, and the choice between
+candidates matters far less than that test.** Jev's plausible remaining edge
+is upstream of selection --- reading the user's description of production,
+noticing that no repository candidate matches it, and saying so --- and
+downstream, in choosing *how* to invoke a candidate (item 2b), which is a
+judgment about the user's deployment that no repository artifact records.
+
+**5. The scale knob should stay, but demoted.** Scaling is percentile-
+invariant, so it cannot fix a shape; it only changes an item's weight
+*relative to other items in the same merge*. It is worth keeping for the case
+where a selector keeps junk it cannot identify, and it costs one probe per
+parametric candidate (27 items, 100 s here, including the `ack` stack
+overflow that a wall-time-only probe would have accepted). It is not the
+answer to a repository with no representative input.
+
+**6. `jev-opt/samples/` is not a fallback, it is the feature.** One 2 MiB
+file and three invocations, 0.21 s of training, reach 0.9957 of a 71 MiB
+training set and +21.8% over no PGO, where the entire repository reaches
++8.1% at best. On this target the product is better described as "drop in one
+representative input and `jev-opt build` does the rest" than as "Jev picks
+your training set out of your repo". The selection machinery still earns its
+place --- it is what decides that the repository *cannot* do the job, and it
+is what keeps a bad training set from shipping --- but it is the guard rail,
+not the engine.
+
+### 79. Deviations, and what is not done
+
+- **The pool's stdin convention is a confound, and it is the largest one.**
+  The extractor runs every candidate with its input on stdin, mirroring the
+  repository's own runners (section 62), while the holdout passes file
+  arguments. Section 75 shows those are different lexer instantiations, so
+  1181 of 1182 candidates were on a code path the holdout never enters. Some
+  of that is real --- a doc test's input genuinely is a five-byte literal,
+  not a file --- but the *choice* of stdin over a temporary file is the
+  harness's, not the repository's, and re-extracting the pool with file
+  arguments where the input is a JSON document is an obvious arm that this
+  experiment does not contain. Every "the repository cannot do it" statement
+  here is conditional on that convention; the +8.1% ceiling in particular
+  could move.
+- **`B_datapath`'s stated budget does not bind, so K was fixed at 50.** "K
+  such that training <= 30 s" selects the entire pool, because all 1182
+  candidates are 14.1 s instrumented. K = 50 mirrors `B_cover`'s cap. The
+  arm also applies an exit-status-0 filter (section 72); the literal
+  unfiltered top 50 is 36 crashed invocations and 9559 block counts and was
+  not built.
+- **`B_cover_scaled` was not timed.** Its profdata is bit-identical to
+  `B_cover`'s, so the binary would be too; only the profdata was produced,
+  and its sha256 compared.
+- **The reference hot set is `T_real`'s.** Every `B_*` selector is therefore
+  oracle-assisted: it is told which functions matter, which a real
+  `jev-opt build` does not know. That makes the mechanical arms *stronger*
+  than they could be in production, which only sharpens the negative result.
+- **`S_sample1` is generated by the same script and the same generator as
+  `T_real`'s inputs**, differing only in seed and size. It is therefore the
+  most favourable possible sample, and 0.9957 is an upper bound on what one
+  file recovers. A user's real file would differ in shape as well as in
+  content; that was not measured.
+- **The same two binaries moved between runs.** `T_all` and `T_real` are the
+  identical stripped files Experiment 1 timed. `T_real` reads 1.2161 there
+  and 1.2232 here (+0.6%), but `T_all` reads 1.0329 there and 1.0664 here
+  (**+3.2%**). Both experiments' headline gaps are far larger than that, but
+  it is direct evidence for section 69's warning that the rotation-based A/A
+  understated label-to-label noise, and a reason to compare only within a
+  single interleaved run.
+- **Layer attribution is an ordered substring match on demangled names.** It
+  is coarse by construction (section 70), and section 75 is the case where
+  that coarseness is not a presentation detail but the reason a selector
+  failed. The `other` bucket is reported everywhere so the leak is visible.
+- **The per-candidate profraws (1.9 GB) are not kept in the repository.**
+  They live in a scratch directory; `artifacts/jaq-exp2/candidates.jsonl` is
+  the reduction, and `scripts/jaq_candidate_profile.py` regenerates them in
+  72 s.
+- **One run of one machine, one target.** The arms were built once and timed
+  once. Section 53's warning stands: jaq's `.text` hash is not reproducible,
+  so "the same arm rebuilt" was not checked to be the same binary.
+- The three poisoning items are excluded from the candidate profiling run,
+  so no Experiment 2 arm can contain them; `T_allraw` is kept only as the
+  positive control for section 77.

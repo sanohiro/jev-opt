@@ -28,6 +28,9 @@
 #   ITEM_TIMEOUT  per-invocation timeout in seconds (default 60; the dry run
 #                 in jaq_pool_extract.py already used the repository's own
 #                 bench.sh timeout of 10 s on an uninstrumented binary).
+#   ARM_SPEC    Experiment 2: a scripts/jaq_select_arms.py arm spec. The
+#               profile is then a merge of cached per-candidate profraws
+#               (CAND_CACHE, SCALED_CACHE) instead of a fresh training run.
 #   SKIP_BUILD=1  train and merge only.
 set -euo pipefail
 
@@ -41,8 +44,8 @@ SKIP_BUILD="${SKIP_BUILD:-0}"
 ARM_DIR="$PGO_DIR/arms/$ARM"
 RAW_DIR="$ARM_DIR/raw"
 ARM_PROFDATA="$ARM_DIR/merged.profdata"
-TD="$REPO/target-$TARGET-exp1-$ARM"
-LOG_DIR="$REPO/artifacts/$TARGET-exp1"
+TD="$REPO/target-$TARGET-${EXP:-exp1}-$ARM"
+LOG_DIR="$REPO/artifacts/$TARGET-${EXP:-exp1}"
 FROZEN="$PGO_DIR/merged.profdata"
 
 SYSROOT="$(rustc --print sysroot)"
@@ -63,6 +66,21 @@ elif [ "$ARM" = T_real ]; then
   cp "$FROZEN" "$ARM_PROFDATA"
   chmod u+w "$ARM_PROFDATA"
   echo "invocations: 3 (the Stage 0 training run, results.md section 53)"
+elif [ -n "${ARM_SPEC:-}" ]; then
+  # Experiment 2: the arm is an *arm spec* (scripts/jaq_select_arms.py), and
+  # its profile is the llvm-profdata merge of the per-candidate profraws
+  # scripts/jaq_candidate_profile.py already collected, plus a fresh run for
+  # anything the cache does not cover (a scaled `n`, a user sample). No
+  # candidate is run twice, and the arms cannot differ by anything but which
+  # profraws went into the merge.
+  banner "profile = merge of the per-candidate profraws named by $ARM_SPEC"
+  "$REPO/scripts/jaq_arm_profile.py" --spec "$ARM_SPEC" \
+    --binary "$GEN_BIN" \
+    --cache "${CAND_CACHE:?CAND_CACHE must point at the per-candidate profraws}" \
+    --scaled-cache "${SCALED_CACHE:-}" \
+    --run-dir "$RAW_DIR" \
+    --out "$ARM_PROFDATA" \
+    --timeout "$ITEM_TIMEOUT"
 elif [ "$ARM" = T_allreal ]; then
   banner "profile = merge(T_all profraw, frozen Stage 0 profdata)"
   ALL_RAW="$PGO_DIR/arms/T_all/raw"

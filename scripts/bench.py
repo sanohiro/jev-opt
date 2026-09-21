@@ -18,6 +18,13 @@ Conventions fixed here and quoted in results.md:
   * A *round* is the pairing unit. Round r runs every workload for every label
     before round r+1 starts, so a slow patch of the machine hits all labels.
     The label order rotates by round, so no label is permanently first.
+    `--shuffle SEED` replaces the rotation with a seeded random permutation
+    per (round, workload). Rotation keeps two adjacent labels adjacent in
+    every round, so an in-run A/A between neighbours prices only the drift
+    over one slot and understates the label-to-label noise for a pair at
+    opposite ends of the round (results.md "Experiment 1 (jaq)" section 69).
+    Shuffling gives every pair the same distribution of separations, so the
+    A/A prices the whole round. The default is unchanged.
   * speed ratio = t_base / t_config. Greater than 1 means the config is
     FASTER than the base.
   * The bootstrap resamples round indices with replacement, jointly across
@@ -85,6 +92,8 @@ def cmd_run(args):
         "lscpu_e": capture(["lscpu", "-e"]),
         "taskset": " ".join(pin),
         "gap_ms": args.gap_ms,
+        "label_order": ("rotate" if args.shuffle is None
+                        else f"shuffle:{args.shuffle}"),
         "note": "ns is time.perf_counter_ns around subprocess.run, so it "
                 "includes fork/exec and process teardown.",
     }
@@ -98,7 +107,13 @@ def cmd_run(args):
         warm = r < args.warmup
         for wname, wargs in workloads:
             order = list(range(len(labels)))
-            order = order[r % len(order):] + order[:r % len(order)]
+            if args.shuffle is None:
+                order = order[r % len(order):] + order[:r % len(order)]
+            else:
+                # Seeded on (seed, round, workload) so the whole run is
+                # reproducible from the seed alone and no two workloads in a
+                # round share a permutation.
+                random.Random(f"{args.shuffle}:{r}:{wname}").shuffle(order)
             for i in order:
                 lname, path = labels[i]
                 argv = pin + [path] + wargs
@@ -348,6 +363,9 @@ def main():
     r.add_argument("--runs", type=int, default=30)
     r.add_argument("--out", required=True)
     r.add_argument("--progress", action="store_true")
+    r.add_argument("--shuffle", type=int, default=None, metavar="SEED",
+                   help="shuffle the label order per (round, workload) with "
+                        "this seed instead of rotating it by round")
     r.add_argument("--gap-ms", type=int, default=0,
                    help="idle this many milliseconds after each timed run "
                         "(outside the timed window). Default 0, which is what "
