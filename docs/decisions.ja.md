@@ -329,3 +329,8 @@
 - **知見**: 127 key のうち 13 が 2〜9 個のループに解決(最悪は再帰シリアライザ `write::write` の 9 重。owner・inline chain・leaf・fingerprint・depth がすべて同一で、header count だけが桁違い)。plugin は衝突 key の全コピーにヒントを付けた上で `ambiguous` を報告する。
 - **判断**: `ambiguous` は失敗ではなく件数として記録する(失敗は `vanished` と `unmatched`)。key に header count を混ぜると PGO の値に依存して不安定になるので、key の定義は変えない。
 - **影響**: spec §5、plugin README(訂正済み)。
+
+### 65. 探索ドライバの確定事項
+- **知見**: `scripts/jev_search.py` は 1 ラウンド = 2 ビルド(関数属性 → `apply-dump` でループ取り直し → ループヒント → ビルド → 正しさ → 計測)。toy の smoke で、n=3 だと同一コードのビルドが採用規則を通ってしまう(in-sweep null panel の発火そのもの)ので、n=15 が凍結値である理由が実測で出た。ソース抜粋の basename 一致は無関係なテストファイルを state に混ぜていたため廃止。`results.md` 「Search driver (smoke)」。
+- **判断**: (a) 採用規則(事前登録): 全ケースで出力一致、plan の全エントリが効いた(`ambiguous` は件数のみ)、集計速度比の 95% 信頼区間下限がこれまでの最良の点推定を上回る。(b) 関数属性の 1 Choice はマーク自身と全単相化に展開し、内部のクロージャには**及ばない**(`--fn-attr-scope all` で plugin 本来の範囲に戻せる)。(c) confidence の閾値は設けない(`min_confidence = 0`)。(d) 履歴は round ごとに変わる key でなく `site_id`(マーク@file:line:col#depth)で持つ。(e) state と語彙は `v1-2026-09-22` で凍結。(f) 実験の順序: Jev 5 ラウンド → ランダム 5 ラウンド → oracle(関数属性 90 ビルド → ループ 177 ビルド)→ 最良 plan を holdout で 1 回。このマシンでは同時に 1 つ。
+- **影響**: spec §1(3)、§6、§8。
