@@ -1,0 +1,14 @@
+# Pinned toolchain for jev-opt.
+#
+# -Zllvm-plugins (needed by the future LLVM pass plugin) is nightly-only, so the
+# whole project is pinned to one dated nightly. llvm-tools-preview provides the
+# llvm-profdata that must merge the .profraw files: the profraw format is tied to
+# the LLVM major version, so the system llvm-profdata must never be used.
+#
+# This file only governs directories under this repository. The CLI will drive
+# external targets (zopfli, jaq) that live elsewhere, so it must pass
+# RUSTUP_TOOLCHAIN explicitly rather than rely on this file.
+[toolchain]
+channel = "nightly-2026-09-21"
+components = ["llvm-tools-preview"]
+profile = "minimal"

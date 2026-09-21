@@ -1,0 +1,18 @@
+# Toy workspace: pipeline-verification target for jev-opt (SPEC.ja.md 6.4).
+# Two crates on purpose: `toyloops` is an rlib and `toy` is the bin that depends
+# on it, so every build exercises the rlib + fat-LTO path that the real targets
+# (zopfli, jaq) use.
+#
+# The release profile is spelled out here rather than passed through
+# CARGO_PROFILE_RELEASE_* because the toy is ours to edit. External targets keep
+# using the profile env vars so their Cargo.toml stays untouched.
+[workspace]
+resolver = "3"
+members = ["toyloops", "toy"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = 1
+panic = "unwind"
