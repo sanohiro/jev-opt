@@ -43,3 +43,6 @@ run-manifest.json
 
 # python bytecode
 __pycache__/
+
+# LLVM headers the pass plugins compile against (scripts/fetch_llvm_headers.sh)
+/third_party/
