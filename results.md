@@ -4683,3 +4683,637 @@ supports:
   appear in its 68359 remark lines.
 - Post-hoc attribution beyond section 43 was not needed: no configuration
   produced a difference worth attributing.
+
+
+## Experiment 1 (jaq) --- does the PGO training set matter?
+
+Date: 2026-09-22, same machine and the same pinned toolchain as every
+section above (rustc 1.100.0-nightly bba531001 / LLVM 23.1.1), same jaq
+submodule commit `c866e70303b5dbc37d83a0b0cbacf10e90af9c8c` (v3.1.1).
+Sections are numbered from 62.
+
+This is the first experiment of the direction decided in
+docs/decisions.ja.md entry 38. The product claim under test is:
+
+> `jev-opt build` replaces `cargo build --release`. It runs PGO, and **Jev
+> picks which inputs already in the repository** (tests, examples, doc
+> examples, benches, fixtures) to train on, so the user writes no training
+> workload.
+
+Before building any selector, this measures the **upper bound** on what a
+selector could be worth: how far apart are the holdout speeds of PGO
+binaries that differ *only* in which repository inputs the instrumented
+binary saw? If a naive choice is as good as a realistic one, there is
+nothing to choose and the thesis is flat.
+
+Predictions were written down before the timing run (section 67 records
+which held).
+
+Reproduce with:
+
+```
+export TARGET=jaq
+scripts/jaq_pool_extract.py extract \
+    --binary target-jaq-plain/x86_64-unknown-linux-gnu/release/jaq \
+    --timeout 10 --progress
+scripts/jaq_pool_extract.py scan \
+    --binary target-jaq-pgo-gen/x86_64-unknown-linux-gnu/release/jaq \
+    --scratch /tmp/jaq-scan
+for arm in T_all T_allraw T_readme T_big T_bench T_real T_allreal T0; do
+    scripts/pgo_train_arm.sh $arm
+done
+# then section 65's single interleaved bench.py run
+```
+
+**New in this experiment.** `scripts/jaq_pool_extract.py` (enumerate the
+repository's candidate inputs, dry-run them, find the ones that corrupt the
+instrumented binary's counters, and run a named subset as a training run),
+`scripts/pgo_train_arm.sh` (one arm: training run -> merge -> PGO-use build
+-> correctness) and `scripts/profdata_cover.py` (how much of a reference
+profile's hot set another profile actually covers). Nothing in
+`scripts/target_common.sh`, `scripts/bench.py` or the jaq submodule was
+changed; `pgo/jaq/merged.profdata` and `pgo/jaq/profraw/` were made
+read-only for the duration and verified byte-identical afterwards.
+
+### 62. The candidate pool: what is actually inside the jaq repository
+
+`scripts/jaq_pool_extract.py extract` walks six sources. Each of them is a
+place the repository itself already drives jaq from, and for each the
+extractor mimics the repository's own runner rather than inventing a shape:
+
+| source | where | what the repository does with it | extractor |
+|---|---|---|---|
+| `doctest` | ``` `FILTER --> EXPECTED` ``` code spans in `docs/*.dj` | `docs/tests.jq` extracts them, `jaq --run-tests` runs them with input `null` | code-span regex after fenced blocks are removed |
+| `doccli` | `$ producer \| jaq ARGS` lines in `docs/*.dj` | `docs/cli-tests.jq` extracts them, `docs/shelltest.rs` runs them in `sh` | shlex-tokenise, keep pipelines that reduce to (producer -> jaq), run the producer once to get the stdin bytes |
+| `test` | `give`/`gives`/`yields!`/`fail` in `jaq-{core,std,json,fmts}/tests/*.rs` | `cargo test`, against the *library* | balanced-paren Rust parse of `json!(input)` and the filter string literal; run as `jaq FILTER` with the input on stdin |
+| `clitest` | `test!(name, &[args], input, output)` in `jaq/tests/golden.rs` | `cargo test`, already spawning the real binary | same parse; `cwd` is `jaq/` because two tests use `-L tests` and `--rawfile tests/256.bin` |
+| `bench` | `examples/benches/*.jq` x the `n` in `examples/benches.json` | `bench.sh` runs `echo $n \| jaq "$(cat f.jq) \| length"` | exactly that, plus `bench.sh`'s three hand-written cases (`empty`, `bf-fib`, `defs`) |
+| `example` | `examples/*.jq` | `examples/ball.sh`, `bench.sh` | four runnable programs |
+
+```
+$ scripts/jaq_pool_extract.py extract --binary target-jaq-plain/.../jaq --timeout 10
+parsed 1185 candidates
+  skipped doccli:multi-stage: 9
+  skipped doccli:not-jaq-last: 5
+  skipped doccli:shell-control: 24
+  skipped doccli:would-block-on-stdin: 5
+  skipped test:filter-not-literal: 34
+  skipped test:input-not-literal: 30
+dry run: 1185 usable, 0 dropped
+```
+
+**1185 candidates, every one of which terminates** under the repository's
+own `bench.sh` timeout of 10 s on the plain binary. 107 candidates were
+visible but not extractable: 43 shell examples whose pipeline does not
+reduce to (producer -> jaq) --- `yes | jaq -n`, `jaq -i . tmp.json && cat
+tmp.json`, `jaq ... | jaq ...` --- and 64 Rust test calls whose input or
+filter is a Rust expression rather than a literal (`gives(ab(1), ...)`,
+format strings). Those are extraction limits, not properties of jaq; a real
+selector would want the shell ones, and this experiment does not need them.
+
+Pool composition and, the point of this section, the **size distribution**:
+
+```
+pool by source:
+  bench     n=   30  input bytes min/median/max 0/8/1000006   dry ms min/median/max 3/189/541
+  clitest   n=   21  input bytes min/median/max 1/14/257      dry ms min/median/max 1/2/3
+  doccli    n=   46  input bytes min/median/max 0/11/1053     dry ms min/median/max 1/3/3
+  doctest   n=  513  input bytes min/median/max 5/5/5         dry ms min/median/max 1/3/10
+  example   n=    4  input bytes min/median/max 0/1455/2173   dry ms min/median/max 3/6/44
+  test      n=  571  input bytes min/median/max 2/5/95        dry ms min/median/max 1/3/27
+
+input-byte distribution over all 1185 items:
+  p0 0  p10 5  p25 5  p50 5  p75 5  p90 8  p99 93  p100 1000006
+  total input bytes 1015609
+  total dry-run wall time 9.4 s, median item 2.7 ms
+```
+
+**The repository contains no large input.** The median candidate reads 5
+bytes (the string `null\n`, which is what every doc test and most unit tests
+feed in). The 99th percentile is 93 bytes. The single item above a kilobyte
+of *data* is `examples/fib.bf` at 2352 bytes. The one megabyte-scale item,
+`bench.sh:defs`, is 100000 generated lines of `def a: 0;` --- a **program**,
+not data, and it exercises the parser.
+
+**And input size is anti-correlated with work.** The twelve heaviest items in
+the pool (277-541 ms each on the plain binary) are `examples/benches/*.jq`
+at `n = 1048576`, whose entire input is the decimal string `1048576\n`:
+**8 bytes**. They generate their millions of values in the interpreter. The
+whole pool is 9.4 s of work, of which the 34 `bench`/`example` items are
+6.3 s (67%) while holding 8 bytes of stdin each.
+
+For comparison, the Stage 0 training set (section 52) is three invocations
+reading **71 MiB** of generated JSON. Nothing remotely like it exists in the
+repository.
+
+Written to `targets/jaq/pool/pool.json` (one entry per candidate: `id`,
+`source`, `origin`, `filter`, `argv`, `stdin`, `cwd`, `input_paths`,
+`input_bytes`, `filter_bytes`, and the dry run's status/rc/ms).
+
+### 63. Three pool items corrupt the instrumented binary's counters
+
+This was found by disbelieving a number, and it is a genuine hazard for the
+product rather than a harness bug.
+
+The first `T_all` and `T_readme` profiles reported an impossible block count:
+
+```
+$ llvm-profdata show pgo/jaq/arms/T_allraw/merged.profdata
+Total functions: 8102
+Maximum function count: 88750782
+Maximum internal block count: 39582476944192      <- 4e13
+Total count: 39587563369240
+```
+
+4e13 block executions in a 13 s training run is about four orders of
+magnitude beyond what the machine can execute. The value sits in **one**
+counter (index 150 of 161) of one cold function,
+`num_bigint::biguint::convert::to_radix_le`, whose other counters read 0-342.
+It is not a merge-pooling artifact --- running the same 559 items with one
+profraw per process (`%p`-style unique names) and merging gives the same
+value as running them with `%m`:
+
+```
+  %m  Maximum internal block count: 35184425839296
+  %p  Maximum internal block count: 35184425839296
+```
+
+and it is not a count, because it changes between runs in its low bits while
+keeping its high bits: `0x200003342ac0`, `0x2000033430c0`,
+`0x200003345340` for the first item and `0x20000230610`, `0x20000230c70`
+for the other two. **Those are pointers** --- the 2 TiB and 32 TiB regions
+mimalloc maps its arenas into. Something on the big-integer formatting path
+writes a heap pointer into the instrumented binary's `__llvm_prf_cnts`.
+
+Bisecting the pool (`scripts/jaq_pool_extract.py scan`, which is that
+bisection made reproducible) finds exactly three items, and all three call
+`tostring` on a big integer:
+
+```
+chunk   180-  240 max block count 35184425839296
+   POISONS THE PROFILE: doctest-0224 docs/formats.dj:243
+       | {a: nth(1024; 1 | recurse(.*2))} | totoml | try fromtoml catch -1
+chunk   840-  900 max block count 2199025550864
+   POISONS THE PROFILE: test-0325 jaq-std/tests/defs.rs:147
+       | def fib: recurse([.[1], add])[0]; nth(100; [0, 1] | fib) | tostring
+chunk   960- 1020 max block count 2199025552496
+   POISONS THE PROFILE: test-0431 jaq-std/tests/funs.rs:199
+       | 2e22 | round | tostring
+
+3 of 1185 pool items poison the profile
+```
+
+**Why it matters, and it matters a great deal.** LLVM's ProfileSummary
+percentiles --- which set the hot/cold cutoffs the inliner and block
+placement use --- are computed over block counts. With one block at 3.5e13:
+
+```
+$ llvm-profdata show --detailed-summary pgo/jaq/arms/T_allraw/merged.profdata
+1 blocks (0.00%) with count >= 35184425840832 account for  1% of the total counts.
+...
+1 blocks (0.00%) with count >= 35184425840832 account for 99.999% of the total counts.
+103 blocks (0.09%) with count >= 186569 account for 99.9999% of the total counts.
+```
+
+Every percentile from 1% to 99.999% lands on that one block, so the whole
+program is cold relative to the cutoff. This is not hypothetical: the binary
+built from that profile (`T_allraw`, kept and timed in section 65) is
+**9.9% slower than no PGO at all**.
+
+Three notes on what this is and is not:
+
+1. It is invisible in the shipped binary. Only the `-Cprofile-generate`
+   build writes there, and the released build of all three filters is
+   correct (every arm's output checksums match, section 64).
+2. It is deterministic in *which* item triggers it and non-deterministic in
+   the value, i.e. a wild write, not a counting error. Whether the defect
+   is in `num-bigint`'s `to_radix_le` (which does use `Vec::set_len` on
+   uninitialised capacity) or in LLVM's instrumentation of it was not chased
+   further; it is out of this experiment's scope, and the mechanism is
+   established well enough to act on.
+3. **A `jev-opt build` that just ran the repository's tests would hit this.**
+   Two of the three are ordinary unit tests in `cargo test`. So "run
+   everything" needs a profile sanity check --- no block count may exceed
+   the wall time times a plausible IPC --- before the profile is used. That
+   check is cheap: it is one `llvm-profdata show`.
+
+The three items stay in `pool.json` (a selector must be able to see them),
+flagged `poisons_profile`, and are excluded from every arm except
+`T_allraw`, which exists precisely to price the mistake.
+
+### 64. The arms
+
+All arms share the **frozen Stage 0 instrumented binary**
+`target-jaq-pgo-gen/x86_64-unknown-linux-gnu/release/jaq` --- the one that
+produced `pgo/jaq/merged.profdata` with zero `-Cprofile-use` warnings
+(section 53). Nothing is rebuilt for instrumentation, so the arms cannot
+differ by anything but their inputs. Each arm writes to its own
+`LLVM_PROFILE_FILE=pgo/jaq/arms/<arm>/raw/%m.profraw`; the baked-in path is
+the frozen `pgo/jaq/profraw/`, which was made read-only and verified
+byte-identical at the end.
+
+**T_real is the frozen profdata itself, copied, not regenerated.** Section 53
+records that the training run is done once per target and only the binary id
+inside a profdata is irreproducible. As a mechanism check the Stage 0
+training set was re-run once through the instrumented binary under
+`LLVM_PROFILE_FILE` and the merge compared:
+
+```
+re-run  Total functions: 8102  Maximum function count: 176281976  Total count: 3438331105
+frozen  Total functions: 8102  Maximum function count: 176281976  Total count: 3438334653
+```
+
+identical function count, block count and maximum; total counts differ by
+3548 in 3.44e9, i.e. **1.0e-4 %** (process-startup paths that depend on the
+environment). The re-run was then discarded.
+
+Every PGO-use build is `build_variant` from `scripts/target_common.sh`,
+i.e. byte-for-byte the Stage 0 baseline recipe with only `-Cprofile-use`
+pointing elsewhere. `T0` is the same recipe with the profile flags removed
+and nothing else changed.
+
+| arm | what it trains on | invocations | training wall | profdata sha256 | profdata total count |
+|---|---|---:|---:|---|---:|
+| `T0` | nothing (no PGO) | 0 | --- | --- | --- |
+| `T_all` | every pool item once, minus the 3 of section 63 | 1182 | 13.1 s | `b454f7b160bc92ad…` | 5085349161 |
+| `T_allraw` | every pool item once, **including** the 3 | 1185 | 13.1 s | `40b595898af41112…` | 39587563369240 |
+| `T_readme` | `docs/*.dj` doc tests + CLI examples | 558 | 2.2 s | `d1903b42cc424573…` | 115908737 |
+| `T_big` | top 10% of the pool by input bytes | 118 | 1.0 s | `a4308db7ff966e00…` | 356062697 |
+| `T_bench` | `examples/benches` + `bench.sh` + `examples/*` | 34 | 8.6 s | `639600bc5d77899b…` | 4822071352 |
+| `T_real` | the Stage 0 training set (71 MiB of generated JSON) | 3 | 5.6 s | `4e879ce11687fa3c…` | 3438334653 |
+| `T_allreal` | `llvm-profdata merge` of T_all's profraw with T_real's profdata | 1185 | 18.7 s | `1ad1dcd1d1d94da4…` | 8523683814 |
+
+`T_allreal`'s weighting is by **absolute block count**, not by invocation:
+the merge adds counters, so T_real's 3.44e9 and T_all's 5.09e9 arrive in
+that ratio.
+
+Two naming notes. `T_readme` is not README.md: README.md contains exactly
+two runnable jaq lines and both are deliberately non-terminating
+(`jaq -nr 'repeat("[")' | jaq`, `jaq -n 'def f: 1+f; f'`). The arm is the
+manual under `docs/`, which is where jaq's documentation examples actually
+live. And the repository runs its 513 doc tests as **one** `jaq --run-tests`
+process; this arm runs them as 558 processes, one per item, which is what
+"run each candidate once" means and which is itself part of why the arm's
+profile looks the way it does (section 66).
+
+**No arm produced a single profile-use warning.**
+
+```
+arm        remarks   hash mismatch   no profile data available   warning:
+T0          304591        0                    0                    0
+T_all       257483        0                    0                    0
+T_allraw    218560        0                    0                    0
+T_readme    253597        0                    0                    0
+T_big       246466        0                    0                    0
+T_bench     244205        0                    0                    0
+T_real      228248        0                    0                    0
+T_allreal   259694        0                    0                    0
+```
+
+`-pgo-warn-missing-function` is therefore **useless as a selection signal on
+this target**: IR instrumentation emits a record for all 8102 functions
+whether or not they run, so a profile trained on 558 five-byte doc tests is
+as "complete" as one trained on 71 MiB of JSON. The discriminating number is
+in section 66.
+
+**Correctness precondition.** All nine timing labels were stripped
+(`strip -s`) and run through `run_correctness` before any timing; all nine
+produce byte-identical output on all six inputs (three training, three
+holdout). `T_real` and `T_realB` are byte-identical files
+(`cceee7768c3ed6eb…`), which is the in-run A/A pair.
+
+### 65. Holdout timing: nine labels, one interleaved run
+
+The Stage 0 measurement recipe unchanged (section 55): the three **holdout**
+cases, `taskset -c 4`, `--gap-ms 250`, `--stdout devnull`, warmup 3, 15
+timed rounds, paired bootstrap over rounds, 10000 resamples, seed 20260921.
+405 timed samples in one run, so every label saw the same machine.
+
+```
+$ scripts/bench.py run --cpu 4 --warmup 3 --runs 15 --stdout devnull --gap-ms 250 \
+    --label T0=...  --label T_all=... --label T_allraw=... --label T_readme=... \
+    --label T_big=... --label T_bench=... --label T_real=... --label T_realB=... \
+    --label T_allreal=... \
+    --workload "objsearch='.[] | select(.k == \"v\") | .id' hold-objects.json x4" \
+    --workload "strproc='[.[] | .name | ascii_downcase | length] | add' hold-strings.json x8" \
+    --workload "readwrite=-c '.' hold-ndjson.json x2" \
+    --out artifacts/jaq-exp1/holdout.json
+artifacts/jaq-exp1/holdout.json: 405 timed samples, 9 labels x 3 workloads x 15 rounds
+```
+
+**In-run A/A** (`T_realB` against `T_real`, the same bytes at two paths):
+
+| workload | ratio | 95% CI | half-width |
+|---|---|---|---|
+| objsearch | 1.0022 | [0.9907, 1.0138] | **1.15%** |
+| strproc | 0.9988 | [0.9928, 1.0045] | 0.59% |
+| readwrite | 1.0062 | [0.9991, 1.0142] | 0.75% |
+| **aggregate (geomean)** | 1.0024 | [0.9975, 1.0072] | **0.49%** |
+
+Worst per-workload A/A half-width **1.15%**, so
+**MDE = max(2 x 1.15%, 3%) = 3.00%** --- the 3% floor binds again. Note this
+is *better* than Stage 0's A/A (worst 2.09%, MDE 4.17%) despite nine labels
+and a 34 s round: the machine was quiet this time, with no second target
+being built beside it (section 55 recorded that contention).
+
+**Against T0** (`scripts/bench.py stats artifacts/jaq-exp1/holdout.json
+--base T0`; ratio > 1 means faster than no PGO):
+
+| label | objsearch | strproc | readwrite | aggregate | 95% CI | half-width |
+|---|---|---|---|---|---|---|
+| `T_real` | 1.1665 | 1.0652 | 1.4475 | **1.2161** | [1.2105, 1.2215] | 0.55% |
+| `T_realB` | 1.1690 | 1.0639 | 1.4565 | 1.2190 | [1.2134, 1.2243] | 0.55% |
+| `T_allreal` | 1.1564 | 1.0584 | 1.4250 | **1.2037** | [1.1981, 1.2095] | 0.57% |
+| `T_readme` | 1.0310 | 0.9648 | 1.1770 | **1.0540** | [1.0494, 1.0582] | 0.44% |
+| `T_big` | 1.0529 | 0.9940 | 1.0784 | **1.0411** | [1.0361, 1.0465] | 0.52% |
+| `T_all` | 1.0640 | 0.9794 | 1.0576 | **1.0329** | [1.0273, 1.0382] | 0.55% |
+| `T_bench` | 0.9306 | 0.8783 | 0.9581 | **0.9217** | [0.9181, 0.9253] | 0.36% |
+| `T_allraw` | 0.8937 | 0.8444 | 0.9696 | **0.9011** | [0.8974, 0.9047] | 0.36% |
+
+**Against T_real** (`--base T_real`; ratio < 1 means slower than the
+realistic training set):
+
+| label | objsearch | strproc | readwrite | aggregate | 95% CI | half-width | gap vs T_real |
+|---|---|---|---|---|---|---|---|
+| `T_realB` | 1.0022 | 0.9988 | 1.0062 | 1.0024 | [0.9975, 1.0072] | 0.49% | +0.2% (A/A) |
+| `T_allreal` | 0.9914 | 0.9936 | 0.9845 | **0.9898** | [0.9852, 0.9942] | 0.45% | **-1.0%** |
+| `T_readme` | 0.8839 | 0.9058 | 0.8131 | **0.8667** | [0.8623, 0.8708] | 0.42% | **-13.3%** |
+| `T_big` | 0.9026 | 0.9332 | 0.7450 | **0.8561** | [0.8504, 0.8620] | 0.58% | **-14.4%** |
+| `T_all` | 0.9122 | 0.9195 | 0.7307 | **0.8494** | [0.8456, 0.8533] | 0.39% | **-15.1%** |
+| `T0` | 0.8573 | 0.9388 | 0.6909 | **0.8223** | [0.8187, 0.8261] | 0.37% | -17.8% |
+| `T_bench` | 0.7978 | 0.8246 | 0.6619 | **0.7579** | [0.7554, 0.7601] | 0.23% | **-24.2%** |
+| `T_allraw` | 0.7662 | 0.7928 | 0.6698 | **0.7410** | [0.7371, 0.7449] | 0.39% | -25.9% |
+
+### 66. Judgment
+
+**1. Is there selection headroom >= MDE? Yes, by a factor of six.**
+
+The pre-registered key number is `T_real - T_all`. T_all reaches
+**0.8494** of T_real's speed: choosing the training set well is worth
+**+17.7%** (1/0.8494) over "run every input in the repository", against an
+MDE of **3.00%**. `T_real - T_readme` is +15.4%. Both are five to six times
+the MDE, with bootstrap CIs nowhere near it.
+
+Put in the terms of decisions.ja.md entry 32, which is why this direction
+was chosen: PGO on jaq is worth +21.6% over no PGO when it is trained well
+(T_real), and **+3.3% when it is trained on the repository's own inputs**
+(T_all). **85% of the available PGO win depends on the training-set choice.**
+That is the headroom a selector could capture, and it is an order of
+magnitude above anything the loop-hint direction ever produced (0-2%,
+decisions.ja.md entry 37).
+
+**2. "Pick the largest inputs" is not a trivially good rule --- it is barely
+better than nothing.** `T_big` (top 10% by input bytes) gets **1.0411** over
+T0, i.e. it recovers 4.1 of the 21.6 available points, **19%** of T_real.
+The reason is in section 62: on this repository input size and work are
+anti-correlated. The top-10%-by-bytes rule selects 118 items holding 0.74 s
+of the pool's 9.4 s of work and **misses 28 of the 30 `bench` items**,
+because those read 8 bytes of stdin and generate their data internally.
+Jev's selection problem is therefore not solved by a size heuristic.
+
+**3. Training on the repository's own benchmark suite is worse than not
+doing PGO at all.** `T_bench` --- the 30 benchmarks `bench.sh` exists to run,
+the closest thing to a curated performance workload the repository has ---
+lands at **0.9217** of T0 and **0.7579** of T_real. It is 7.8% *slower* than
+the non-PGO binary, well beyond MDE, on all three holdout cases. A selector
+that reasoned "the repository has benches, benches are the performance
+workload, train on those" would ship a regression. Section 67 shows the
+mechanism.
+
+**4. Dilution is real but small: `T_all+real` ~ `T_real`.** `T_allreal`
+reaches **0.9898** of T_real, a 1.0% loss. The CI [0.9852, 0.9942] excludes
+1, so the dilution is measurable, but it is **below the 3% MDE**, so by the
+pre-registered rule the two are not distinguishable. Adding 1182 junk
+invocations to a good training set costs about 1%; it does not destroy it.
+This matters for the product: the selector's job is mostly to **find** the
+representative input, not to **exclude** the unrepresentative ones --- a
+useful asymmetry, because recall is easier than precision.
+
+**5. Not doing PGO beats doing it badly.** Ordering the arms by holdout
+speed: T_real (1.2161) > T_allreal (1.2037) >> T_readme (1.0540) > T_big
+(1.0411) > T_all (1.0329) > **T0 (1.0000)** > T_bench (0.9217) > T_allraw
+(0.9011). Two of the six repository-derived training sets produce a binary
+slower than `cargo build --release` with no PGO. `jev-opt build` therefore
+cannot be "always PGO, any inputs": it needs either a good selector or a
+holdout check that can fall back to T0.
+
+### 67. Attribution: the profile never sees the JSON lexer
+
+Section 54 established that jaq's time on these workloads is dominated by
+`hifijson`, the JSON lexer, at **42.8%** of block executions, and that the
+single hottest loop in the program (22.5% overall) is `write_until`'s
+early-exit byte search. Here is that share in every arm's profile
+(`scripts/profdata_hotness.py <profdata> --grep hifijson`):
+
+| arm | hifijson block counts | share of that profile |
+|---|---:|---:|
+| `T_real` | 1473121794 | **42.844%** |
+| `T_allreal` | 1476330254 | 17.320% |
+| `T_bench` | 3140027 | **0.065%** |
+| `T_all` | 3208460 | **0.063%** |
+| `T_readme` | 27661 | 0.024% |
+| `T_big` | 25012 | 0.007% |
+| `T_allraw` | 3208568 | 0.000008% |
+
+**Yes: T_all's profile simply has no counts on the lexer.** Not zero counts
+--- the functions do run, so `-pgo-warn-missing-function` stays silent --- but
+**680x under-weighted** relative to the real workload. The pool's items read
+a median of 5 bytes, so the lexer does a few hundred thousand byte tests in
+total where the holdout does 1.5 billion.
+
+The same thing measured against the reference hot set
+(`scripts/profdata_cover.py pgo/jaq/merged.profdata T_all=... ... --top 20`,
+which takes T_real's top 20 functions by max block count --- they hold
+**71.16%** of T_real's counts --- and asks what each arm gives them):
+
+| arm | zero-count, of 20 | share of the arm's own total | relative to T_real |
+|---|---:|---:|---:|
+| `T_real` | 0 | 71.16% | 1.000x |
+| `T_allreal` | 0 | 34.77% | 0.489x |
+| `T_bench` | **8** | 10.55% | 0.148x |
+| `T_all` | 0 | 10.16% | 0.143x |
+| `T_big` | 0 | 9.90% | 0.139x |
+| `T_readme` | 0 | 1.84% | 0.026x |
+| `T_allraw` | 0 | 0.00% | 0.000x |
+
+The zero-count column is the blunt instrument the day-0 checklist asks for,
+and it is **0 for five of the seven arms** --- even a five-byte `null` input
+goes through the lexer and the writer. Only `T_bench` has literal holes (8
+of 20: the benchmarks take a decimal integer on stdin and print one integer,
+so they never parse a string, never allocate a `Val` from JSON text and never
+run the buffered writer). The *share* column is what separates the arms, and
+it tracks holdout speed monotonically except for the `T_bench`/`T_all`/`T_big`
+cluster, where the arms differ in *where* their weight goes rather than how
+much reaches the hot set.
+
+**What the profiles did to the code**
+(`scripts/norm_code_diff.py target-jaq-exp1-T_real/.../jaq
+target-jaq-exp1-{T_all,T_bench,T_readme}/.../jaq --profdata
+pgo/jaq/merged.profdata --top 14`; percentages are T_real's profile share,
+instruction counts are T_real -> arm):
+
+| function | share | T_all | T_bench | T_readme |
+|---|---:|---|---|---|
+| `hifijson::SliceLexer::write_until` (the hot byte search) | 22.52% | 42 -> **84** | 42 -> 42 | 42 -> **84** |
+| `jaq_json::read::parse` | 7.26% | 4426 -> **2952** | 4426 -> **2720** | 4426 -> **3001** |
+| `jaq_std::base_run` closure | 5.73% | 432 -> **137** | 432 -> **113** | 432 -> **137** |
+| `hifijson::num_string_with` | 4.62% | 245 -> **151** | 245 -> **149** | 245 -> **150** |
+| `jaq_json::write::write` | 4.33% | 2390 -> **1607** | 2390 -> **1488** | 2390 -> **1669** |
+| `jaq_core::compile::TermId::run` (the interpreter loop) | 1.93% | 6562 -> **11802** | 6562 -> **11738** | 6562 -> 5664 |
+| `BufWriter<StdoutLock>::write` | 1.56% | 229 -> **45** | 229 -> **45** | 229 -> 240 |
+
+The changed symbols hold 86-88% of the real profile in every arm, so this is
+not a marginal difference in code. The mechanism is legible:
+
+* The **JSON reader and writer collapse.** `jaq_json::read::parse` loses a
+  third to two fifths of its instructions in every repository-trained arm,
+  `jaq_json::write::write` a third, `num_string_with` two fifths,
+  `BufWriter::write` **80%** (229 -> 45 instructions, i.e. the fast path is
+  no longer inlined into it). These are the functions the holdout spends its
+  time in, and the repository profile says they are cold, so LLVM stops
+  inlining into them and lets them shrink.
+* The **interpreter dispatch loop inflates**: `TermId::run` grows from 6562
+  to **11802** instructions under T_all and 11738 under T_bench --- an 80%
+  increase. That is the one part of jaq the repository's items really do
+  exercise, so the profile makes it look hot and LLVM inlines aggressively
+  into it. It buys nothing on the holdout and costs instruction cache.
+* `write_until`, the 22.5% loop, **doubles from 42 to 84 instructions** under
+  T_all and T_readme. Stage 0 (section 56) established this loop cannot be
+  vectorised (`Incorrect number of successors from early exiting block`), so
+  the extra 42 instructions are not width --- they are a second, unrolled or
+  peeled copy chosen for a loop LLVM now believes is cold and short-running.
+  It stays at 42 under T_bench, which never enters it at all.
+* The `readwrite` case is the extreme in every table (T_all 0.7307 of T_real,
+  T_big 0.7450) because it is the one that is almost entirely lexer plus
+  writer, which is exactly the pair the repository profile mis-weights.
+
+**Predictions, scored.** Four were written down before the timing run.
+(a) *T_all ~ T_bench, because the benchmarks swamp the tiny items*:
+**wrong in the numbers, right in the mechanism.** The two are far apart in
+speed (1.0329 vs 0.9217) although their hifijson shares are nearly identical
+(0.063% vs 0.065%) --- the benchmarks do dominate T_all's counts, but T_all's
+1152 tiny items still add enough parser and startup weight to change the
+outcome by 12%. (b) *T_readme trains the loader and compiler*: **right** ---
+its top functions are `jaq_core::load::lex` and `Compiler::compile`, and its
+hot-set share is the lowest of any sane arm at 1.84%. (c) *T_all may land
+below T0 on readwrite*: **right in spirit, wrong in sign for T_all**
+(1.0576, still above T0) but exactly right for T_bench (0.9581) and T_allraw
+(0.9696). (d) *T_big-by-bytes fails because bytes and work are decoupled*:
+**right**, and it is the cleanest result in the experiment.
+
+### 68. What Jev would need to see
+
+This is the input to the `criteria` design for the Choice, written from what
+actually separated the arms here rather than from first principles.
+
+**Size is the wrong feature.** `input_bytes` ranks the pool almost exactly
+backwards: the twelve heaviest candidates carry 8 bytes each and the
+largest-by-bytes candidate is a generated *program*. Any criterion of the
+form "prefer large fixtures" would have produced T_big (+4.1%) instead of
+T_real (+21.6%).
+
+**Measured work is a necessary but not sufficient feature.** Dry-running each
+candidate is nearly free --- the entire 1185-item pool runs in **9.4 s** --- so
+Jev can have a wall-time and even a cheap profile per candidate before it
+chooses. But T_bench is the arm with the most work per item and it is the
+*worst* arm. Work tells you which candidates can move a profile; it does not
+tell you whether they move it in the right direction.
+
+**The discriminating feature is profile shape, and it is observable
+per-candidate at the same cost.** The number that ordered the arms was each
+profile's share on the reference hot set (section 67), and the reason the
+repository fails is structural: every candidate is a *unit* test, so it
+exercises the interpreter and the compiler, and none of them feeds the
+program enough **data** to make the data path hot. Concretely, what Jev would
+need to look at:
+
+* **The ratio of data-path counts to startup/compile counts per candidate.**
+  Every jaq invocation pays a fixed cost (parse the filter, build ~200
+  stdlib definitions, compile). An item that is nothing but that fixed cost
+  contributes noise. The pool's median item is close to it: T_readme's own
+  top five functions are `jaq_core::load::lex::{token,space,ident}` and
+  `Compiler::term`, holding **55.06%** of that arm's block counts between
+  them (`scripts/profdata_hotness.py pgo/jaq/arms/T_readme/merged.profdata
+  --top 5`).
+* **Which library layers a candidate touches at all.** `hifijson` /
+  `jaq_json::read` / `jaq_json::write` versus `jaq_core::load` /
+  `jaq_core::compile`. T_bench's 8 zero-count functions of 20 are the
+  cleanest possible signal, and they are visible from one candidate's
+  profraw.
+* **Coverage as a set property, not a per-item property.** No single
+  repository candidate covers the hot set; the question is whether the
+  *chosen set* does, which makes this a set-cover problem over per-candidate
+  profiles, not a ranking problem.
+* **A scale knob.** The one thing that would have rescued this repository is
+  not selection at all: it is running an existing candidate *bigger*. The
+  `examples/benches/*.jq` items take `n` on stdin, and `bench.sh` itself
+  sweeps `n` from 7 to 1048576. A selector that may also choose an input's
+  **size parameter** has a far larger reachable set than one that may only
+  pick items. This is the most important open design question this
+  experiment raises.
+
+**And a guard, not a criterion.** Section 63: the profile must be sanity
+checked (no block count above wall-time x plausible IPC) before it is used,
+because three ordinary repository items silently turn PGO into a 9.9%
+regression. That check costs one `llvm-profdata show`.
+
+**The honest limit of this result.** This is one target. jaq is a case where
+the repository's inputs are structurally unlike the production workload
+(unit tests of an interpreter versus megabytes of JSON), and that is exactly
+why the headroom is 17.7%. A target whose tests *are* its workload --- a
+compiler with a test suite of real programs, a codec with fixture files ---
+would show far less, and might well be flat. The next experiment should pick
+such a target deliberately, because the product claim needs the headroom to
+exist on repositories where the naive answer is already decent, not only
+where it is terrible.
+
+### 69. Deviations, and what is not done
+
+- **The pool is an approximation and the numbers say by how much.** 1185 of
+  1292 discovered candidates were extractable (section 62); the 107 misses
+  are 43 shell examples that need a real shell and 64 Rust test calls whose
+  arguments are Rust expressions. All 107 are tiny items of the same shape
+  as the ones that were extracted, so including them would move T_all's
+  profile by well under the factor of 680 that separates it from T_real.
+- **Unit tests are run through the CLI, not the library.** `jaq-core`'s
+  tests call `jaq_core::Compiler` directly; the arm runs `jaq FILTER` with
+  the input on stdin. That adds process startup and the CLI's argument
+  handling to each item, which is what a `jev-opt build` driving the binary
+  would also do. It is not what `cargo test` does.
+- **The doc tests are run as 558 processes**, where the repository runs them
+  as one `jaq --run-tests`. The one-process form would spend proportionally
+  more of its profile inside the interpreter and less in startup; it was not
+  measured. Given that T_readme is 13.3% behind T_real and its hot-set share
+  is 1.84%, no plausible reshaping of that arm reaches T_real.
+- **`T_allreal` merges T_all's profraw with T_real's profdata by count.** An
+  invocation-weighted or normalised union was not measured.
+- The three poisoning items were found by bisection with a threshold of
+  1e11. A lower threshold might flag more items with smaller corruptions;
+  the largest non-flagged chunk maximum was 8.2e7, three orders of magnitude
+  below the threshold, so there is no borderline case in this pool.
+- **The in-run A/A prices one-slot drift, not the whole round.** `bench.py`
+  rotates the label order by round, and `T_real`/`T_realB` are adjacent in
+  the label list, so the pair is always measured about 4 s apart inside a
+  34 s round. Section 55 established that the page-placement drift on this
+  target is constant over tens of seconds and *differs* between binaries
+  measured tens of seconds apart, so the true label-to-label noise for a
+  pair at opposite ends of a round (`T0` at index 0 against `T_real` at
+  index 6) is larger than the 1.15% this A/A reports, by an unmeasured
+  amount. Every headline here is at least four times the MDE, and the one
+  effect that is not --- the 1.0% `T_allreal` dilution --- is already
+  declared sub-MDE, so no claim depends on this. A shuffled rather than
+  rotated label order would price it properly and is what the next
+  experiment should use.
+- **One run of one machine.** The A/A prices the noise at 1.15% worst-case
+  per workload and the effects are 13-26%, so this is not a close call, but
+  the arms were built once each and timed once each. Section 53's warning
+  stands: the `.text` hash is not reproducible on jaq, so "the same arm
+  rebuilt" was not checked to be the same binary.
+- `scripts/interp_share.py`, `remark_attribution.py` and the Stage 2 ceiling
+  machinery were not re-run: the attribution in section 67 did not need
+  them, and the loop-hint direction they serve is closed
+  (decisions.ja.md entry 37).
+- The frozen Stage 0 artifacts were verified unchanged at the end:
+  `pgo/jaq/merged.profdata` = `4e879ce11687fa3c…`,
+  `pgo/jaq/profraw/default_15401585175505616370_0.profraw` =
+  `92f435725faa963f…`, both as recorded in section 53.

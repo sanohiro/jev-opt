@@ -35,3 +35,11 @@ run-manifest.json
 
 # jaq generated workloads (regenerable: targets/jaq/workloads/gen.py, fixed seeds)
 /targets/jaq/workloads/*.json
+
+# jaq PGO candidate pool: pool.json is a result and is tracked; the 1 MB
+# filter file bench.sh's `defs` benchmark generates is regenerable
+# (scripts/jaq_pool_extract.py extract)
+/targets/jaq/pool/gen/
+
+# python bytecode
+__pycache__/
