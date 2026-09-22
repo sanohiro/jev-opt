@@ -96,8 +96,17 @@ PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 # `inline_never`, `align_*` and `KEEP_DEFAULT` are the same length and the
 # same strength (`jev_vocab.py` v4). The candidate ids, the plan fragments,
 # the loop half and every mechanical reading are v3.1's.
+# v3.2 / v4.1 (Experiment 4): the round history reports what each round
+# measured **per workload**, not only the eight-way aggregate, and a site's
+# own history line quotes the ratio and the 95% CI on the case that site's
+# kernel is timed by. Nothing else moves: the candidates, the descriptions,
+# the questions, the verdict block and the source excerpts are v3.1's and
+# v4's to the byte. On a target with no per-workload readout (jaq, zopfli,
+# oxipng --- `own_workload_of` returns None there) and in round 1 of every
+# run the rendered state is identical to its predecessor's apart from this
+# header line, which is what the version bump is for (decision 19).
 STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
-                 "v3": "state-v3.1-2026-09-22", "v4": "state-v4-2026-09-22"}
+                 "v3": "state-v3.2-2026-09-22", "v4": "state-v4.1-2026-09-22"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -1385,34 +1394,105 @@ def state_header(ctx, n_sites):
     return head + STATE_SITES_HEADER.format(n=n_sites)
 
 
+HISTORY_OUTCOMES = {
+    "measured": "measured",
+    "identical_to_baseline": ("this build was instruction-for-instruction the "
+                              "baseline, so it was not timed"),
+    "output-mismatch": "the program printed something else; rejected",
+    "apply-incomplete": "a hint in the plan did not take effect; rejected",
+    "measure-failed": "the timing batch failed",
+    "build-a-failed": "the build failed",
+    "build-b-failed": "the build failed",
+    "basis-mismatch": "the plan did not match the attributes it was built on",
+}
+
+
+def history_outcome(h):
+    return HISTORY_OUTCOMES.get(h.get("status") or "", h.get("status") or "-")
+
+
 def render_history(history):
     if not history:
         return ("  This is round 1: nothing has been measured yet. The "
                 "baseline is the build in which every site is KEEP_DEFAULT.")
-    out = ["  | round | correct | aggregate speed ratio | 95% CI | accepted |",
-           "  |---|---|---|---|---|"]
+    out = ["  | round | correct | aggregate speed ratio | 95% CI | outcome "
+           "| accepted |",
+           "  |---|---|---|---|---|---|"]
     for h in history:
         ci = ("[%.4f, %.4f]" % tuple(h["ci95"])) if h.get("ci95") else "-"
         ratio = ("%.4f" % h["ratio"]) if h.get("ratio") is not None else "-"
-        out.append("  | %d | %s | %s | %s | %s |"
+        out.append("  | %d | %s | %s | %s | %s | %s |"
                    % (h["round"], "yes" if h["correct"] else "NO",
-                      ratio, ci, "yes" if h["accepted"] else "no"))
+                      ratio, ci, history_outcome(h),
+                      "yes" if h["accepted"] else "no"))
+    names = []
+    for h in history:
+        for w in (h.get("per_workload") or {}):
+            if w not in names:
+                names.append(w)
+    if names:
+        out.append("")
+        out.append("  The same rounds, per case. The aggregate above is the "
+                   "geometric mean over all the cases, so a large effect on "
+                   "one case is a small number there; this table is where a "
+                   "single hint's effect is visible. A ratio greater than 1 "
+                   "is faster than the baseline on that case, and `*` marks "
+                   "a ratio whose own 95% CI excludes 1.")
+        out.append("")
+        out.append("  | round | " + " | ".join(names) + " |")
+        out.append("  |---|" + "---|" * len(names))
+        for h in history:
+            pw = h.get("per_workload") or {}
+            cells = []
+            for w in names:
+                r = pw.get(w)
+                if not r:
+                    cells.append("-")
+                    continue
+                ci = r.get("ci95") or [None, None]
+                star = "*" if (ci[0] is not None
+                               and (ci[0] > 1.0 or ci[1] < 1.0)) else " "
+                cells.append("%.4f%s" % (r["ratio"], star))
+            out.append("  | %d | %s |" % (h["round"], " | ".join(cells)))
     out.append("")
     out.append("  A round is accepted as the new best only if the lower end "
                "of its 95% CI is above the best point estimate so far.")
     return "\n".join(out)
 
 
-def site_history_lines(history, site_id):
+def site_history_lines(history, site_id, cases=()):
+    """What earlier rounds chose here, and what was measured when they did.
+
+    Experiment 4: the whole-build ratio alone cannot say whether a hint at
+    THIS site helped --- on a target with one case per site it is the eight-
+    way geometric mean, in which a 40% loss at one site is 6%. Where the
+    site has a case of its own (`own_workload_of`) the line quotes that
+    case's ratio and 95% CI as well, and says whether the round was accepted.
+    Where it does not, the line is what it always was.
+    """
+    own = own_workload_of(site_id, list(cases))
     rows = []
     for h in history:
         pick = h["choices"].get(site_id)
         if not pick:
             continue
         ratio = ("%.4f" % h["ratio"]) if h.get("ratio") is not None else "n/a"
-        rows.append("    round %d: %s -> whole-build ratio %s%s"
-                    % (h["round"], V.spec_spelling_safe(pick), ratio,
-                       "" if h["correct"] else " (REJECTED: output changed)"))
+        detail = ""
+        pw = (h.get("per_workload") or {}).get(own) if own else None
+        if pw:
+            ci = pw.get("ci95") or [None, None]
+            detail = ("; on case %s, the one case this site's own code is "
+                      "timed by, %.4f" % (own, pw["ratio"]))
+            if ci[0] is not None:
+                detail += " with 95%% CI [%.4f, %.4f]" % (ci[0], ci[1])
+        elif own and h.get("status") == "identical_to_baseline":
+            detail = ("; that build was instruction-for-instruction the "
+                      "baseline, so nothing was timed")
+        rows.append("    round %d: %s -> whole-build ratio %s%s%s (%s)"
+                    % (h["round"], V.spec_spelling_safe(pick), ratio, detail,
+                       "" if h["correct"] else " (REJECTED: output changed)",
+                       "accepted as the new best" if h.get("accepted")
+                       else "not accepted"))
     if not rows:
         return "    (this site was not asked about in an earlier round)"
     return "\n".join(rows)
@@ -1660,7 +1740,8 @@ def state_section(item, ctx):
                    "the ones nobody marked.")
     out.append("")
     out.append("  what earlier rounds chose here:")
-    out.append(site_history_lines(ctx["history"], item.id))
+    out.append(site_history_lines(ctx["history"], item.id,
+                                  ctx.get("cases") or []))
     out.append("")
     return "\n".join(out)
 
@@ -2565,6 +2646,26 @@ class JevProposer:
         self.readout = readout
 
     def choose(self, items, ctx, round_no, phase):
+        picks, why = self._ask(items, ctx, round_no, phase)
+        # A phase whose every answer is `no answer` is a phase the HTTP call
+        # never got through for. Decision 87 recorded a 503 burst that took
+        # out both phases of one repeat; `scripts/jev_oneshot.py` already
+        # re-sends such a request **unchanged** and keeps both lines in the
+        # JSONL, and a five-round run cannot afford to spend a round
+        # rebuilding the baseline because the gateway was busy. The request
+        # is never modified to make it succeed, and the failed line stays in
+        # the log.
+        lost = [i for i in items
+                if (why.get(i.id) or {}).get("source") == "no answer"]
+        if items and len(lost) == len(items):
+            print("[%s] every answer was `no answer` (the request never got "
+                  "through); re-sending it unchanged" % phase)
+            time.sleep(10)
+            picks, why = self._ask(items, ctx, round_no, "%s.retry" % phase)
+        self.read_out(items, picks, why, ctx, phase)
+        return picks, why
+
+    def _ask(self, items, ctx, round_no, phase):
         picks, why = {}, {}
         for batch_i, batch in enumerate(self._batches(items, ctx)):
             questions, site_map = questions_for(batch, ctx, self.knobs)
@@ -2592,7 +2693,6 @@ class JevProposer:
                 why[it.id] = {"source": reason, "answer_ref": ref,
                               "confidence": conf,
                               "probabilities": a.get("probabilities")}
-        self.read_out(items, picks, why, ctx, phase)
         return picks, why
 
     def read_out(self, items, picks, why, ctx, phase):
@@ -3713,10 +3813,22 @@ class Search:
         into["ci95"] = agg["cand"]["ci95"]
         into["aa"] = {"ratio": agg["aa"]["ratio"], "ci95": agg["aa"]["ci95"],
                       "halfwidth": agg["aa"]["halfwidth"]}
-        if own_wl and own_wl in (stats.get("per_workload", {})
-                                 .get("cand") or {}):
-            c = stats["per_workload"]["cand"][own_wl]
-            a = stats["per_workload"]["aa"][own_wl]
+        # Experiment 4: every case's own reading, not only the arm's. A
+        # search round moves several sites at once, so `own_workload_of` has
+        # nothing to key on (`arm` is None) and the per-site feedback the
+        # rounds are supposed to carry would otherwise not exist. `kernel`
+        # below is unchanged and is still what the confirmation and the
+        # oracle's per-site readout use.
+        percase, aacase = (stats.get("per_workload") or {}).get("cand") or {}, \
+            (stats.get("per_workload") or {}).get("aa") or {}
+        into["per_workload"] = {
+            w: {"ratio": c["ratio_vs_base"], "ci95": c["ci95"],
+                "halfwidth": c["halfwidth"],
+                "aa_ratio": (aacase.get(w) or {}).get("ratio_vs_base")}
+            for w, c in sorted(percase.items())}
+        if own_wl and own_wl in percase:
+            c = percase[own_wl]
+            a = aacase[own_wl]
             into["kernel"] = {"workload": own_wl, "ratio": c["ratio_vs_base"],
                               "ci95": c["ci95"], "halfwidth": c["halfwidth"],
                               "aa_ratio": a["ratio_vs_base"],
@@ -3764,6 +3876,9 @@ class Search:
                 "status": rec.get("status"),
                 "code_class": rec.get("code_class"),
                 "own_workload": rec.get("own_workload"),
+                "per_workload": rec.get("per_workload"),
+                "confirm_per_workload": (rec.get("confirm")
+                                         or {}).get("per_workload"),
                 "kernel_ratio": k.get("ratio"), "kernel_ci95": k.get("ci95"),
                 "confirm_kernel_ratio": ck.get("ratio"),
                 "confirm_ratio": (rec.get("confirm") or {}).get("ratio"),
