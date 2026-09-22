@@ -115,6 +115,19 @@ sign**. If no arm at that kernel was confirmed positive, the measured best is
 * **miss** --- anything else, including a named hint where the measured best
   is `KEEP_DEFAULT`, and `KEEP_DEFAULT` where some hint was confirmed.
 
+**Added 17:08 JST, after round 21 and before round 22** (so before the
+calibration arm, before K6, K7 and K8 and before every loop arm): the two
+rules above disagree, and the disagreement is visible at K4, whose
+`inline(never)` arm came back confirmed at 1.0152 --- the highest confirmed
+ratio at that kernel, and therefore its "measured best", while 1.52% is under
+the 3% MDE floor and therefore a *dead* hint by the rule below. A row cannot
+honestly be both the answer and undetectable. The pre-registered rule is not
+changed; instead **the scorecard is reported twice**: once exactly as
+pre-registered, which is the score, and once with the additional gate that
+the confirmed effect cleared its own batch's MDE, which says which scores
+rest on an effect this protocol calls too small to act on. Both readings are
+fixed here before the arms that decide them.
+
 **The calibration arm.** K5's `interleave.count=1` is predicted to cost 50--75%
 of the k5 workload (EXPECTED.md 1, K5; results.md 107). If that arm does not
 show a large, confirmed degradation on k5, **the sweep cannot see anything**

@@ -118,7 +118,18 @@ the in-sweep null arm of SPEC.ja.md 7, not a failure.
   plugin reports the full demangled name, a monomorphization's generic
   arguments routinely contain a closure path. What separates them is the
   suffix *after the mark* --- `::<...>` is a monomorphization, `::{closure#0}`
-  or `::helper` is an item defined inside it.
+  or `::helper` is an item defined inside it. It is not the single character
+  after the mark either, which is what the rule read until decision 80 (c):
+  for a **generic** mark that character is the `<` of the generic arguments,
+  so `read::parse::<SliceLexer>::{closure#0}` passed as a monomorphization
+  and one Choice about `read::parse` put its attribute on every closure the
+  function defines. The rule skips the balanced `::<...>` group first and
+  asks what follows *it*. Measured on the recorded dumps: a full phase-A
+  plan on jaq falls from **138 entries to 49** (`read::parse` 18 -> 6,
+  `TermId::run` 62 -> 2, `path::run` 12 -> 3, `Val::hash` 12 -> 4) and
+  hintbench, whose eight marks are non-generic, stays at 8. Everything
+  measured on jaq before that (Experiment 3, oracle A) used the old reach,
+  and results.md "Oracle A (jaq)" 112 says so.
 * **loop sites** are the `loop_in_mark` records only. `mark_in_loop` --- the
   caller's loop around an inlined copy of a marked function --- is excluded
   (decision 61a).
@@ -161,13 +172,42 @@ A round becomes the best so far **only if all three hold**:
    not failed;
 3. the **lower end of its 95% CI is above the best point estimate so far**.
    The baseline is the first best, at ratio 1.0000.
+4. **the interval that did that survives a second, independent batch**
+   (decision 80 a): the same two binaries, the same conditions, a fresh
+   shuffle seed, and both batches' intervals excluding 1 with the same sign.
 
 Rule 3 is deliberately conservative: it never promotes a plan whose interval
-merely overlaps the incumbent. A round that fails 1 or 2 is recorded with the
-failure and is not measured further.
+merely overlaps the incumbent. Rule 4 exists because at the frozen `n` rule 3
+is not conservative *enough*: over jaq's 90-arm oracle the in-run A/A
+interval --- an interval around a second copy of the baseline --- failed to
+cover 1.0 **49 times in 90**, and 20 of the 48 arms whose binary was provably
+the baseline's also excluded it (results.md "Oracle A (jaq)" 113, 116). Three
+arms were accepted under rule 3 alone and the holdout reversed all three. A
+round that fails 1 or 2 is recorded with the failure and is not measured
+further.
 
-`--ignore-apply-failures` relaxes rule 2 for debugging; the outcome is
-recorded either way.
+`--ignore-apply-failures` relaxes rule 2 for debugging and
+`--no-confirm-batch` drops rule 4; the outcome is recorded either way.
+
+### No-op arms are not measured (decision 80 b)
+
+After the phase-B build and the correctness check, every arm's binary is
+classified against the baseline's by **normalised instruction sequence**
+(`norm_code_diff.py`: any hex literal of four or more digits becomes `A`, per
+symbol) **and symbol table** (`nm -S`, addresses and sizes), and the class is
+recorded as `code_class` in the round record:
+
+| `code_class` | meaning | timed? |
+|---|---|---|
+| `identical` | same instructions, same symbol table | **no** --- `status: identical_to_baseline`, `ratio: 1.0` by construction, `ci95: null` |
+| `layout` | same instructions, symbols moved | yes --- this is what `align=N` does when it works |
+| `code` | at least one symbol's instructions changed | yes |
+
+The plugin cannot supply this: it has no `skipped_idempotent` verdict for a
+function attribute, so an attribute it set is reported `consumed` whether or
+not LLVM then did anything with it. The no-op count comes from the binaries.
+`--no-noop-skip` times such an arm anyway; the classification is recorded
+either way.
 
 ## Measurement
 
@@ -470,10 +510,25 @@ for a threshold but fixes no value).
   number of rounds, seeded from `[evaluation] seed` and the round number.
 * **oracle** --- the arms of SPEC.ja.md 2: every candidate alone at every
   site with everything else `KEEP_DEFAULT`, then one arm combining the
-  per-site winners. A winner joins the combination only if its own arm's 95%
-  CI **lower bound is above 1**, not merely its point estimate; the set the
-  point-estimate rule would have combined is recorded beside it in the arm
-  record (`point_rule_would_pick`). `--oracle-phase A|B` runs one half of the
+  per-site winners. A winner joins the combination only if its own arm was
+  **confirmed** --- its interval excluded 1 with the same sign in two
+  independent batches (rule 4 above) --- and the two weaker rules this
+  replaces are recorded beside the chosen set in the arm record, as
+  `one_batch_rule_would_pick` (the CI lower bound of one batch, which is
+  what jaq's oracle A used) and `point_rule_would_pick`. On jaq the
+  one-batch rule combined twelve marks whose claims multiplied to +22.4%
+  and delivered +2.15%, with an in-run A/A of +2.26% in the same batch.
+
+  The winner is ranked on the **per-site readout** where the target has
+  one: a target with one workload per site (`targets/hintbench`, one kernel
+  per hint) is read on that site's own workload, because results.md "Hint
+  benchmark (design)" 103 froze it and because a 10% win on one of eight
+  kernels is 1.2% of the geometric mean. `own_workload_of` recognises a
+  `kN_` site name against a workload called `kN` and returns nothing
+  anywhere else, so on jaq, zopfli and oxipng the aggregate is still what
+  ranks a site. Both numbers are in every round record.
+
+  `--oracle-phase A|B` runs one half of the
   sweep, so that jaq's 75 function-attribute arms and its 176 loop arms can
   be separate jobs; the rounds are unchanged by it. The combination is applied through the normal two-phase
   round, so its loop choices are remapped from `site_id` onto whatever keys
@@ -504,9 +559,14 @@ report directory is also accepted in its place.
   platform.json        the machine as lscpu and the cache sysfs report it,
                        read once and reused for every request of the run
                        (state v2 and v3 only)
+    confirm/                    the second, independent batch of rule 4:
+                                its own timing/, samples.json, stats.json
   rounds.jsonl         one line per round: plans, apply outcomes, correctness,
-                       ratio, CI, in-run A/A, accepted, and the readout
-                       ranking of each phase
+                       `code_class` and the changed symbols, ratio, CI,
+                       in-run A/A, the own-workload readout (`kernel`), the
+                       confirmation batch (`confirm`) and its verdict
+                       (`confirmed`, `confirmed_aggregate`), accepted, and
+                       the readout ranking of each phase
   best-plan.json       a copy of the accepted round's plan-b.json
   summary.md           the table above, in markdown
   run-manifest.json    toolchain, lscpu -e, pinned core, sha256 of the
