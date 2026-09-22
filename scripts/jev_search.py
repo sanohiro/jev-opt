@@ -764,17 +764,44 @@ def is_inner_item(demangled, mark):
 
         <mark>                       the function itself
         <mark>::<...>                a monomorphization of it
-        <mark>::{closure#0}          an item defined inside it  -> inner
-        <mark>::helper                       likewise           -> inner
+        <mark>::<...>::{closure#0}   an item defined inside a
+                                     monomorphization of it        -> inner
+        <mark>::{closure#0}          an item defined inside it      -> inner
+        <mark>::helper                       likewise               -> inner
 
     The naive test "does the name contain `::{`" is wrong: a
     monomorphization's generic arguments routinely contain a closure path
     (`...::seq::<hifijson::Error, jaq_json::read::ws_tk<...{closure#1}>>`),
     and on jaq it misfiled six of fifteen marks as inner items.
+
+    Looking at the single character after the mark is wrong the other way,
+    and that is what this function did until decision 80 (c): for a
+    **generic** mark it saw the `<` of the generic arguments and called
+    `read::parse::<SliceLexer>::{closure#0}` a monomorphization, so one
+    Choice about `read::parse` put its attribute on every closure the
+    function defines --- 103 of the 138 entries a full phase-A plan carried
+    on jaq (results.md "Oracle A (jaq)" 112). The generic arguments are a
+    balanced `<...>` group, so they can be skipped and the question asked
+    of what follows *them*: another `::` segment is an inner item, nothing
+    is the function itself.
     """
-    if demangled == mark or not demangled.startswith(mark + "::"):
+    if not demangled.startswith(mark):
         return False
-    return not demangled[len(mark) + 2:].startswith("<")
+    rest = demangled[len(mark):]
+    while rest.startswith("::<"):
+        depth, i = 0, rest.index("<")
+        while i < len(rest):
+            if rest[i] == "<":
+                depth += 1
+            elif rest[i] == ">":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        if depth != 0:
+            return False        # unbalanced: not a shape this can judge
+        rest = rest[i + 1:]
+    return rest.startswith("::")
 
 
 def fn_items(by_mark, marks, sidecar, scope="own"):
@@ -2097,29 +2124,56 @@ class OracleProposer:
         if self.combination_done:
             return None
         self.combination_done = True
-        best = {}
+        # The readout a site is ranked on: its own kernel's workload where
+        # the target has one (results.md "Hint benchmark (design)" 103), the
+        # aggregate everywhere else. `readout` records which was used.
+        best, best_conf = {}, {}
         for h in history:
-            if not h["correct"] or h.get("ratio") is None:
+            if not h["correct"]:
                 continue
+            r = h.get("kernel_ratio")
+            readout = h.get("own_workload") if r is not None else "aggregate"
+            if r is None:
+                r = h.get("ratio")
+            if r is None:
+                continue
+            ci = (h.get("kernel_ci95") if h.get("kernel_ratio") is not None
+                  else h.get("ci95")) or [None, None]
             for site, cand in h["choices"].items():
                 if cand == V.KEEP_DEFAULT:
                     continue
-                cur = best.get(site)
-                if cur is None or h["ratio"] > cur[1]:
-                    best[site] = (cand, h["ratio"], h.get("ci95") or [None, None])
-        # A site joins the combination only if its best arm's 95% CI LOWER
-        # bound is above 1. The point estimate alone is not evidence at this
-        # noise floor: results.md "Experiment 3 (jaq)" 99 saw three copies of
-        # one binary spread 2.1 points, so "ratio > 1" selects noise as
-        # readily as it selects an effect. The point-estimate set is recorded
-        # beside the chosen one so the difference is visible.
-        chosen = {s: c for s, (c, r, ci) in best.items()
-                  if ci[0] is not None and ci[0] > 1.0}
-        point = {s: c for s, (c, r, ci) in best.items() if r > 1.0}
+                row = {"candidate": cand, "ratio": r, "ci95": ci,
+                       "readout": readout, "aggregate_ratio": h.get("ratio"),
+                       "confirmed": bool(h.get("confirmed")),
+                       "confirm_ratio": h.get("confirm_kernel_ratio"),
+                       "code_class": h.get("code_class"),
+                       "status": h.get("status")}
+                if site not in best or r > best[site]["ratio"]:
+                    best[site] = row
+                if row["confirmed"] and (site not in best_conf
+                                         or r > best_conf[site]["ratio"]):
+                    best_conf[site] = row
+        # A site joins the combination only if its best arm was **confirmed**
+        # --- its interval excluded 1 with the same sign in two independent
+        # batches (decision 80 a) --- and the effect is a gain. One batch is
+        # not evidence at this noise floor: on jaq 20 of 48 provably
+        # code-identical builds produced an interval that excluded 1
+        # (results.md "Oracle A (jaq)" 113), and the one-batch rule this
+        # replaces combined twelve such arms into a plan worth +2.15% where
+        # the twelve claims multiplied to +22.4%. Both weaker rules are
+        # recorded beside the chosen set so the difference stays visible.
+        chosen = {s: d["candidate"] for s, d in best_conf.items()
+                  if d["ratio"] > 1.0}
+        one_batch = {s: d["candidate"] for s, d in best.items()
+                     if d["ci95"][0] is not None and d["ci95"][0] > 1.0}
+        point = {s: d["candidate"] for s, d in best.items()
+                 if d["ratio"] > 1.0}
         return {"kind": "combination", "site": None, "candidate": None,
-                "choices": chosen, "selected_by": "ci95_lower > 1",
-                "per_site_best": {s: {"candidate": c, "ratio": r, "ci95": ci}
-                                  for s, (c, r, ci) in best.items()},
+                "choices": chosen,
+                "selected_by": "confirmed in two batches, ratio > 1",
+                "per_site_best": best,
+                "per_site_best_confirmed": best_conf,
+                "one_batch_rule_would_pick": one_batch,
                 "point_rule_would_pick": point}
 
     def choose(self, items, ctx, round_no, phase):
@@ -2260,6 +2314,85 @@ def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples):
     with open(os.path.join(out_dir, "stats.md"), "w") as f:
         f.write(p.stdout)
     return json.load(open(stats_json)), None
+
+
+def nm_table(binary):
+    """`nm -S --defined-only`, sorted: every symbol's address, size and name.
+
+    `norm_code_diff.py` normalises addresses away on purpose, so it is blind
+    to a build that moved code without changing an instruction --- which is
+    exactly what `align=N` does. The pair "same normalised instructions AND
+    same symbol table" is the no-op test of decision 80 (b); the symbol table
+    alone separates the alignment arms from the ones that changed nothing at
+    all (results.md "Oracle A (jaq)" 113 split the 90 arms that way).
+    """
+    out = subprocess.run(["nm", "-S", "--defined-only", binary],
+                         capture_output=True, text=True, check=True).stdout
+    return sorted(line.rstrip() for line in out.splitlines() if line.strip())
+
+
+def code_class(base_bin, cand_bin, base_norm=None, base_nm=None):
+    """Classify a build against the baseline, without timing it.
+
+    Returns (klass, changed_symbols, detail):
+
+      "identical"  same normalised instruction sequence for every symbol and
+                   the same symbol table: the arm is the baseline, and
+                   decision 80 (b) says do not spend a batch on it.
+      "layout"     same instructions, different addresses or sizes: the code
+                   moved but did not change.
+      "code"       at least one symbol's instruction sequence changed.
+    """
+    import norm_code_diff as N
+    if base_norm is None:
+        base_norm = N.norm_bodies(base_bin)[0]
+    if base_nm is None:
+        base_nm = nm_table(base_bin)
+    cur, _ = N.norm_bodies(cand_bin)
+    changed = sorted(k for k in base_norm if k in cur and base_norm[k] != cur[k])
+    gone = sorted(k for k in base_norm if k not in cur)
+    new = sorted(k for k in cur if k not in base_norm)
+    cur_nm = nm_table(cand_bin)
+    detail = {"n_symbols": len(cur), "n_symbols_base": len(base_norm),
+              "changed": len(changed), "only_in_base": len(gone),
+              "only_here": len(new), "symbol_table_same": cur_nm == base_nm}
+    if changed or gone or new:
+        return "code", changed + gone + new, detail
+    if cur_nm != base_nm:
+        return "layout", [], detail
+    return "identical", [], detail
+
+
+def excludes_one(ci):
+    """+1 if the interval is wholly above 1, -1 if wholly below, else 0."""
+    if not ci or ci[0] is None or ci[1] is None:
+        return 0
+    if ci[0] > 1.0:
+        return 1
+    if ci[1] < 1.0:
+        return -1
+    return 0
+
+
+def own_workload_of(site_id, workloads):
+    """The workload a one-factor arm's own site is measured on, or None.
+
+    `targets/hintbench` has one workload per kernel and results.md "Hint
+    benchmark (design)" 103 freezes the readout: "the ground truth for kernel
+    N is the ratio on workload kN, not the eight-way geometric mean (a 10%
+    win on one kernel is 1.2% in the mean, under the minimum detectable
+    effect of decision 16)". So an arm at a `k5_*` site is read off workload
+    `k5`. On every other target no workload is named after the site and this
+    returns None, which puts the aggregate back in charge --- the behaviour
+    every run before this one had.
+    """
+    if not site_id:
+        return None
+    m = re.search(r"\bk(\d+)_", site_id)
+    if not m:
+        return None
+    name = "k" + m.group(1)
+    return name if name in workloads else None
 
 
 def read_correctness(path):
@@ -2841,6 +2974,19 @@ class Search:
             if b != c][:20]
         print("[B] correctness: %s" % ("OK" if correct else "MISMATCH"))
 
+        # Decision 80 (b): what the build actually differs in, before any
+        # timing. Recorded for every arm that produced a binary, including
+        # the ones the gates below refuse.
+        klass, changed, detail = code_class(self.baseline_bin(), binary,
+                                            self.base_norm(), self.base_nm())
+        rec["code_class"] = klass
+        rec["code_detail"] = detail
+        rec["changed_symbols"] = changed[:40]
+        rec["n_changed_symbols"] = len(changed)
+        print("[B] code vs baseline: %s (%d symbols changed, symbol table %s)"
+              % (klass, len(changed),
+                 "same" if detail["symbol_table_same"] else "moved"))
+
         if not correct:
             rec["status"] = "output-mismatch"
             rec["accepted"] = False
@@ -2852,6 +2998,27 @@ class Search:
             self.drop_binary(binary)
             return rec
 
+        # Decision 80 (b): an arm whose binary is the baseline's is not
+        # measured. Its ratio is 1.0 by construction and a batch spent on it
+        # measures the machine, not the hint --- on jaq 48 such arms were
+        # measured anyway and 20 of them came back with a 95% CI that
+        # excluded 1.0 (results.md "Oracle A (jaq)" 113). `ci95` stays null,
+        # which every consumer of a round record already tolerates, so
+        # nothing downstream can mistake a construction for a measurement.
+        if klass == "identical" and not self.args.no_noop_skip:
+            rec["status"] = "identical_to_baseline"
+            rec["ratio"] = 1.0
+            rec["ci95"] = None
+            rec["measured"] = False
+            rec["accepted"] = False
+            print("[B] identical to the baseline: ratio 1.0 by construction, "
+                  "no timing batch")
+            return rec
+
+        own_wl = own_workload_of((arm or {}).get("site"),
+                                 [w.split("=", 1)[0]
+                                  for w in self.shell["workloads"]])
+        rec["own_workload"] = own_wl
         stats, err = measure(binary, self.baseline_bin(), self.shell, rdir,
                              self.reps, self.warmup, self.seed + round_no,
                              self.resamples)
@@ -2861,16 +3028,105 @@ class Search:
             rec["accepted"] = False
             print("[B] %s" % err)
             return rec
-        agg = stats["aggregate"]
-        rec["ratio"] = agg["cand"]["ratio"]
-        rec["ci95"] = agg["cand"]["ci95"]
-        rec["aa"] = {"ratio": agg["aa"]["ratio"], "ci95": agg["aa"]["ci95"],
-                     "halfwidth": agg["aa"]["halfwidth"]}
+        rec["measured"] = True
+        self.record_batch(rec, stats, own_wl, key=None)
         rec["mde"] = stats["mde"]
         rec["status"] = "measured"
         print("[B] ratio %.4f  CI [%.4f, %.4f]  (in-run A/A %.4f +-%.4f)"
               % (rec["ratio"], rec["ci95"][0], rec["ci95"][1],
                  rec["aa"]["ratio"], rec["aa"]["halfwidth"]))
+        if rec.get("kernel"):
+            k = rec["kernel"]
+            print("[B] %s only: ratio %.4f CI [%.4f, %.4f]  (A/A %.4f)"
+                  % (own_wl, k["ratio"], k["ci95"][0], k["ci95"][1],
+                     k["aa_ratio"]))
+
+        # Decision 80 (a): one batch does not decide. An arm whose interval
+        # excludes 1 --- on the aggregate, or on its own kernel's workload,
+        # which is this target's readout (results.md "Hint benchmark
+        # (design)" 103) --- is measured a second time, in an independent
+        # batch with a fresh shuffle seed over the same two binaries, and is
+        # only believed if both batches exclude 1 with the same sign. The
+        # second batch lives inside the same round record: a round is still
+        # one arm, and `--resume` still counts rounds.
+        fired = []
+        if excludes_one(rec["ci95"]):
+            fired.append("aggregate")
+        if rec.get("kernel") and excludes_one(rec["kernel"]["ci95"]):
+            fired.append(own_wl)
+        rec["confirm_trigger"] = fired
+        if fired and not self.args.no_confirm_batch:
+            cdir = os.path.join(rdir, "confirm")
+            os.makedirs(cdir, exist_ok=True)
+            cseed = self.seed + 100000 + round_no
+            print("[B] confirmation batch (%s excluded 1), fresh seed %d"
+                  % ("+".join(fired), cseed))
+            cstats, cerr = measure(binary, self.baseline_bin(), self.shell,
+                                   cdir, self.reps, self.warmup, cseed,
+                                   self.resamples)
+            if cstats is None:
+                rec["confirm"] = {"error": cerr, "seed": cseed}
+                print("[B] confirmation batch failed: %s" % cerr)
+            else:
+                rec["confirm"] = {"seed": cseed, "mde": cstats["mde"]}
+                self.record_batch(rec["confirm"], cstats, own_wl, key=None)
+                print("[B] confirm: ratio %.4f CI [%.4f, %.4f]%s"
+                      % (rec["confirm"]["ratio"], rec["confirm"]["ci95"][0],
+                         rec["confirm"]["ci95"][1],
+                         ("  %s only %.4f [%.4f, %.4f]"
+                          % (own_wl, rec["confirm"]["kernel"]["ratio"],
+                             *rec["confirm"]["kernel"]["ci95"]))
+                         if rec["confirm"].get("kernel") else ""))
+        self.score_confirmation(rec)
+        return rec
+
+    # -- batch bookkeeping -------------------------------------------------
+
+    def base_norm(self):
+        if getattr(self, "_base_norm", None) is None:
+            import norm_code_diff as N
+            self._base_norm = N.norm_bodies(self.baseline_bin())[0]
+        return self._base_norm
+
+    def base_nm(self):
+        if getattr(self, "_base_nm", None) is None:
+            self._base_nm = nm_table(self.baseline_bin())
+        return self._base_nm
+
+    @staticmethod
+    def record_batch(into, stats, own_wl, key=None):
+        """Copy one batch's aggregate and own-kernel readings into a record."""
+        agg = stats["aggregate"]
+        into["ratio"] = agg["cand"]["ratio"]
+        into["ci95"] = agg["cand"]["ci95"]
+        into["aa"] = {"ratio": agg["aa"]["ratio"], "ci95": agg["aa"]["ci95"],
+                      "halfwidth": agg["aa"]["halfwidth"]}
+        if own_wl and own_wl in (stats.get("per_workload", {})
+                                 .get("cand") or {}):
+            c = stats["per_workload"]["cand"][own_wl]
+            a = stats["per_workload"]["aa"][own_wl]
+            into["kernel"] = {"workload": own_wl, "ratio": c["ratio_vs_base"],
+                              "ci95": c["ci95"], "halfwidth": c["halfwidth"],
+                              "aa_ratio": a["ratio_vs_base"],
+                              "aa_ci95": a["ci95"]}
+        return into
+
+    @staticmethod
+    def score_confirmation(rec):
+        """Decision 80 (a): believed only if both batches agree and exclude 1.
+
+        Scored separately on the aggregate and on the arm's own kernel, so a
+        target with a per-site readout and a target without one are both
+        served, and neither number is derived from the other.
+        """
+        c = rec.get("confirm") or {}
+        for name, first, second in (
+                ("confirmed_aggregate", rec.get("ci95"), c.get("ci95")),
+                ("confirmed", (rec.get("kernel") or {}).get("ci95"),
+                 (c.get("kernel") or {}).get("ci95"))):
+            s1, s2 = excludes_one(first), excludes_one(second)
+            rec[name] = bool(s1 and s1 == s2)
+            rec[name + "_sign"] = s1 if rec[name] else 0
         return rec
 
     def drop_binary(self, path):
@@ -2888,9 +3144,20 @@ class Search:
         choices = {}
         choices.update((rec.get("phase_a") or {}).get("choices") or {})
         choices.update((rec.get("phase_b") or {}).get("choices") or {})
+        k = rec.get("kernel") or {}
+        ck = (rec.get("confirm") or {}).get("kernel") or {}
         return {"round": rec["round"], "choices": choices,
                 "correct": bool(rec.get("correct")),
                 "ratio": rec.get("ratio"), "ci95": rec.get("ci95"),
+                "status": rec.get("status"),
+                "code_class": rec.get("code_class"),
+                "own_workload": rec.get("own_workload"),
+                "kernel_ratio": k.get("ratio"), "kernel_ci95": k.get("ci95"),
+                "confirm_kernel_ratio": ck.get("ratio"),
+                "confirm_ratio": (rec.get("confirm") or {}).get("ratio"),
+                "confirmed": bool(rec.get("confirmed")),
+                "confirmed_sign": rec.get("confirmed_sign") or 0,
+                "confirmed_aggregate": bool(rec.get("confirmed_aggregate")),
                 "accepted": bool(rec.get("accepted"))}
 
     def update_best(self, rec):
@@ -2900,8 +3167,15 @@ class Search:
         took effect, and the LOWER end of its 95% CI is above the best point
         estimate so far. The baseline is the first best, at ratio 1.0.
         """
+        # Decision 80 (a) adds the fourth condition: the interval that beat
+        # the incumbent has to survive a second, independent batch over the
+        # same two binaries. Rule 3 by itself is satisfiable by noise at this
+        # n --- it accepted three arms of jaq's oracle A, all of which the
+        # holdout reversed.
         ok = (rec.get("status") == "measured" and rec.get("correct")
-              and rec["ci95"][0] > self.best["ratio"])
+              and rec["ci95"][0] > self.best["ratio"]
+              and (self.args.no_confirm_batch
+                   or rec.get("confirmed_aggregate")))
         rec["accepted"] = bool(ok)
         self.history[-1]["accepted"] = bool(ok)
         with open(self.rounds_path) as f:
@@ -3013,25 +3287,42 @@ class Search:
                    "the lower end of its 95% CI is above the best point "
                    "estimate so far (the baseline, 1.0000, is the first).")
         out.append("")
-        out.append("| round | fn hints | loop hints | ambiguous keys | apply "
-                   "problems | correct | ratio | 95% CI | in-run A/A | "
+        out.append("| round | site | candidate | code vs base | fn hints | "
+                   "loop hints | apply problems | correct | ratio | 95% CI | "
+                   "own kernel | own-kernel CI | confirmed | in-run A/A | "
                    "accepted |")
-        out.append("|---|---|---|---|---|---|---|---|---|---|")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for r in rows:
             pa, pb = r.get("phase_a") or {}, r.get("phase_b") or {}
+            arm = r.get("arm") or {}
+            k = r.get("kernel") or {}
             ci = ("[%.4f, %.4f]" % tuple(r["ci95"])) if r.get("ci95") else "-"
+            kci = ("[%.4f, %.4f]" % tuple(k["ci95"])) if k.get("ci95") else "-"
             aa = ("%.4f ±%.4f" % (r["aa"]["ratio"], r["aa"]["halfwidth"])) \
                 if r.get("aa") else "-"
-            out.append("| %d | %d | %d | %d | %s | %s | %s | %s | %s | %s |"
-                       % (r["round"], len(pa.get("fn_attrs") or []),
+            conf = ("yes (%s)" % ("+" if r.get("confirmed_sign", 0) > 0
+                                  else "-")) if r.get("confirmed") else (
+                "no" if r.get("confirm") else
+                ("n/a" if r.get("status") == "identical_to_baseline"
+                 else "not triggered"))
+            out.append("| %d | %s | %s | %s | %d | %d | %s | %s | %s | %s | "
+                       "%s | %s | %s | %s | %s |"
+                       % (r["round"],
+                          (arm.get("site") or "combination"),
+                          (arm.get("candidate") or "-"),
+                          r.get("code_class") or "-",
+                          len(pa.get("fn_attrs") or []),
                           len(pb.get("loop_md") or []),
-                          pb.get("n_ambiguous") or 0,
                           ", ".join("%s=%s" % kv for kv in
                                     (pb.get("bad_outcomes") or {}).items()) or "none",
                           "yes" if r.get("correct") else "NO",
                           ("%.4f" % r["ratio"]) if r.get("ratio") is not None
                           else r.get("status", "-"),
-                          ci, aa, "yes" if r.get("accepted") else "no"))
+                          ci,
+                          ("%.4f" % k["ratio"]) if k.get("ratio") is not None
+                          else "-",
+                          kci, conf, aa,
+                          "yes" if r.get("accepted") else "no"))
         out.append("")
         out.append("Best plan: %s (round %s, ratio %.4f). `best-plan.json` is "
                    "a copy of it."
@@ -3157,6 +3448,16 @@ def main():
                         "sweep every loop_in_mark site")
     p.add_argument("--allow-unresolved", action="store_true",
                    help="do not stop when a mark resolves to nothing")
+    p.add_argument("--no-noop-skip", action="store_true",
+                   help="time an arm even when its binary is byte-for-byte "
+                        "the baseline's work (decision 80 b: such an arm's "
+                        "ratio is 1.0 by construction and the batch measures "
+                        "the machine). The classification is recorded either "
+                        "way, as `code_class`")
+    p.add_argument("--no-confirm-batch", action="store_true",
+                   help="do not re-measure an arm whose interval excluded 1 "
+                        "in a second independent batch (decision 80 a), and "
+                        "fall back to the one-batch acceptance rule")
     p.add_argument("--ignore-apply-failures", action="store_true",
                    help="measure a round even if a plan entry was unmatched "
                         "or vanished (recorded either way)")
