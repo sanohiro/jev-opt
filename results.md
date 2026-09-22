@@ -9257,7 +9257,10 @@ both, and neither the way the dispute was framed:
 
 More important than either dispute: **the agreement figures of decisions 78,
 83 and 84 are agreement with `EXPECTED.md`, and this section measures
-`EXPECTED.md` at 1 winner claim right out of 8.** "Jev matches 10/12, then
+`EXPECTED.md` at 1 winner claim right out of 8.** Decision 84 says as much
+itself --- "正解は oracle" --- and deferred the two disputes above to this
+sweep, so the reference was known to be provisional when those figures were
+taken; what follows is the settling it asked for, not a correction of it. "Jev matches 10/12, then
 7/12, then 5/12 of Claude's predictions" is a distance from a reference that
 is itself mostly wrong, so the fall from 10 to 5 cannot be read as a
 regression *or* as an improvement until each of those 12 answers is scored
