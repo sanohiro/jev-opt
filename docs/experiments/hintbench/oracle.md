@@ -134,6 +134,17 @@ show a large, confirmed degradation on k5, **the sweep cannot see anything**
 and no other row of the scorecard may be read. This is stated before the run
 so that it cannot be re-interpreted after it.
 
+*What "large" means, written 17:12 JST after round 21 and before round 49,
+the arm itself* --- "large" was left undefined above, which would have let it
+be chosen after the number was known. Three bands, on the k5 ratio of the
+`interleave.count=1` arm, confirmed in two batches:
+
+| k5 ratio | reading |
+|---|---|
+| **< 0.75** | as predicted (a 25%+ loss, inside or near EXPECTED's -50% to -75% band). The sweep sees; the scorecard stands. |
+| **0.75 -- 0.97** | the sweep sees an effect of the predicted sign but the K5 mechanism model (IC 4 -> IC 1 quarters the reduction throughput) is wrong about its size. The scorecard stands; EXPECTED's K5 reasoning does not. |
+| **> 0.97** | either the hint did not reach the loop or the instrument cannot resolve a change this large. **The scorecard is void** and nothing else in this document may be read as a measurement of a prediction. |
+
 **Live and dead hints.** A candidate is *live* on this benchmark if it cleared
 the MDE (`max(2 x worst per-workload half-width, 3%)`, per batch) on at least
 one kernel with confirmation, in either direction. Everything else is dead

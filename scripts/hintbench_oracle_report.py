@@ -138,8 +138,13 @@ def arms_tables(rows, out):
     return out
 
 
-def best_per_kernel(rows):
-    """oracle.md 2: the confirmed positive arm with the highest own ratio."""
+def best_per_kernel(rows, mde_gate=False):
+    """oracle.md 2: the confirmed positive arm with the highest own ratio.
+
+    `mde_gate` is the second, post-hoc reading the dated note in oracle.md 2
+    added: the same rule with the extra condition that the confirmed effect
+    cleared its own batch's MDE.
+    """
     one = [r for r in rows if (r.get("arm") or {}).get("kind") == "one-factor"]
     best = {}
     for r in one:
@@ -149,13 +154,25 @@ def best_per_kernel(rows):
         ratio, ci, _ = readout(r)
         if not (r.get("confirmed") and r.get("confirmed_sign", 0) > 0):
             continue
+        if mde_gate and abs(ratio - 1.0) < (r.get("mde") or 0.03):
+            continue
         if kern not in best or ratio > best[kern][1]:
             best[kern] = (r["arm"]["candidate"], ratio, ci, r["round"])
     return best
 
 
 def scorecard(rows, out):
-    best = best_per_kernel(rows)
+    _scorecard(rows, out, mde_gate=False)
+    out.append("")
+    out.append("With the post-hoc MDE gate (oracle.md 2, dated note): the same "
+               "rule, plus the confirmed effect having cleared its batch's "
+               "MDE.")
+    _scorecard(rows, out, mde_gate=True)
+    return out
+
+
+def _scorecard(rows, out, mde_gate):
+    best = best_per_kernel(rows, mde_gate)
     one = [r for r in rows if (r.get("arm") or {}).get("kind") == "one-factor"]
     worst = {}
     for r in one:
