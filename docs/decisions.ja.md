@@ -399,3 +399,13 @@
 - **知見**: plugin に alwaysinline(`noinline` を先に外す、`optnone` はスキップして報告)を追加し、toy で属性が判断を駆動する remark(`always inline attribute at callsite`)と出力一致を確認。v3 の候補は関数 5(`inline(always)` / `inline(never)` / `align 16・32・64`)+ ループ 11。oracle の arm 数は hintbench 84+1、jaq 251+1。fat LTO では依存 crate 側のプロセスからは callee の存否が観測できないため `callee_present` は 3 値(null = 未観測)。走行中の jaq oracle A は起動時の既定 v1 で 90 arm(inline と cold を含む)。掃引途中で `.so` を差し替えたが、新パスは watch 集合が空なら即 return で codegen は変わらない(manifest の sha とは以後不一致。provenance として記録)。
 - **判断**: oracle A は止めずに完走させる。決定 77 の予測どおりなら `inline` と `cold` の 30 arm は基準とコード同一の null パネルとして出るはずで、jaq 上での追認になる。`--resume` する場合は `--vocab v1` を明示(resume は件数による位置スキップのため)。完走後の順序: hintbench の oracle(85 arm、約 3 時間)→ Jev v3 を hintbench に当てて実測の正解との一致率 → jaq。`sites.json` の oracle 見積もりと spec §1(2) の語彙表は v3 に合わせて後で更新。
 - **影響**: spec §1(2)、§2、`targets/jaq/sites.json`。
+
+### 79. jaq の関数属性 oracle(90 arm、7.4 時間): MDE を超えるものは実質ゼロ。Jev の「触るな」は反証されず、Claude の `inline(never)` 2 件も効かなかった
+- **知見**: 91 ビルド全て出力一致、plan 全件 consumed。訓練で +3% を超えたのは `TermId::run cold` 1.032 の 1 本だけで、同じバッチの A/A(同一バイナリ)が 1.026 動いていた。holdout では最良単独アームが 0.991(符号反転)、12 マークの最良を組み合わせた plan も 1.004。MDE 4.1%。下方に MDE 超えは 3 本(`Lex::seq` と `write_until` への `inline(never)` が −5%、−4%。`write::write cold` −3%)。Claude の参照判断 `TermId::run inline(never)` と `write::write inline(never)` はどちらもそのマークの最良ではなく、効かなかった。**90 arm のうち 48 本は基準と命令列が同一の no-op**(`align=16` は 15 本全部、`inline` 10/15、`cold` 9/15、`inline(never)` 6/15): hintbench で見た不活性の実プログラムでの再現。`results.md` §110〜§117、`docs/experiments/jaq-oracle-A/`。
+- **判断**: (a) 関数属性の語彙は、jaq の PGO 基準の上では速さを出さない。Jev の 107 件の `KEEP_DEFAULT` は関数属性については**正しかった**。Claude の 2 件は外れ。(b) 「Jev ÷ oracle」は分母がノイズと区別できず計算不能。(c) jaq のループ半分の oracle(176 arm、14 時間)は後回しにし、先に hintbench(正解が存在するはずの対象)で oracle → Jev v3 を閉じる。
+- **影響**: spec §2、§6。
+
+### 80. 測定の較正が壊れている: バッチ内 bootstrap の 95% CI は同一バイナリで 90 回中 49 回 1 を覆わない
+- **知見**: 専用 null パネル(同一バイナリ 4 本)は最大差 0.77 pt だが、掃引内の no-op ビルド 48 本は 4.67 pt に散らばり、20 本の CI が 1 を除外。in-run A/A は 90 回中 41 回で CI が 1 を除外。バッチ内の再スケールでは救えない。事前登録の採用規則 3(CI 下限 > 最良)は、この n ではノイズで通る(実例 3 本)。plugin の apply レポートは関数属性に `skipped_idempotent` 判定が無く全部 consumed を返すので、no-op はバイナリ側(正規化命令列 + シンボル表)でしか判定できない。
+- **判断**: (a) 採用は 1 バッチで決めない。MDE を超えた arm は**独立した別バッチで再測定**し、両方で CI 下限 > 1 のときだけ採用(確認バッチ)。ノイズの定義は「同じペアを独立バッチで k 回測ったバッチ間の散らばり」に変える。(b) apply 後に正規化命令列を基準と比べ、no-op のアームは計測せずに「基準と同一」として記録する(掃引の半分が省ける)。(c) 関数属性の 1 Choice がジェネリックマークの全クロージャに波及していた(決定 65(b) の判定はマーク直後の 1 文字しか見ていない)。hintbench の前に直す。
+- **影響**: spec §2(採用規則)、§7(ノイズ定義)、driver。
