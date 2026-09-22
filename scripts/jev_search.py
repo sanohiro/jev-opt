@@ -337,6 +337,113 @@ def read_marks(path):
     return marks
 
 
+COMMENT_MARKER = "// [comment removed]"
+
+_RAW_STR_RE = re.compile(r'(?:b?r)(#*)"')
+_CHAR_LIT_RE = re.compile(r"'(?:\\.|[^'\\])'")
+_DOC_ATTR_RE = re.compile(r'^\s*#!?\[\s*doc\b')
+
+
+def strip_rust_comments(lines, url_guard=False):
+    """One entry per input line: its code with every comment removed, or
+    `None` when the line held nothing but a comment or a doc attribute.
+
+    A small lexer rather than a regex, because `//` is only a comment outside
+    a string: `b'\\''`, `'"'` and `r#"http://x"#` all occur in the sources
+    this driver quotes, and Rust's block comments nest. String, raw-string and
+    block-comment state is carried across lines, so a window that starts in
+    the middle of a `/* ... */` is handled by stripping the whole file and
+    slicing afterwards.
+
+    A blank line stays blank; the line count never changes, so the excerpt's
+    line numbers and its `>` marker keep pointing at the same source lines.
+    `url_guard` keeps `//` that directly follows a `:` (a URL scheme), for the
+    compiler-remark text, which is prose rather than Rust.
+    """
+    out = []
+    depth = 0            # /* */ nesting depth, carried across lines
+    raw_hashes = None    # inside r#"..."#: how many `#` close it
+    in_str = False       # inside a "..." literal
+    for raw in lines:
+        i, n = 0, len(raw)
+        kept = []
+        while i < n:
+            c = raw[i]
+            if depth > 0:
+                if raw.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                elif raw.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                else:
+                    i += 1
+                continue
+            if raw_hashes is not None:
+                if c == '"' and raw[i + 1:i + 1 + raw_hashes] == "#" * raw_hashes:
+                    kept.append(raw[i:i + 1 + raw_hashes])
+                    i += 1 + raw_hashes
+                    raw_hashes = None
+                else:
+                    kept.append(c)
+                    i += 1
+                continue
+            if in_str:
+                if c == "\\":
+                    kept.append(raw[i:i + 2])
+                    i += 2
+                elif c == '"':
+                    kept.append(c)
+                    in_str = False
+                    i += 1
+                else:
+                    kept.append(c)
+                    i += 1
+                continue
+            if raw.startswith("//", i) and not (url_guard and i > 0
+                                                and raw[i - 1] == ":"):
+                break                       # the rest of the line is a comment
+            if raw.startswith("/*", i):
+                depth = 1
+                i += 2
+                continue
+            if c in "rb":
+                m = _RAW_STR_RE.match(raw, i)
+                if m and not (i > 0 and (raw[i - 1].isalnum()
+                                         or raw[i - 1] == "_")):
+                    raw_hashes = len(m.group(1))
+                    kept.append(m.group(0))
+                    i = m.end()
+                    continue
+            if c == '"':
+                in_str = True
+                kept.append(c)
+                i += 1
+                continue
+            if c == "'":
+                m = _CHAR_LIT_RE.match(raw, i)
+                if m:                       # a char literal, not a lifetime
+                    kept.append(m.group(0))
+                    i = m.end()
+                    continue
+            kept.append(c)
+            i += 1
+        code = "".join(kept).rstrip()
+        if not raw.strip():
+            out.append(raw)                 # a blank line is not a comment
+        elif not code or _DOC_ATTR_RE.match(code):
+            out.append(None)                # nothing but a comment / #[doc]
+        else:
+            out.append(code)
+    return out
+
+
+def strip_comments_in_text(text):
+    """The same strip applied to one line of compiler-remark prose."""
+    got = strip_rust_comments([text], url_guard=True)[0]
+    return text if got is None and not text.strip() else (got or "")
+
+
 class SourceBook:
     """file:line -> a source excerpt, with the path resolution jaq needs.
 
@@ -347,7 +454,13 @@ class SourceBook:
     absent from the state.
     """
 
-    def __init__(self, roots):
+    def __init__(self, roots, comments="strip"):
+        # `comments`: "strip" (the default) removes every comment and doc
+        # attribute from the excerpts this book renders, "keep" quotes the
+        # file verbatim. A benchmark's own commentary can name the answer
+        # (decision 81), and the source files must not be edited for it ---
+        # editing them would move the line numbers a site key is built from.
+        self.comments = comments
         # De-duplicated and with nested roots dropped, so REPO does not make
         # the index walk everything twice.
         seen = []
@@ -358,8 +471,26 @@ class SourceBook:
                 seen.append(r)
         self.roots = seen
         self.cache = {}
+        self.lines_cache = {}
         self.index = None
         self.paths = []
+
+    def lines_of(self, real):
+        """The file's lines as the excerpts quote them, cached per path.
+
+        Under `strip` a removed line is `None` here and is rendered as
+        `COMMENT_MARKER`; the list is always as long as the file, so line
+        numbers are the file's own.
+        """
+        if real not in self.lines_cache:
+            try:
+                lines = open(real, errors="replace").read().splitlines()
+            except OSError:
+                lines = None
+            if lines is not None and self.comments == "strip":
+                lines = strip_rust_comments(lines)
+            self.lines_cache[real] = lines
+        return self.lines_cache[real]
 
     def _resolve(self, path):
         if path in self.cache:
@@ -465,16 +596,16 @@ class SourceBook:
         real = self._resolve(path)
         if not real or not line:
             return None
-        try:
-            lines = open(real, errors="replace").read().splitlines()
-        except OSError:
+        lines = self.lines_of(real)
+        if lines is None:
             return None
         if int(line) > len(lines):
             return None          # resolved to the wrong file; say nothing
         lo = max(1, int(line) - ctx)
         hi = min(len(lines), int(line) + ctx)
         body = "\n".join("%5d %s%s" % (n, ">" if n == int(line) else " ",
-                                       lines[n - 1])
+                                       COMMENT_MARKER if lines[n - 1] is None
+                                       else lines[n - 1])
                          for n in range(lo, hi + 1))
         return "%s:%d (lines %d-%d, the site's own line marked `>`)\n%s" % (
             os.path.relpath(real, REPO) if real.startswith(REPO) else real,
@@ -935,6 +1066,7 @@ measurement   {ncases} case(s): {cases}
               {reps} interleaved repetitions, shuffled label order, paired
               bootstrap 95% CI, speed ratio = baseline time / this build's time
               (greater than 1 is faster)
+source        {source_comments}
 
 ## Where the hints are applied
 
@@ -964,6 +1096,19 @@ def fmt_share(x):
     return "unknown" if x is None else ("%.2f%%" % float(x))
 
 
+SOURCE_COMMENTS_TEXT = {
+    "strip": ("source_comments: strip --- every comment and doc attribute is\n"
+              "              removed from the source excerpts below before "
+              "they are\n"
+              "              quoted, and a line that held nothing else is "
+              "shown as\n"
+              "              `%s`. Line numbers are the file's\n"
+              "              own and are unchanged." % COMMENT_MARKER),
+    "keep": ("source_comments: keep --- the source excerpts below are quoted\n"
+             "              verbatim from the file, comments included."),
+}
+
+
 def state_header(ctx, n_sites):
     marks = []
     for it in ctx["fn_items"]:
@@ -984,6 +1129,8 @@ def state_header(ctx, n_sites):
         mde=ctx["mde_text"], ncases=len(ctx["cases"]),
         cases=", ".join(ctx["cases"]), reps=ctx["reps"],
         marks="\n".join(marks) or "  (none resolved)",
+        source_comments=SOURCE_COMMENTS_TEXT[ctx.get("source_comments",
+                                                     "strip")],
         history=hist)
     if ctx.get("state_v2"):
         # Exactly the two whole-state changes the study's W7 makes: the V2
@@ -1031,6 +1178,18 @@ def site_history_lines(history, site_id):
     if not rows:
         return "    (this site was not asked about in an earlier round)"
     return "\n".join(rows)
+
+
+def remark_text(text, ctx):
+    """A remark line as the state quotes it.
+
+    Remark prose almost never carries source text, but when it does (a remark
+    that echoes an expression) it would carry the comment with it, so the same
+    strip is applied under `--source-comments strip`.
+    """
+    if ctx.get("source_comments", "strip") != "strip":
+        return text
+    return strip_comments_in_text(text)
 
 
 def state_section(item, ctx):
@@ -1093,7 +1252,8 @@ def state_section(item, ctx):
         rem = ctx["remarks"].near(src_file, src_line) if src_file else []
         out.append("")
         out.append("what LLVM said about this region in the baseline build:")
-        out.append("\n".join("  %s:%d: %s" % (os.path.basename(src_file), ln, t)
+        out.append("\n".join("  %s:%d: %s"
+                             % (os.path.basename(src_file), ln, remark_text(t, ctx))
                              for ln, t in rem)
                    or "  (no remarks at this location)")
     elif item.kind == "loop":
@@ -1157,7 +1317,8 @@ def state_section(item, ctx):
         out.append("")
         out.append("what LLVM said about this region in the baseline build:")
         out.append("\n".join("  %s:%d: %s"
-                             % (os.path.basename(m.get("leaf_file") or "?"), ln, t)
+                             % (os.path.basename(m.get("leaf_file") or "?"), ln,
+                                remark_text(t, ctx))
                              for ln, t in rem)
                    or "  (no remarks at this location)")
     else:
@@ -1824,8 +1985,11 @@ class JevClient:
     SPEC.ja.md 6: the Authorization header is never written to either log.
     """
 
-    def __init__(self, cfg, log_dir, run_id):
+    def __init__(self, cfg, log_dir, run_id, source_comments="strip"):
         self.cfg = cfg
+        # Recorded on every request line: a run has no manifest until it
+        # finishes, and the API-only passes never write one at all.
+        self.source_comments = source_comments
         self.url = cfg["base_url"].rstrip("/") + cfg["endpoint"]
         self.model = cfg["model"]
         self.key = None
@@ -1897,6 +2061,7 @@ class JevClient:
                   "run_id": self.run_id, "round": round_no, "phase": phase,
                   "vocab_version": V.VOCAB_VERSION,
                   "state_format": STATE_FORMAT_VERSION,
+                  "source_comments": self.source_comments,
                   "site_map": site_map, "request": body, "response": resp,
                   "http_status": status, "latency_ms": round(latency, 1),
                   "error": err, "failed_attempts": attempts}
@@ -2617,7 +2782,9 @@ class Search:
         roots += registry_roots(
             os.path.join(self.shell.get("filter_src_root") or "", "Cargo.lock"),
             crates)
-        self.source = SourceBook(roots)
+        self.source = SourceBook(
+            roots, comments=getattr(self.args, "source_comments",
+                                    "strip"))
         self.remarks = RemarkBook(meta["log"])
         self.share_by_mark = {i.meta["mark"]: (i.meta["share"]
                                                if i.meta["share"] is not None
@@ -2791,7 +2958,8 @@ class Search:
         if self.args.proposer == "oracle":
             return OracleProposer(self.knobs)
         self.jev = JevClient(self.cfg["jev"],
-                             os.path.join(self.out, "jev-log"), self.run_id)
+                             os.path.join(self.out, "jev-log"), self.run_id,
+                             self.args.source_comments)
         return JevProposer(self.jev, self.cfg["jev"], self.knobs,
                            int(self.cfg["search"]["max_state_chars"]),
                            self.args.readout)
@@ -2817,6 +2985,8 @@ class Search:
              "share_by_mark": self.share_by_mark, "fn_source": self.fn_source,
              "loops_by_mark": self.loops_by_mark,
              "fn_choice_text": "",
+             "source_comments": getattr(self.args,
+                                        "source_comments", "strip"),
              "knobs": self.knobs,
              "state_v2": self.state_v2, "verdicts": self.state_v2,
              "demangler": self.demangler,
@@ -2835,6 +3005,7 @@ class Search:
                "ts": datetime.datetime.now().astimezone().isoformat(),
                "vocab_version": V.VOCAB_VERSION,
                "state_format": STATE_FORMAT_VERSION,
+               "source_comments": self.args.source_comments,
                "readout": self.args.readout,
                "case_set": self.shell["bench_set"], "arm": arm,
                "reps": self.reps, "warmup": self.warmup,
@@ -3230,6 +3401,7 @@ class Search:
             "smoke": bool(self.args.smoke),
             "vocab_version": V.VOCAB_VERSION,
             "state_format": STATE_FORMAT_VERSION,
+            "source_comments": self.args.source_comments,
             "readout": self.args.readout,
             "platform_block": (os.path.join(self.out, "platform.json")
                                if self.state_v2 else None),
@@ -3401,6 +3573,18 @@ def main():
                         "which leaves such a phase empty. The ranking is "
                         "recorded either way."
                    )
+    p.add_argument("--source-comments", default="strip",
+                   choices=("strip", "keep"),
+                   help="how the source excerpts in the state are rendered "
+                        "(decision 81). strip (default): every comment "
+                        "(`//`, `///`, `//!`, `/* */`) and doc attribute is "
+                        "removed and a line that held nothing else is shown "
+                        "as `%s`, so a source tree that "
+                        "documents the answer cannot hand it to the model; "
+                        "line numbers are unchanged and no source file is "
+                        "edited. keep: quote the file verbatim, which is "
+                        "what every run before 2026-09-22 did"
+                        % COMMENT_MARKER)
     p.add_argument("--rounds", type=int, default=None,
                    help="ignored for --proposer oracle, whose arm count is "
                         "determined by the site and candidate lists")

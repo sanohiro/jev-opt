@@ -436,3 +436,281 @@ above it.
   missing `cost=870, threshold=787` at k2 (with the `inline budget` line
   asserting the reverse), and the kernel doc comments naming the hint under
   test inside the source window.
+
+---
+
+# Pass 2 (comments stripped)
+
+Run 2026-09-22, same day, **API only** again: no build, no timing, six
+answered HTTP requests. This is decision 81 (b): the pass above was run with
+the kernels' own comments inside the state's source windows, and three of
+Jev's four non-KEEP argmaxes named the hint a comment named. The question
+this pass answers is the one section 5 left open --- **how much of the 10/12
+was the comment?**
+
+* log: `docs/experiments/hintbench/jev-oneshot-v3-pass2.jsonl` (full bodies,
+  one line per HTTP call including the failure) and
+  `jev-oneshot-v3-pass2.log` (git-ignored, as before).
+* what changed: **only** the new driver option `--source-comments strip`,
+  which is now the default. Same vocabulary `v3-2026-09-22`, same state format
+  `state-v3-2026-09-22`, same `--readout forced_top1`, same sites, same
+  baseline dump, same three repeats per phase, same harness, and the same
+  caveat of section 1 (phase B is asked as if phase A had answered
+  KEEP_DEFAULT everywhere).
+
+## 9. What `--source-comments strip` does
+
+The kernel sources are **not edited**: editing them would move the line
+numbers that the site keys and the profile are built from (decision 61). The
+strip happens in the driver, in `SourceBook`, when the excerpt is rendered:
+
+* every comment --- `//`, `///`, `//!`, `/* */` (nested), and a `#[doc = ...]`
+  attribute --- is removed from the file before the +/-40-line window is cut;
+* a line that held nothing but a comment is rendered as
+  `// [comment removed]`, so the window keeps one printed line per source
+  line: the line numbers, and the `>` that marks the site's own line, point
+  at the same source lines as before;
+* a trailing comment on a code line is cut, the code is kept;
+* the same strip is applied to the remark quote lines (they carry prose, not
+  source, so in practice nothing changes there: 0 of 226 jaq remark lines and
+  0 of the hintbench ones contain `//`);
+* it is a small lexer rather than a regex, because `//` inside `b'"'`,
+  `'\''` or `r#"http://x"#` is not a comment and Rust's block comments nest;
+* the mode is recorded in the state header (`source`
+  `source_comments: strip`), on every JSONL request line
+  (`"source_comments": "strip"`) and in `run-manifest.json`. The state format
+  string is **not** bumped: `state-v3-2026-09-22` now renders one extra header
+  line, and that line is what tells the two passes apart.
+
+`--source-comments keep` reproduces the old behaviour. Checked: rendering
+hintbench with `keep` is byte-identical to pass 1's state except for the two
+new header lines (one per phase), and `keep` against `strip` differs **only**
+in comment lines --- 891 numbered source lines in both, every line number and
+every `>` in the same place, and no code line altered.
+
+### What was in the windows, before and after
+
+Counted over the numbered source lines of `--print-state --vocab v3` only
+(the same strings also occur in the candidate descriptions and the verdict
+block, which are the vocabulary and are untouched):
+
+| string in a source window | pass 1 | pass 2 |
+|---|---|---|
+| `hint under test` | 29 | **0** |
+| `inline(never)` | 4 | **0** |
+| `unroll.disable` | 8 | **0** |
+| `vectorize.width` | 13 | **0** |
+| `interleave.count` | 25 | **0** |
+| `align=64` | 9 | **0** |
+| `cold` | 16 | **0** |
+
+The state shrinks by 27%: phase A 52155 -> 37832 chars, phase B 25969 ->
+18926. The questions are unchanged to the byte (32415 and 18012 chars).
+
+**Section 5 understated the leak.** It quoted the seven `///` one-liners. The
+`//` block comment above each kernel is the bigger half: the block above K1,
+inside q0's window, says that the baseline inlines all eight copies, that the
+loop body "becomes something like a thousand instructions of straight-line
+code", and that `inline(never)` "collapses that to one out-of-line body" ---
+that is EXPECTED's mechanism, spelled out. So section 5's sanity reading
+"**the state does not describe K1 as large**" was wrong for pass 1: it was
+described, in prose, in the window. It is true of pass 2's state.
+
+**jaq still renders.** `--print-state --vocab v3` on jaq (baseline reused from
+`artifacts/jaq-search/jev-r5/baseline`, nothing rebuilt) runs to completion
+in both modes: 1226 numbered source lines in both, 259 of them comment lines
+replaced by the marker, zero `//` left in a source window, remark lines
+untouched.
+
+## 10. Per-site results, pass 1 against pass 2
+
+Three repeats each. The argmax is Jev's own answer; where the decision-71
+readout replaced it (phase B, pass 2) that is noted below the table, and the
+scoring is on the argmax in both passes, as in section 3.
+
+### Phase A --- the 8 marked functions
+
+| site | Claude (EXPECTED) | pass 1 argmax x3 | pass 2 argmax x3 | pass 1 P | pass 2 P | moved? |
+|---|---|---|---|---|---|---|
+| `k1_step` | `inline(never)` | KEEP x3 | `inline_always`, KEEP, `inline_always` | 0.59--0.66 | 0.45--0.46 | **yes** (miss -> miss, now the opposite hint) |
+| `k2_mix` | `inline(always)` (§4) | `inline_always` x3 | `inline_always` x3 | 0.80--0.82 | 0.51--0.57 | no (**exact** kept) |
+| `k3_fill_run` | KEEP_DEFAULT | KEEP x3 | KEEP x3 | 0.48--0.53 | 0.46--0.49 | no (**exact** kept) |
+| `k4_count_bytes` | KEEP_DEFAULT | KEEP x3 | KEEP x3 | 0.71--0.80 | 0.47--0.53 | no (**exact** kept) |
+| `k5_mul_reduce` | KEEP_DEFAULT | KEEP x3 | KEEP, KEEP, `inline_always` | 0.78--0.84 | 0.49--0.52 | majority kept (**exact**, no longer stable) |
+| `k6_hot_loop` | `align=64` | `align_64` x3 | `inline_always` x3 | 0.84--0.85 | 0.45--0.48 | **yes** (exact -> **miss**) |
+| `k7_error_path` | `inline(never)` | KEEP, `inline_always` x2 | `inline_always` x3 | 0.42--0.47 | 0.47--0.51 | miss -> miss (now stable) |
+| `k8_scale_add` | KEEP_DEFAULT | KEEP x3 | `inline_always` x3 | 0.88--0.91 | 0.49--0.54 | **yes** (exact -> **miss**) |
+
+### Phase B --- the 4 frozen loop sites
+
+| site | Claude (EXPECTED) | pass 1 argmax x3 | pass 2 argmax x3 | pass 1 P | pass 2 P | moved? |
+|---|---|---|---|---|---|---|
+| `k3_fill_run@lib.rs:174` | `unroll.disable` | `unroll_disable` x3 | KEEP x3 | 0.92 x3 | 0.61--0.65 | **yes** (exact -> **miss**) |
+| `k4_count_bytes@macros.rs:180` | KEEP_DEFAULT | KEEP x3 | KEEP x3 | 0.63--0.76 | 0.58--0.63 | no (**exact** kept) |
+| `k5_mul_reduce@macros.rs:180` | KEEP_DEFAULT | KEEP x3 | KEEP x3 | 0.51--0.58 | 0.47--0.48 | no (**exact** kept) |
+| `k8_scale_add@range.rs:1103` | KEEP_DEFAULT | KEEP x3 | KEEP x3 | 0.89--0.92 | 0.47--0.54 | no (**exact** kept) |
+
+Every phase-B argmax in pass 2 is KEEP_DEFAULT, so `all_keep_default` is true
+in all three repeats and **`forced_top1` fired for the first time in this
+experiment**: the plan entry it wrote was `unroll_count_8` at the k5 loop
+(repeats 1 and 3) and `unroll_count_4` at the k8 loop (repeat 2). Those are
+the readout's picks, not Jev's answers, and they are scored as what they are
+in section 12, not as argmaxes here.
+
+## 11. One-shot agreement, pass 2
+
+Same scoring rule as section 3 (exact / same family in the same direction /
+miss), applied to the majority argmax of the three repeats.
+
+| | exact | same family | miss |
+|---|---|---|---|
+| functions (8) | **4** (k2, k3, k4, k5) | 0 | 4 (k1, k6, k7, k8) |
+| loops (4) | **3** (k4, k5, k8) | 0 | 1 (k3) |
+| all 12 sites | **7** | 0 | 5 |
+
+Against pass 1's **10 / 12** (6/8 functions, 4/4 loops): **7 / 12** (4/8
+functions, 3/4 loops).
+
+Stability: 10 of 12 sites gave the same argmax in all three repeats, against
+11 of 12 in pass 1. The two that move are `k1_step` and `k5_mul_reduce`;
+`k7_error_path`, which moved in pass 1, is stable here.
+
+Confidence collapses everywhere. Pass 1's function confidences ran
+0.29--0.89 with a clear top (k8 0.85--0.89, k6 0.81--0.83, k2 0.76--0.77);
+pass 2's run **0.34--0.48** at all eight sites, i.e. the whole phase is now
+inside pass 1's *lowest* band, the one k7 occupied when section 2 called it
+"the lowest-confidence function site in the set". Phase B falls the same way:
+0.46--0.90 becomes 0.42--0.60.
+
+## 12. The decision-71 readout, pass 2
+
+Phase A, `1 - P(KEEP_DEFAULT)`, all three repeats:
+
+| rank | repeat 1 | repeat 2 | repeat 3 |
+|---|---|---|---|
+| 1 | `k6_hot_loop` 0.60 | `k8_scale_add` 0.65 | `k8_scale_add` 0.66 |
+| 2 | `k8_scale_add` 0.59 | `k2_mix` 0.63 | `k2_mix` 0.64 |
+| 3 | `k2_mix` 0.58 | `k6_hot_loop` 0.63 | `k6_hot_loop` 0.60 |
+| 4 | `k1_step` 0.57 | `k7_error_path` 0.60 | `k7_error_path` 0.59 |
+| 5 | `k7_error_path` 0.55 | `k1_step` 0.54 | `k1_step` 0.56 |
+| 6 | `k5_mul_reduce` 0.51 | `k3_fill_run` 0.53 | `k5_mul_reduce` 0.55 |
+| 7 | `k3_fill_run` 0.51 | `k4_count_bytes` 0.52 | `k3_fill_run` 0.54 |
+| 8 | `k4_count_bytes` 0.47 | `k5_mul_reduce` 0.51 | `k4_count_bytes` 0.53 |
+
+The best non-KEEP candidate is `inline_always` at **all eight sites in all
+three repeats**. The spread from rank 1 to rank 8 is 0.13 (pass 1: 0.82), and
+the top rank is not stable: `k6_hot_loop` once, `k8_scale_add` --- the control
+kernel, whose reference answer is KEEP_DEFAULT --- twice.
+
+Phase B:
+
+| rank | repeat 1 | repeat 2 | repeat 3 |
+|---|---|---|---|
+| 1 | k5 loop 0.53 (`unroll_count_8` 0.33) | k8 loop 0.53 (`unroll_count_4` 0.19) | k5 loop 0.52 (`unroll_count_8` 0.33) |
+| 2 | k8 loop 0.46 | k5 loop 0.52 | k8 loop 0.49 |
+| 3 | k4 loop 0.41 | k3 loop 0.39 | k4 loop 0.42 |
+| 4 | k3 loop 0.35 (`unroll_count_2` 0.12) | k4 loop 0.37 | k3 loop 0.37 |
+
+**The k3 fill loop --- Claude's one predicted loop winner --- is now last or
+third of four**, and the best non-KEEP candidate there is `unroll_count_2`,
+which is `unroll.disable`'s *opposite* direction. Pass 1 had it rank 1 at
+0.94--0.95 with `unroll_disable` at 0.92.
+
+So section 4's reading --- "the site the readout would try first is Claude's
+predicted winner, in both phases and in all three repeats", called there "the
+first positive evidence" for decision 71 --- **does not survive the strip**.
+It was the comment.
+
+## 13. Where the probability mass went
+
+Family mass at the four loop sites, summed over the candidates of each family
+(three repeats):
+
+| loop site | `vectorize_*` | `interleave_*` | `unroll_count_*` | `unroll_disable` |
+|---|---|---|---|---|
+| k3 fill, pass 1 | 0.00 | 0.00 | 0.02--0.03 | **0.92** |
+| k3 fill, pass 2 | 0.00 | 0.00 | **0.24--0.31** | 0.08--0.11 |
+| k4 bytes, pass 1 | **0.08--0.15** | 0.00--0.01 | 0.09--0.12 | 0.07--0.09 |
+| k4 bytes, pass 2 | 0.05--0.06 | 0.00 | 0.29--0.35 | 0.02--0.03 |
+| k5 reduce, pass 1 | 0.01--0.03 | **0.15--0.16** | 0.23--0.29 | 0.02--0.04 |
+| k5 reduce, pass 2 | 0.02--0.03 | 0.00--0.01 | 0.47--0.49 | 0.01--0.02 |
+| k8 control, pass 1 | 0.00 | 0.00 | 0.05--0.06 | 0.03--0.05 |
+| k8 control, pass 2 | 0.02--0.03 | 0.00--0.02 | 0.38--0.42 | 0.05--0.06 |
+
+Every family a doc comment named loses its mass when the comment goes:
+`unroll.disable` at k3 (0.92 -> 0.10), `vectorize.width` at k4 (0.15 -> 0.06),
+`interleave.count` at k5 (0.16 -> 0.01). Section 5 said Jev "**ignored** the
+comment at the k4 loop and at the k5 loop" because neither was the argmax;
+that reading was too generous. Neither family had any presence at the other
+sites, and both collapse to the floor the moment the comment is removed.
+
+What replaces all of it is one candidate per phase: `inline_always` at every
+function site, `unroll_count_*` at every loop site. Without the comments the
+answers stop being about the site.
+
+## 14. Did the comment leak do the work?
+
+**Yes, for three of the four hints Claude and Jev agreed on, and for the
+readout.** Plainly:
+
+* Of pass 1's four non-KEEP argmaxes, **two vanish with the comment that
+  named them**: `align_64` at k6 and `unroll_disable` at the k3 fill loop.
+  Both were rank 1 of their phase in pass 1; both are gone.
+* The third, `inline_always` at k2, survives in all three repeats --- but it
+  cannot be read as Jev's own reasoning either, because in pass 2
+  `inline_always` is the argmax at **four** function sites and the best
+  non-KEEP at all eight. It is the phase's blanket answer, and at k2 the
+  blanket answer happens to be EXPECTED's. Section 5 already recorded that
+  the fact k2's mechanism turns on (`cost=870` against `threshold=787`) is
+  absent from the state and that the budget line asserts the reverse; nothing
+  in this pass changes that.
+* Three pass-1 agreements are lost outright: k6, the k3 loop, and the
+  **control** function k8, which goes from KEEP_DEFAULT at 0.88--0.91 to
+  `inline_always` at 0.49--0.54. The first two are the comment's hints
+  disappearing; the third is the opposite failure --- with no prose to say
+  that k8 is the kernel no hint should touch, Jev puts a hint on it.
+* k1 and k7 were misses in pass 1 and are misses in pass 2, but k1 gets
+  **worse**: it moves from declining to pick to picking `inline_always`, the
+  opposite of EXPECTED's `inline(never)`. In pass 1 the K1 block comment
+  described the mechanism and Jev did not follow it; with the comment gone it
+  goes the other way. k5's function site becomes unstable (KEEP twice,
+  `inline_always` once).
+* The seven sites that hold are k2, k3, k4, k5 as functions and the k4, k5
+  and k8 loops. Six of the seven are KEEP_DEFAULT references, i.e. agreement
+  by not choosing. Only one of the twelve --- k2 --- is an agreement on a
+  hint, and the bullet above says why that one is not worth much either.
+
+**The honest one-shot number for this target is 7 of 12, not 10 of 12**, and
+the 7 is itself dominated by KEEP_DEFAULT agreements. The 10/12 in sections
+2--4 should be read as the ceiling a state that documents its own answer
+produces, and decision 81's (b) is settled: the cue was doing the work.
+
+What this does **not** say: that Jev is wrong. Whether `align_64` at k6 or
+`unroll.disable` at the k3 fill loop is actually faster is the oracle's
+question and the oracle has not run on this target. If the oracle contradicts
+EXPECTED at those sites, pass 2 agrees with the oracle and pass 1 did not.
+Both columns are still predictions.
+
+## 15. API, pass 2
+
+| | |
+|---|---|
+| HTTP calls logged | 7 lines (6 answered 200, 1 exhausted on 503) |
+| internal retries recorded (`failed_attempts`) | 8 |
+| answered requests | 6 (3 x phase A, 3 x phase B) |
+| questions answered | 36 (3 x 8 + 3 x 4) |
+| latency of the answered calls | 879--1321 ms (mean 1050 ms) |
+| tokens in / out (answered) | 112992 / 3573 |
+| gateway cost | 0.00000000 USD (`marketCost` 0.004746 USD) |
+| wall clock | 53 s |
+
+Input tokens fall from 128517 to 112992 for the same 36 questions: the
+comments were about 12% of what was sent.
+
+**Repeat 2 of phase B had to be asked twice.** Its first pass hit a 503 burst
+that survived the internal backoff (3 consecutive 503s), so the driver's rule
+replaced every answer with KEEP_DEFAULT and recorded `source: "no answer"`;
+the harness re-sent the request **unchanged** ten seconds later and it was
+answered on the first attempt. Both lines are in the JSONL at `round 2,
+phase B`: the first carries `"response": null` and is not scored, the second
+is the answer used. No request was ever modified to make it succeed.

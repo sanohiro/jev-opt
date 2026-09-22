@@ -39,6 +39,9 @@ Useful flags:
                     below
 --readout           forced_top1 (default) or argmax: how a phase's answers
                     become plan entries (decision 71). See "The proposers"
+--source-comments   strip (default) or keep: whether the source excerpts in
+                    the state are stripped of comments and doc attributes
+                    (decision 81). See "Source excerpts" below
 --site-set PATH     the frozen loop-site key list inside sites.json, e.g.
                     oracle.selected_keys_top3. All three proposers must be
                     given the same one (SPEC.ja.md 2)
@@ -241,7 +244,8 @@ Per round, in `round-NN/`:
 Decision 19: what the state says changes the answer, so the format is frozen
 like a measurement condition. It is `STATE_FORMAT_VERSION` in
 `jev_search.py`, `VOCAB_VERSION` in `jev_vocab.py`, and both are written into
-every request log line, every plan and the run manifest. `--print-state`
+every request log line, every plan and the run manifest, as is
+`source_comments` (below). `--print-state`
 prints the whole thing --- the state of both phases **and** every question,
 with its instructions and its `criteria` --- without making a request.
 
@@ -324,15 +328,67 @@ answer in the study (V7 reproduces V2 at all nine sites); it is there
 because the lanes line refers to the register width and should not be the
 only place that number appears.
 
+### Source excerpts: `--source-comments`
+
+Every function section quotes a +/-40-line window of the site's own source,
+and every loop section quotes its marked function's. `--source-comments`
+decides whether the comments inside that window are quoted with it.
+
+* `strip` (the **default** since decision 81): every comment --- `//`,
+  `///`, `//!`, `/* */`, which nests --- and every `#[doc = ...]` attribute
+  is removed from the file before the window is cut. A line that held
+  nothing else is rendered as `// [comment removed]`, a trailing comment is
+  cut and its code kept, and a blank line stays blank, so the window has one
+  printed line per source line and the numbers and the `>` marker point
+  where they did. The same strip runs over the remark quote lines, which in
+  practice carry no source text. It is a lexer, not a regex: `//` inside
+  `b'"'`, `'\''` or `r#"http://x"#` is not a comment.
+* `keep`: quote the file verbatim. This is what every run before
+  2026-09-22 did, and it is how to reproduce one.
+
+**No source file is edited for this.** Editing one would move the line
+numbers the site keys and the profile are built from (decision 61), which is
+why the filter lives in the driver.
+
+Why it is the default: the hintbench kernels document their own benchmark,
+and their comments name the hint each kernel exists to exercise ("the hint
+under test is `inline(never)`") and spell out its mechanism. Under `keep`
+that text is inside the windows the state quotes, and
+`docs/experiments/hintbench/jev-oneshot-v3.md` measures what it was worth:
+one-shot agreement with `targets/hintbench/EXPECTED.md` falls from **10 of
+12 sites to 7 of 12** when the comments are stripped and nothing else
+changes, the two non-KEEP hints the comments named disappear, and the
+decision-71 readout stops ranking Claude's predicted winner first. Any
+target whose sources discuss its own optimisation --- which is most of them,
+at the lines the hot loops live on --- can leak the same way.
+
+The mode is recorded in the state header (`source  source_comments: ...`),
+on every JSONL request line and in `run-manifest.json`. The state format
+string is **not** bumped for it: `state-v3-2026-09-22` renders one extra
+header line, and that line is the disambiguator between a `keep` run and a
+`strip` run. It is added to **all three** templates, v1 and v2 included: a
+state without that line was rendered before the option existed and is a
+`keep` state, so the line, not the date, is what tells the two conditions
+apart.
+
 ### v2 is frozen
 
 `v2-2026-09-22` / `state-v2-2026-09-22` were frozen at commit `ac94c8a`.
 Changing any of it --- a threshold, a description, the question wording, a
 verdict line --- makes the runs before and after incomparable, exactly as
 decision 19 says, and requires re-running whatever is being compared.
-`--vocab v1` is kept so that Experiment 3's condition can be reproduced
-byte for byte; the v1 state that this driver renders is unchanged by the v2
-work.
+`--vocab v1` is kept so that Experiment 3's condition can be reproduced;
+the v1 state that this driver renders is unchanged by the v2 work.
+
+One later change reaches all three templates: since commit `b955338` the
+build block carries a `source  source_comments: ...` line and the excerpts
+are stripped of comments by default (see "Source excerpts" above). So
+reproducing a pre-2026-09-22 state needs `--source-comments keep`, which
+restores the excerpts; the header line stays either way. Decision 19 applies
+to it as to everything else here --- a `strip` run and a `keep` run are two
+conditions, not one --- and
+`docs/experiments/hintbench/jev-oneshot-v3.md` measures how far apart they
+are on one target.
 
 One correction rides in v2 and in v2 only: the per-function line "N loop(s)
 inside it" was always printing 0, because it summed a dump field the plugin
@@ -418,7 +474,8 @@ lives in the state, one section per question, named after the question:
 ## What is being decided          what varies, what is measured, that
                                   KEEP_DEFAULT reproduces the baseline
 ## The build every arm shares     target, toolchain, machine, recipe, cases,
-                                  repetitions, definition of the speed ratio
+                                  repetitions, definition of the speed ratio,
+                                  `source_comments`
 ## Where the hints are applied    PipelineStartEP / VectorizerStartEP
 ## The marked functions           one line each: share, loop-site count
 ## Results of the previous rounds round | correct | ratio | CI | accepted
@@ -429,7 +486,8 @@ function       <mark>
 profile share  <share> of the program's user cycles
 size after LTO <n> LLVM instructions, <n> loop(s) inside it
 attributes now <current LLVM attributes>
-source:        <file:line, +-40 lines, the site's line marked `>`>
+source:        <file:line, +-40 lines, the site's line marked `>`, comments
+               stripped unless --source-comments keep>
 what LLVM said about this region in the baseline build: <remarks>
   what earlier rounds chose here: <round, hint, whole-build ratio>
 ### q1
@@ -588,6 +646,11 @@ a tracked artifact.
   inside such a closure is still a site of the mark.
 * The function-source search is a heuristic, and a mark whose definition is
   outside the vendored tree gets no source excerpt at all.
+* **A source window can still leak.** `--source-comments strip` removes
+  comments; it does not remove an identifier, a string literal or a
+  `#[inline]` attribute that says the same thing, and it cannot know that a
+  neighbouring function within 40 lines is the one the benchmark documents.
+  The strip is a floor, not a guarantee.
 * Remark attribution is by source location only --- the remark lines carry no
   function name (SPEC.ja.md 3) --- so a section can show a neighbouring
   function's remarks when both live within 40 lines of each other.
