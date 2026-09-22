@@ -8236,3 +8236,277 @@ set, and both were made before the first round.
 * **No claim is made about the direction of either holdout result.** Both
   are inside the 3% MDE, and the Jev run's own null arm moved 2.1 pp on the
   same case set.
+
+## Hint benchmark (design) --- one kernel per hint, ground truth before the sweep
+
+`targets/hintbench` is a target written for one purpose: to make ground truth
+cheap. For each hint in the frozen vocabulary of SPEC.ja.md 1(2) there is one
+kernel, shaped so that that hint has a mechanism and the others do not, and
+`targets/hintbench/EXPECTED.md` records the mechanism and the predicted winner
+**before any timing run**. A one-factor oracle sweep over the kernels then says
+which predictions were right, which is what decision 69's metric (Jev's answer
+against Claude's judgement) and decision 71's open question (whether Claude's
+judgement is any good) both need.
+
+Nothing in this section is a timing measurement. Every number comes from
+remarks, symbol tables, disassembly, LLVM bitcode or the plugin's dump. Five
+builds were made: the PGO baseline, the `JEV_MODE=dump` build, the
+`JEV_MODE=apply` smoke build, and two diagnostics.
+
+### 103. The target
+
+```
+targets/hintbench/Cargo.toml              workspace + [profile.release]
+targets/hintbench/hbkernels/src/lib.rs    the eight kernels (rlib)
+targets/hintbench/hintbench/src/main.rs   the drivers and the workload driver
+targets/hintbench/jev-marks.txt           eight marks, one per kernel
+targets/hintbench/EXPECTED.md             the prediction, frozen before timing
+scripts/hintbench_oracle.sh               dump / sites / arms / smoke / run
+```
+
+Same two-crate shape as `targets/toy`, same rules: no `#[inline]`, no
+`#[inline(never)]`, no `#[cold]`, no `#[repr(align)]`, no intrinsics,
+deterministic xorshift inputs from a fixed seed, one checksum line per
+workload, no timing code in the binary, an `all` workload, `REP_*` per
+workload. `[profile.release]` is `opt-level = 3`, `lto = "fat"`,
+`codegen-units = 1`, `debug = 1`, `panic = "unwind"`.
+
+One workload per kernel, because the readout is per kernel: the ground truth
+for kernel N is the ratio on workload kN. In an eight-way geometric mean a 10%
+win on one kernel is 1.2%, below the 3% floor of decision 16.
+
+Wall time of each workload, PGO baseline binary, `taskset -c 8`, one run
+(calibration, not a measurement):
+
+```
+k1 347 ms   k2 349 ms   k3 365 ms   k4 345 ms
+k5 328 ms   k6 365 ms   k7 351 ms   k8 338 ms      all 2637 ms
+```
+
+`scripts/target_common.sh` gained a `hintbench)` branch and
+`scripts/target_pgo_baseline.sh` a `hintbench)` arm in `run_training`. Like the
+toy, hintbench declares no `TRAIN_WORKLOADS`: the kernels are their own inputs,
+so `jev_search.py --bench-set training` falls back and records
+`holdout-as-search`.
+
+### 104. Two build-recipe changes the target forced
+
+**`-Zcross-crate-inline-threshold=never` in `FIXED_RUSTFLAGS`.** rustc's own
+MIR inliner runs long before the plugin sees anything, and a callee it deletes
+has no LLVM function for a function attribute to attach to. Measured: without
+the flag, six of the eight kernels are gone before LLVM and only `k1_step` and
+`k6_hot_loop` survive as symbols. With it, all eight are in the IR and all
+eight marks resolve to a function. The flag changes no LLVM decision --- LLVM
+still inlines whatever its cost model likes --- it only stops the frontend from
+pre-empting the decision under test. It is on the baseline and on every arm.
+
+**`FIXED_RUSTFLAGS` added to `build_instrumented` in
+`scripts/target_pgo_baseline.sh`.** `-Cprofile-use` matches a profile record to
+a function by a hash of the frontend's MIR, so a flag that changes what the
+frontend emits has to be in the instrumented build too. Leaving it off
+discarded the whole of `main`'s profile ("function control flow change detected
+(hash mismatch)") and left five of the eight kernels with "no profile data
+available for function". With the flag in both builds: zero warnings of either
+kind. For the targets whose fixed flags are only `-Cllvm-args` this changes
+nothing, and their profdata is reused (`REUSE_PROFDATA=1`) in any case.
+
+### 105. The eight kernels and what the baseline does with them
+
+| kernel | mark | hint under test | baseline, measured |
+|---|---|---|---|
+| K1 | `k1_step` | `inline(never)` | inlined at all 8 call sites (`cost=640, threshold=787`) |
+| K2 | `k2_mix` | `inline` | not inlined (`cost=870, threshold=787`), 2 call sites |
+| K3 | `k3_fill_run` | `unroll.disable` | not vectorized; runtime unroll by 8, trip 11.5 |
+| K4 | `k4_count_bytes` | `vectorize.width=16` | VF 8, IC 4 |
+| K5 | `k5_mul_reduce` | `interleave.count=4` | VF 8, IC 4 |
+| K6 | `k6_hot_loop` | `align=64` | not inlined (`cost=715, threshold=525`); entry mod 64 = 16 |
+| K7 | `k7_error_path` | `cold` | inlined at both call sites (`cost=135, threshold=787`) |
+| K8 | `k8_scale_add` | control | VF 8, IC 4 |
+
+Three constraints shaped every one of them, and all three are properties of the
+**PGO** baseline rather than of `-O3`:
+
+* a call site the profile summary calls hot gets inline threshold 3000, so a
+  callee under roughly 600 instructions is inlined there whatever else is true.
+  K1's first draft (64 rounds, cost 1900) was built assuming this applied; it
+  does not, because K1's loop runs a few million times against K5's 1.6e10 and
+  is therefore *not* hot. The draft was left out of line by the baseline and
+  `inline(never)` was a no-op. At 22 rounds and eight call sites the baseline
+  inlines it and the hint has something to remove.
+* a function with one call site and internal linkage --- which every function
+  here becomes after fat-LTO internalisation --- gets the "last call to static"
+  bonus (−15000) and is inlined regardless of size. Every kernel whose hint is
+  a function attribute therefore has two or more call sites.
+* PGO adds `inlinehint` to a function whose entry count is hot by itself. The
+  dump's function table shows it on `k3_fill_run`. This is decision 70's
+  "251-instruction hot leaf already `inlinehint`" reproduced on demand.
+
+K3's default unrolling is worth spelling out, because it is the zopfli
+`cache.rs:108` case (decision 22) with the disassembly attached: the trip count
+is unknown, so the unrolled body keeps a `cmp`/`je` pair after *every* one of
+its eight stores and gains an `and $0x7` / `xor $0x4` prologue and a remainder
+loop. The unrolling removes no branches at all.
+
+### 106. The main result: `inline` and `cold` are consumed and do nothing
+
+One `JEV_MODE=apply` build carrying one hint per kernel. Every plan entry is
+reported `consumed` (four functions) or `attached` (four loops), nothing
+`vanished` or `ambiguous`, and the eight checksums are unchanged:
+
+```
+   lto       5acd6025657bd898-next-macros.rs-180        attached   vectorize.width=16
+   lto       9e9ba3f36ca98757-spec_next-range.rs-1103   attached   unroll.count=2
+   lto       ac9e5da87f238a0d-k3_fill_run-lib.rs-174    attached   unroll.disable
+   lto       fc420a4f49bcc12e-next-macros.rs-180        attached   interleave.count=4
+   prelink   hbkernels::k1_step                         consumed   noinline
+   prelink   hbkernels::k2_mix                          consumed   inlinehint
+   prelink   hbkernels::k6_hot_loop                     consumed   align=64
+   prelink   hbkernels::k7_error_path                   consumed   cold
+   totals: attached=4, consumed=4
+   CHECKSUMS: MATCH
+```
+
+*Consumed is not effective.* Of the four function attributes, two change the
+generated code and two do not:
+
+| hint | in the LTO bitcode | effect |
+|---|---|---|
+| `inline(never)` on `k1_step` | `noinline` | 8 call sites become "should never be inlined"; the symbol survives |
+| `align=64` on `k6_hot_loop` | `align 64` on the `define` | entry `0x11e10` (mod 64 = 16) becomes `0xeb00` (mod 64 = 0), and the loop header with it |
+| `inline` on `k2_mix` | `inlinehint` present | none: remark unchanged at `cost=870, threshold=787` |
+| `cold` on `k7_error_path` | `cold` present | none: remark unchanged at `cost=135, threshold=787`, still inlined at both sites |
+
+The bitcode column is `llvm-dis` on `*.rcgu.lto.after-restriction.bc`, the
+fat-LTO module *after* internalisation and *before* the LTO optimisation
+pipeline (produced with `-Csave-temps`). All four attributes are in that one
+module, side by side:
+
+```
+define internal ... @..k6_hot_loop #99 align 64 ...
+attributes #99  = { inlinehint nonlazybind uwtable ... }        <- PGO's own, on k6's caller chain
+attributes #101 = { cold mustprogress nofree norecurse ... }    <- k7_error_path
+attributes #102 = { inlinehint mustprogress nofree ... }        <- k2_mix
+attributes #103 = { mustprogress nofree noinline norecurse ... } <- k1_step
+```
+
+So `noinline` and `align 64` are honoured and `cold` and `inlinehint` are not,
+from the same module, in the same build. **Why is not established**, and the
+two obvious explanations are both ruled out by the evidence here:
+
+* "`inline` is `max(Threshold, 325)` and every threshold here is 525 or 787, so
+  the max never selects 325" would be a complete explanation --- except that a
+  control build with `-Cllvm-args=-inlinehint-threshold=5000` also leaves
+  `k2_mix` at `threshold=787`. If the attribute were being read at all, that
+  control had to move it. It did not.
+* "`cold` is overridden by the profile summary, which decides call-site
+  coldness for itself" would explain K7 --- except that the callee's `cold`
+  attribute also drives `Params.ColdThreshold` (45), which would have shown up
+  as `threshold=45` and would have cancelled the −14865 last-call bonus.
+  Neither happened; the remark is byte for byte the baseline's.
+
+What is established is narrower and still useful: **the two attributes are in
+the module the LTO pipeline starts from, and the inliner behaves as though they
+are absent.** Either a pass inside that pipeline removes them before the CGSCC
+inliner runs, or the inliner does not consult them in this configuration. The
+next build that would settle it is one that dumps the module immediately before
+the inliner; `-Csave-temps` does not emit a post-optimisation LTO artifact, so
+that needs a different mechanism than the one used here.
+
+The scope of the finding is likewise narrower than it first looks. It is
+measured on hintbench, on this recipe. Whether it holds on jaq is **one
+`JEV_MODE=apply` build away and has not been done**: apply `inline` to one jaq
+mark and `cold` to another and read the inline remarks. Until that runs, "two
+of the four function-attribute hints in SPEC.ja.md 1(2) are inert" is a
+statement about this target only --- but it is worth running, because `inline`
+is the hint Jev reached for most often in the prompt study (decision 70), and
+because the oracle can confirm it here for free: the K2 `inline` and K7 `cold`
+arms should come out code-identical to the baseline and land in the in-sweep
+null panel of decision 31. That check is the oracle's per-arm normalised-code
+comparison, not this smoke build, which applied all eight hints at once.
+
+### 107. Two kernels LLVM already gets right
+
+**K4, `vectorize.width`.** The kernel is jaq's `to_ascii_lowercase` shape ---
+the site where decision 70 recorded Claude choosing `vectorize.width=16` and
+Jev never choosing it --- with a u32 accumulator so that decision 12's i64 trap
+does not apply. The baseline is already VF 8 x IC 4: `vpcmpeqb %xmm` /
+`vpmovzxbd %xmm,%ymm` / `vpaddd %ymm` over four accumulators, 32 bytes per
+iteration. A forced width of 16 cannot add bandwidth, only trade lanes against
+interleaving. Expected winner revised to `KEEP_DEFAULT`.
+
+**K5, `interleave.count`.** A multiplicative reduction, so the `vpmulld`
+dependency chain is the limit and the number of chains is the whole story. The
+baseline already picks IC 4. That is not an accident: LoopVectorize returns the
+*maximum* interleave count for any vectorised loop carrying a reduction and
+does not apply the small-loop-cost cap to it, so a vectorised integer reduction
+on this hardware is always interleaved to the register budget. A draft with six
+chained multiplies per element --- enough loop cost to trip the cap --- still
+came out IC 4. Expected winner revised to `KEEP_DEFAULT`, and K5 becomes the
+benchmark's calibration site instead: `interleave.count=1` should cost 50--75%
+of the workload, and a sweep that cannot see that cannot see anything.
+
+Together with section 106 this leaves three kernels with a live mechanism (K1
+`inline(never)`, K3 `unroll.disable`, K6 `align=64`), K7 redirected from `cold`
+to `inline(never)`, and four sites whose expected answer is "leave it alone".
+That is a weaker benchmark than intended and a more honest one: the ratio of
+live to dead hints is itself a result, and it is consistent with decisions 12,
+22, 29, 31 and 37, where the vectoriser knobs never moved a real target and the
+only things that did were unrolling and alignment.
+
+### 108. Sites and the oracle's arm count
+
+`scripts/hintbench_oracle.sh dump` builds the baseline with `JEV_MODE=dump`.
+The plugin only reads, and the check holds: normalised whole-code hash
+`75912ec78622dd1a` on both the plain PGO baseline and the dump build,
+`IDENTICAL`, 373 symbols, 0 changed.
+
+All 8 marks resolve to a function. The dump finds 6 `loop_in_mark` keys:
+
+| key | mark | trip | hotness | leaf | frozen set |
+|---|---|---|---|---|---|
+| `ac9e5da8...-k3_fill_run-lib.rs-174` | k3 | 11.48 | 7.21e9 | `lib.rs:174` | yes |
+| `56d14f7e...-k3_fill_run-lib.rs-173` | k3 | 4096.14 | 2.05e9 | `lib.rs:173` | no |
+| `5acd6025...-next-macros.rs-180` | k4 | 16384.12 | 5.46e10 | `macros.rs:180` | yes |
+| `fc420a4f...-next-macros.rs-180` | k5 | 4096.01 | 8.70e10 | `macros.rs:180` | yes |
+| `9e9ba3f3...-spec_next-range.rs-1103` | k8 | 4096.01 | 3.16e10 | `range.rs:1103` | yes |
+| `270c014b...-next-macros.rs-180` | k6 | 4096.00 | 6.55e9 | `macros.rs:180` | no |
+
+The frozen rule, pre-registered in `scripts/hintbench_oracle.sh`: keep the
+marks whose hint under test is a loop hint (k3, k4, k5, k8), and within a mark
+keep the single hottest key. The second part matters for k3, which produces two
+keys --- the fill loop itself and the *driver's* loop over the run table, whose
+trip count is the driver's 4096 and which is attributed `loop_in_mark` because
+the debug location of its latch comes from the inlined callee. The same
+`loop_in_mark` fuzziness decision 61 found on the toy, reproduced on a two-loop
+nest of known shape. Dropping k6's loop is what keeps the total at 12.
+
+```
+$ scripts/hintbench_oracle.sh arms
+[sites] sites.json caps the loop sweep at 4 of 6 sites
+[oracle] phase all: 92 one-factor arms + 1 combination arm (+1 baseline build already done)
+```
+
+**12 sites = 8 functions x 6 candidates + 4 loops x 11 candidates = 92
+one-factor arms + 1 combination = 93 arms.** Cost per arm on this machine: a
+clean build is about 25 s, and an interleaved pair of labels over eight
+workloads at `repetitions = 15`, `warmup = 3` is about 2 x 18 x 8 x 0.35 s =
+100 s. So roughly 2 minutes per arm and **three to three and a half hours for
+the sweep**, plus the A/A. `scripts/hintbench_oracle.sh run` is the command;
+it has not been run.
+
+### 109. What is not done, and what to watch
+
+* **No timing of any kind has been run on this target.** The oracle sweep is
+  the next step and it is the only thing that can turn EXPECTED.md into a
+  score.
+* **K2 and K7 are kept although their hint is inert.** They are the
+  demonstration sites for section 106, and their arms are the target's own null
+  panel. If either of them moves in the sweep, section 106 is wrong.
+* **K6's sign is not predicted.** The hint does what it says (entry 16 -> 0 mod
+  64) but an 80-byte loop body spans two cache lines either way.
+* **The `hintbench` PGO profile is not reproducible across a source change to
+  the kernels**, by construction: every `REP_*` change rewrites the counters.
+  `merged.profdata` was regenerated three times while the kernels were being
+  tuned and must be regenerated after any further edit; the recorded `.text`
+  sha256 of the frozen baseline is
+  `df5968bc018b17ad9a3d1f236e1ac8f6c9995d76bc296f0c8c67fda9c9f1fe7a`.

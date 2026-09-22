@@ -1,0 +1,38 @@
+# Marks for the hint benchmark (SPEC.ja.md 1(1)).
+#
+# One mark per kernel, eight in total. Unlike the jaq marks, these were not
+# chosen by reading a profile: the target was written around them, so each mark
+# is a kernel and each kernel is one workload. The share below is therefore by
+# construction rather than measured --- `hintbench all` runs the eight
+# workloads back to back and each of them was calibrated to the same wall time
+# (329-371 ms in the plain release build, results.md "Hint benchmark
+# (design)"), so each mark owns about an eighth of the program.
+#
+# No mark carries a hint or a hypothesis: what each kernel was built for is in
+# EXPECTED.md, which Jev never sees. Decision 59's rule ("marks carry no
+# suggestion") applies here too, and it matters more here than anywhere else,
+# because this target exists to score Jev's answers against ground truth.
+
+# share 12.5%, reach 12.5% (k1 workload: 64-round mixer, four call sites)
+hbkernels::k1_step
+
+# share 12.5%, reach 12.5% (k2 workload: 60-round leaf, two cool call sites)
+hbkernels::k2_mix
+
+# share 12.5%, reach 12.5% (k3 workload: short runtime-trip u16 fill)
+hbkernels::k3_fill_run
+
+# share 12.5%, reach 12.5% (k4 workload: byte count into a u32 accumulator)
+hbkernels::k4_count_bytes
+
+# share 12.5%, reach 12.5% (k5 workload: u32 multiplicative reduction)
+hbkernels::k5_mul_reduce
+
+# share 12.5%, reach 12.5% (k6 workload: tiny serial loop, long trip count)
+hbkernels::k6_hot_loop
+
+# share 12.5%, reach 12.5% (k7 workload: rarely taken path in a hot loop)
+hbkernels::k7_error_path
+
+# share 12.5%, reach 12.5% (k8 workload: elementwise scale and add)
+hbkernels::k8_scale_add

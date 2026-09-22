@@ -58,7 +58,7 @@ banner() { printf '\n========== %s ==========\n' "$*"; }
 run_training() {
   local bin="$1" scratch base f
   case "$TARGET" in
-    toy)
+    toy|hintbench)
       "$bin" "${TRAIN_ARGS[@]}"
       ;;
     zopfli)
@@ -170,11 +170,22 @@ fi
 # a-c. Instrumented build, training run, merge. No remarks, no plugin
 #      (SPEC.ja.md 3).
 # ---------------------------------------------------------------------------
+# The target's FIXED_RUSTFLAGS have to be here as well as in build_variant.
+# `-Cprofile-use` matches a profile record to a function by a hash of the MIR
+# the frontend produced, so any flag that changes what the frontend emits must
+# be identical in the instrumented build and in the build that reads the
+# profile. On hintbench, whose fixed flags include
+# -Zcross-crate-inline-threshold=never, leaving them off here discarded the
+# whole of `main`'s profile with "function control flow change detected (hash
+# mismatch)" and left five of the eight kernels with no profile data at all
+# (measured, results.md "Hint benchmark (design)"). For the targets whose fixed
+# flags are only -Cllvm-args this changes nothing: the counters are inserted
+# before any middle-end pass runs.
 build_instrumented() {   # build_instrumented <target-dir> <profraw-dir>
   CARGO_PROFILE_RELEASE_DEBUG=1 \
   CARGO_TARGET_DIR="$1" \
   CARGO_ENCODED_RUSTFLAGS="$(enc '-Ctarget-cpu=native' '-Csymbol-mangling-version=v0' \
-      "-Cprofile-generate=$2")" \
+      "-Cprofile-generate=$2" ${FIXED_RUSTFLAGS[@]+"${FIXED_RUSTFLAGS[@]}"})" \
     cargo build --manifest-path "$MANIFEST" --release --target "$TRIPLE" \
       "${CARGO_EXTRA[@]}" 2>&1 | tail -3
 }

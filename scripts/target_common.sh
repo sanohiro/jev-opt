@@ -58,6 +58,46 @@ case "$TARGET" in
     TRAIN_ARGS=(all)
     CORRECTNESS_IN=()
     ;;
+  hintbench)
+    # The hint benchmark (targets/hintbench, results.md "Hint benchmark
+    # (design)"): one kernel per hint in the frozen vocabulary, each shaped so
+    # that exactly one hint has a mechanism. Same two-crate rlib + bin shape as
+    # the toy, and like the toy it declares no TRAIN_WORKLOADS: the kernels are
+    # their own inputs, so there is no training/holdout split to make and
+    # jev_search.py records the set it used as `holdout-as-search`.
+    MANIFEST="${MANIFEST:-$REPO/targets/hintbench/Cargo.toml}"
+    BIN_NAME="${BIN_NAME:-hintbench}"
+    CARGO_EXTRA=()
+    # Two pinned flags, on the baseline and on every arm alike.
+    #
+    #   -hints-allow-reordering=false  SPEC.ja.md 2 / decision 60 (a): without
+    #       it a vectorize.width hint on a floating-point reduction also
+    #       authorises reassociating it. There is no FP in this target, but the
+    #       flag is part of the frozen recipe and build_variant drops an exact
+    #       duplicate, so pinning it here costs nothing and keeps the target
+    #       comparable with jaq.
+    #
+    #   -Zcross-crate-inline-threshold=never  rustc's own MIR inliner deletes a
+    #       small cross-crate callee before LLVM ever sees it, and a function
+    #       that is not in the IR has nothing for a function attribute to
+    #       attach to: without this flag six of the eight kernels vanish and
+    #       six of the eight marks resolve to no function (measured;
+    #       results.md). It changes no LLVM decision --- LLVM still inlines
+    #       whatever its cost model likes --- it only stops the *frontend* from
+    #       pre-empting the decision under test.
+    FIXED_RUSTFLAGS=('-Cllvm-args=-hints-allow-reordering=false'
+                     '-Zcross-crate-inline-threshold=never')
+    # One workload per kernel: the ground truth for kernel N is the ratio on
+    # workload kN, not the eight-way geometric mean (a 10% win on one kernel is
+    # 1.2% in the mean, under the minimum detectable effect of decision 16).
+    WORKLOADS=(k1 k2 k3 k4 k5 k6 k7 k8)
+    TRAIN_ARGS=(all)
+    CORRECTNESS_IN=()
+    # Core 4 (CPU 8, SMT sibling CPU 9 left idle). Cores 1, 2 and 3 belong to
+    # toy/zopfli, jaq and oxipng, so a hintbench run never shares a physical
+    # core with a measurement on another target.
+    BENCH_CPU="${BENCH_CPU:-8}"
+    ;;
   zopfli)
     MANIFEST="${MANIFEST:-$REPO/targets/zopfli/src/Cargo.toml}"
     BIN_NAME="${BIN_NAME:-zopfli}"
@@ -298,7 +338,7 @@ build_variant() {
 # *precondition* of the headroom judgement: the toy's largest measured
 # "speedup" was a binary that computed a different answer.
 #
-#  toy     prints a checksum block on stdout.
+#  toy     prints a checksum block on stdout. hintbench does the same.
 #  zopfli  writes <input>.gz beside its input and prints nothing, so each run
 #          gets its own scratch copy of the input and the .gz is hashed. The
 #          scratch copy also keeps concurrent correctness runs from colliding
@@ -306,7 +346,7 @@ build_variant() {
 run_correctness() {
   local bin="$1" out="$2"
   case "$TARGET" in
-    toy)
+    toy|hintbench)
       "$bin" all > "$out" 2>&1 || echo "RUN FAILED" >> "$out"
       ;;
     zopfli)

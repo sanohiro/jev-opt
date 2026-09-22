@@ -1,0 +1,20 @@
+# Hint benchmark workspace: one kernel per hint in the frozen vocabulary of
+# SPEC.ja.md 1(2), each shaped so that exactly one hint has a mechanism to
+# help. The oracle's one-factor sweep over these sites is the cheap ground
+# truth that Claude's and Jev's picks are scored against.
+#
+# Same two-crate shape as targets/toy: `hbkernels` is an rlib and `hintbench`
+# is the bin that depends on it, so every build goes through the rlib +
+# fat-LTO path the real targets use. The release profile is spelled out here
+# rather than passed through CARGO_PROFILE_RELEASE_* because this target is
+# ours to edit; external targets keep using the profile env vars.
+[workspace]
+resolver = "3"
+members = ["hbkernels", "hintbench"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = 1
+panic = "unwind"
