@@ -83,8 +83,21 @@ PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 # `inline_always` (`jev_vocab.py` v3), and the verdict block states the
 # mechanical fact that made that necessary. Everything else --- the loop
 # phase, the platform block, the source excerpts, the remarks --- is v2's.
+# v3.1 (decision 83) is v3's template with the three evidence defects of
+# `docs/experiments/hintbench/jev-oneshot-v3.md` sections 5 and 14 repaired:
+# a loop's legality comes from its own leaf location and says UNKNOWN when
+# that location is shared, a function's verdict quotes the inliner's own
+# decisions about it instead of an invented budget ratio, and a uniform
+# placeholder share is reported as not measured instead of classified. The
+# candidates, the descriptions and the questions are v3's, to the byte.
+#
+# v4 (decision 84) is v3.1's state with one change and only one: the
+# function candidates' descriptions are rebalanced so that `inline_always`,
+# `inline_never`, `align_*` and `KEEP_DEFAULT` are the same length and the
+# same strength (`jev_vocab.py` v4). The candidate ids, the plan fragments,
+# the loop half and every mechanical reading are v3.1's.
 STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
-                 "v3": "state-v3-2026-09-22"}
+                 "v3": "state-v3.1-2026-09-22", "v4": "state-v4-2026-09-22"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -625,6 +638,16 @@ class RemarkBook:
 
     def __init__(self, log_path):
         self.by_file = {}
+        # Exactly-located remarks: (basename, line, col) -> deduped texts,
+        # in the order the log emitted them. `by_file` above keeps the v1
+        # indexing byte for byte so that `near()` --- which every state
+        # format uses for the *function* sections --- does not move.
+        self.by_loc = {}
+        # (basename, line, col, text) -> how many lines the log carries,
+        # before dedup. A source location that several inlined loops share
+        # emits the same verdict several times, and that count is the only
+        # signal in the log which says the location is shared.
+        self.at_count = {}
         if not log_path or not os.path.isfile(log_path):
             return
         seen = set()
@@ -632,20 +655,231 @@ class RemarkBook:
             m = REMARK_RE.match(line.strip())
             if not m:
                 continue
-            f, ln, _col, text = m.group(1), int(m.group(2)), m.group(3), m.group(4)
-            key = (os.path.basename(f), ln, text)
+            f, ln, col, text = (m.group(1), int(m.group(2)), int(m.group(3)),
+                                m.group(4))
+            base = os.path.basename(f)
+            self.at_count[(base, ln, col, text)] = \
+                self.at_count.get((base, ln, col, text), 0) + 1
+            loc = self.by_loc.setdefault((base, ln, col), [])
+            if text not in loc:
+                loc.append(text)
+            key = (base, ln, text)
             if key in seen:
                 continue
             seen.add(key)
-            self.by_file.setdefault(os.path.basename(f), []).append((ln, text))
+            self.by_file.setdefault(base, []).append((ln, text))
 
     def near(self, path, line, span=40, limit=8):
+        """Remarks within `span` lines of `line`, nearest first.
+
+        The ±span window is the only attribution the log supports for a
+        *function*, whose body covers many lines. It is deliberately NOT what
+        a loop's legality is read from any more: see `at()`.
+        """
         if not path or not line:
             return []
         rows = self.by_file.get(os.path.basename(path), [])
         hit = [(ln, t) for ln, t in rows if abs(ln - int(line)) <= span]
         hit.sort(key=lambda r: (abs(r[0] - int(line)), r[0]))
         return hit[:limit]
+
+    def at(self, path, line, col=None):
+        """Remarks whose location is exactly this one.
+
+        A loop has one source location, not a ±10-line neighbourhood, so a
+        statement about *this* loop may only be built from the remarks the
+        compiler emitted at that location. The column is used when the caller
+        has one (the dump records it for every loop leaf).
+        """
+        if not path or not line:
+            return []
+        base = os.path.basename(path)
+        if col is not None:
+            return list(self.by_loc.get((base, int(line), int(col)), []))
+        out = []
+        for (b, ln, _c), texts in self.by_loc.items():
+            if b == base and ln == int(line):
+                out += [t for t in texts if t not in out]
+        return out
+
+    def n_loops_at(self, path, line, col=None):
+        """How many distinct loops the log reports at exactly this location.
+
+        LoopVectorize emits one verdict per loop it looks at: either
+        `vectorized loop (vectorization width: N, ...)` or the bare
+        `loop not vectorized` missed-remark that accompanies the
+        `loop not vectorized: <reason>` analysis. Counting those verdict
+        lines *before* dedup therefore counts the loops that share the
+        location. 1 means the remarks at that location are this loop's; more
+        than 1 means they are several loops' and cannot be split apart.
+        Returns None when the log has no vectoriser verdict there at all.
+        """
+        if not path or not line:
+            return None
+        base = os.path.basename(path)
+        n, seen_any = 0, False
+        for (b, ln, c, text), k in self.at_count.items():
+            if b != base or ln != int(line):
+                continue
+            if col is not None and c != int(col):
+                continue
+            if text == "loop not vectorized" or \
+                    text.startswith("vectorized loop ("):
+                n += k
+                seen_any = True
+        return n if seen_any else None
+
+
+INLINED_RE = re.compile(
+    r"^remark: (?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): "
+    r"'(?P<callee>[^']+)' inlined into '(?P<caller>[^']+)'"
+    r"(?: with \((?P<paren>[^)]*)\))?(?P<rest>.*)$")
+
+NOT_INLINED_RE = re.compile(
+    r"^remark: (?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): "
+    r"'(?P<callee>[^']+)' not inlined into '(?P<caller>[^']+)' "
+    r"because (?P<why>.*)$")
+
+COST_RE = re.compile(r"cost=(-?\d+)")
+THRESHOLD_RE = re.compile(r"threshold=(-?\d+)")
+
+
+class InlineBook:
+    """LLVM's inline remarks of a build log, indexed by **callee** symbol.
+
+    `RemarkBook` indexes by source location, and an inline remark's location
+    is the *call site* --- a line in the caller. So the one remark that says
+    what the inliner decided about a marked function is never found by a
+    lookup around that function's own definition: on hintbench the k2 site's
+    remark block is `std` backtrace noise and the decisive
+    `cost=870, threshold=787` does not appear in the state at all
+    (`docs/experiments/hintbench/jev-oneshot-v3.md` section 5).
+
+    Parsing by callee name fixes that without any new machinery: the remark
+    names the callee's linkage symbol, and the dump gives the mark's linkage
+    symbols, so the two join exactly.
+    """
+
+    def __init__(self, log_path):
+        self.by_callee = {}
+        if not log_path or not os.path.isfile(log_path):
+            return
+        # A build log holds the pre-link compilation and the LTO one, so the
+        # same decision can be printed twice, byte for byte. Dedup on the
+        # whole line, as `RemarkBook` does, or a call site is counted twice.
+        # Checked: no line of hintbench's eight marks is affected, and its
+        # counts reproduce EXPECTED section 2a either way.
+        seen = set()
+        for raw in open(log_path, errors="replace"):
+            line = raw.strip()
+            if "inlined into" not in line:
+                continue
+            if line in seen:
+                continue
+            seen.add(line)
+            m = NOT_INLINED_RE.match(line)
+            if m:
+                why = m.group("why")
+                cost = COST_RE.search(why)
+                thr = THRESHOLD_RE.search(why)
+                reason = why.split(" (cost=")[0].strip()
+                if ": " in why:
+                    reason = why.rsplit(": ", 1)[1].strip()
+                self._add(m, {"inlined": False,
+                              "cost": int(cost.group(1)) if cost else None,
+                              "threshold": int(thr.group(1)) if thr else None,
+                              "too_costly": "too costly" in why,
+                              "reason": reason})
+                continue
+            m = INLINED_RE.match(line)
+            if m:
+                paren = m.group("paren") or ""
+                cost = COST_RE.search(paren)
+                thr = THRESHOLD_RE.search(paren)
+                always = ("cost=always" in paren
+                          or "always inline attribute" in (m.group("rest") or ""))
+                self._add(m, {"inlined": True,
+                              "cost": int(cost.group(1)) if cost else None,
+                              "threshold": int(thr.group(1)) if thr else None,
+                              "always": always, "reason": None})
+
+    def _add(self, m, rec):
+        rec["callee"] = m.group("callee")
+        rec["caller"] = m.group("caller")
+        rec["loc"] = "%s:%s:%s" % (os.path.basename(m.group("file")),
+                                   m.group("line"), m.group("col"))
+        self.by_callee.setdefault(rec["callee"], []).append(rec)
+
+    def outcomes(self, linkages):
+        """Every inline decision the log records about these callees."""
+        out = []
+        for name in linkages or []:
+            out += self.by_callee.get(name, [])
+        return out
+
+
+def _n_call_sites(n):
+    return "1 call site" if n == 1 else "%d call sites" % n
+
+
+def _tally(keys):
+    """`a at 7 of them, b` --- the distinct readings, commonest first."""
+    counts = {}
+    for k in keys:
+        counts[k] = counts.get(k, 0) + 1
+    return ", ".join("%s at %d of them" % (k, n) if n > 1 else k
+                     for k, n in sorted(counts.items(),
+                                        key=lambda kv: (-kv[1], kv[0])))
+
+
+def inline_outcome_line(linkages, book):
+    """The verdict line that replaces v3's `inline budget: ... fits`.
+
+    v3 divided the body's instruction count by `-inline-threshold=225` and
+    concluded "the body fits inside that budget". At k2 that sentence is the
+    opposite of the truth --- LLVM measured cost 870 against threshold 787
+    and declined --- because the instruction count is not an InlineCost and
+    225 is not the threshold this recipe uses. The inliner already wrote
+    down what it decided; this line quotes it instead of estimating it.
+    """
+    rows = book.outcomes(linkages) if book else []
+    if not rows:
+        return ("inliner outcomes for this function in the baseline: the "
+                "build log records no inline decision naming this symbol, so "
+                "the baseline neither inlined nor declined it at any call "
+                "site the remarks cover")
+    ins = [r for r in rows if r["inlined"]]
+    dec = [r for r in rows if not r["inlined"]]
+    parts = []
+    if ins:
+        parts.append("%s inlined (%s)"
+                     % (_n_call_sites(len(ins)),
+                        _tally(("always inline attribute at the call site"
+                                if r.get("always") else
+                                "cost=%s vs threshold=%s"
+                                % (r["cost"], r["threshold"])) for r in ins)))
+    else:
+        parts.append("0 call sites inlined")
+    if not dec:
+        parts.append("0 declined")
+    else:
+        costly = [r for r in dec if r["too_costly"]]
+        other = [r for r in dec if not r["too_costly"]]
+        if costly:
+            parts.append("%s declined as too costly (%s)"
+                         % (_n_call_sites(len(costly)),
+                            _tally("cost=%s > threshold=%s"
+                                   % (r["cost"], r["threshold"])
+                                   for r in costly)))
+        if other:
+            parts.append("%s declined for another reason (%s)"
+                         % (_n_call_sites(len(other)),
+                            _tally(r["reason"] or "unrecorded"
+                                   for r in other)))
+    return ("inliner outcomes for this function in the baseline, read off "
+            "LLVM's own inline remarks by callee symbol: %s. (Each such "
+            "remark is located at the *caller's* line, which is why they are "
+            "not in the remark block above.)" % "; ".join(parts))
 
 
 # ---------------------------------------------------------------------------
@@ -1007,6 +1241,10 @@ def loop_items(sites, sidecar):
         meta["candidates"] = info.get("candidates")
         meta["leaf_file"] = leaf.get("file")
         meta["leaf_line"] = leaf.get("line")
+        # The column is what makes the leaf location a *location*: two loops
+        # can begin on one line. It is recorded from v3 on (decision 83) and
+        # nothing before v3 reads it, so the v1/v2 state does not move.
+        meta["leaf_col"] = leaf.get("col")
         label = "%s @ %s:%s" % (s.get("mark", "?"),
                                 os.path.basename(leaf.get("file", "?")),
                                 leaf.get("line", "?"))
@@ -1207,7 +1445,13 @@ def state_section(item, ctx):
         if m.get("excluded_inner"):
             out.append("               (%d closure(s) defined inside it keep "
                        "their own attributes)" % len(m["excluded_inner"]))
-        if m["share"] is not None:
+        if m["share"] is not None and evidence_fixes(ctx) \
+                and ctx.get("share_placeholder"):
+            out.append("profile share  not measured on this target: the site "
+                       "list carries the same value (%s) at every mark, by "
+                       "construction rather than from a profile"
+                       % fmt_share(m["share"]))
+        elif m["share"] is not None:
             out.append("profile share  %s of the program's user cycles%s"
                        % (fmt_share(m["share"]),
                           "" if m["reach"] is None
@@ -1256,6 +1500,43 @@ def state_section(item, ctx):
                              % (os.path.basename(src_file), ln, remark_text(t, ctx))
                              for ln, t in rem)
                    or "  (no remarks at this location)")
+        if evidence_fixes(ctx):
+            # The block above is a window around the *definition*, and an
+            # inline remark is located at the *call site*, so the one remark
+            # that says what the inliner did with this function is never in
+            # it. Decision 83: quote them separately, matched by callee
+            # symbol rather than by line.
+            rows = (ctx["inlines"].outcomes(m["linkages"])
+                    if ctx.get("inlines") else [])
+            out.append("")
+            out.append("what LLVM decided about calls to this function "
+                       "(matched by callee symbol; each line is located at "
+                       "the caller, which is why none of them is in the "
+                       "block above):")
+            if not rows:
+                out.append("  (the build log records no inline decision "
+                           "naming this symbol)")
+            else:
+                seen, shown = set(), []
+                for r in rows[:12]:
+                    if r["inlined"]:
+                        t = ("inlined, %s"
+                             % ("always inline attribute at the call site"
+                                if r.get("always")
+                                else "cost=%s, threshold=%s"
+                                % (r["cost"], r["threshold"])))
+                    else:
+                        t = ("not inlined: %s (cost=%s, threshold=%s)"
+                             % (r["reason"], r["cost"], r["threshold"]))
+                    line = "  %s: %s" % (r["loc"], t)
+                    if line in seen:
+                        continue
+                    seen.add(line)
+                    shown.append(line)
+                out += shown
+                if len(rows) > 12:
+                    out.append("  (%d further call sites not shown)"
+                               % (len(rows) - 12))
     elif item.kind == "loop":
         trip = m.get("trip_count")
         out.append("")
@@ -1265,8 +1546,12 @@ def state_section(item, ctx):
         out.append("location       %s:%s (loop nesting depth %s)"
                    % (os.path.basename(m.get("leaf_file") or "?"),
                       m.get("leaf_line"), m.get("depth")))
-        out.append("profile share of the marked function  %s"
-                   % fmt_share(ctx["share_by_mark"].get(m.get("mark"))))
+        if evidence_fixes(ctx) and ctx.get("share_placeholder"):
+            out.append("profile share of the marked function  not measured "
+                       "on this target (one uniform value for every mark)")
+        else:
+            out.append("profile share of the marked function  %s"
+                       % fmt_share(ctx["share_by_mark"].get(m.get("mark"))))
         out.append("average trip count (from the PGO profile)  %s"
                    % ("unknown" if trip is None else "%.0f" % trip))
         out.append("loop body      %s LLVM instructions, calls inside: %s, "
@@ -1274,8 +1559,21 @@ def state_section(item, ctx):
                    % (m.get("body_inst_count"),
                       "yes" if m.get("has_calls") else "no",
                       "yes" if m.get("has_fp_reduction") else "no"))
-        out.append("already vectorized when the hint is attached: %s"
-                   % ("yes" if m.get("already_vectorized") else "no"))
+        if evidence_fixes(ctx):
+            # The dump tests `llvm.loop.isvectorized` at VectorizerStartEP,
+            # i.e. before LoopVectorize has run in this pipeline
+            # (`plugin/jev/jev.cpp:1127`), so `no` is what every loop says
+            # and it is not a statement that LLVM leaves the loop scalar.
+            # The v3 line read as one. Decision 83.
+            out.append("carries `llvm.loop.isvectorized` metadata already at "
+                       "the point the hint is attached: %s (the hint is "
+                       "attached before LoopVectorize runs, so `no` is the "
+                       "normal answer and does not mean the loop stays "
+                       "scalar)"
+                       % ("yes" if m.get("already_vectorized") else "no"))
+        else:
+            out.append("already vectorized when the hint is attached: %s"
+                       % ("yes" if m.get("already_vectorized") else "no"))
         copies = m.get("key_copies")
         if ctx.get("state_v2") and not copies:
             # As in `loop_items`: the dump record has no `key_copies`, so
@@ -1313,14 +1611,46 @@ def state_section(item, ctx):
                        "iterator machinery rather than in the marked "
                        "function):")
             out.append(leaf_src)
-        rem = ctx["remarks"].near(m.get("leaf_file"), m.get("leaf_line"), span=10)
-        out.append("")
-        out.append("what LLVM said about this region in the baseline build:")
-        out.append("\n".join("  %s:%d: %s"
-                             % (os.path.basename(m.get("leaf_file") or "?"), ln,
-                                remark_text(t, ctx))
-                             for ln, t in rem)
-                   or "  (no remarks at this location)")
+        if evidence_fixes(ctx):
+            # Exactly this loop's leaf location, column included, and a
+            # header that says how many loops write to it. A +/-10-line
+            # window around `macros.rs:180` collects every `for &x in
+            # slice` in the program. Decision 83.
+            base = os.path.basename(m.get("leaf_file") or "?")
+            texts = ctx["remarks"].at(m.get("leaf_file"), m.get("leaf_line"),
+                                      m.get("leaf_col"))
+            n_here = ctx["remarks"].n_loops_at(m.get("leaf_file"),
+                                               m.get("leaf_line"),
+                                               m.get("leaf_col"))
+            out.append("")
+            if n_here and n_here > 1:
+                out.append("what LLVM said at %s:%s:%s in the baseline build "
+                           "--- CAUTION: %d different loops of this program "
+                           "were compiled at that one location, so the lines "
+                           "below are their remarks pooled together and none "
+                           "of them can be assigned to this loop:"
+                           % (base, m.get("leaf_line"), m.get("leaf_col"),
+                              n_here))
+            else:
+                out.append("what LLVM said at %s:%s:%s --- this loop's own "
+                           "leaf location --- in the baseline build:"
+                           % (base, m.get("leaf_line"), m.get("leaf_col")))
+            out.append("\n".join("  %s:%s: %s"
+                                 % (base, m.get("leaf_line"),
+                                    remark_text(t, ctx))
+                                 for t in texts)
+                       or "  (no remarks at this location)")
+        else:
+            rem = ctx["remarks"].near(m.get("leaf_file"), m.get("leaf_line"),
+                                      span=10)
+            out.append("")
+            out.append("what LLVM said about this region in the baseline "
+                       "build:")
+            out.append("\n".join("  %s:%d: %s"
+                                 % (os.path.basename(m.get("leaf_file") or "?"),
+                                    ln, remark_text(t, ctx))
+                                 for ln, t in rem)
+                       or "  (no remarks at this location)")
     else:
         out.append("")
         out.append("site kind      one compiler setting for the whole build")
@@ -1448,6 +1778,30 @@ VERDICT_PREAMBLE = (
 )
 
 
+def evidence_fixes(ctx=None):
+    """Whether this state format renders the decision-83 evidence fixes.
+
+    Three defects of the v3 state, all of them in the *evidence* rather than
+    in the wording (`docs/experiments/hintbench/jev-oneshot-v3.md` sections 5
+    and 14):
+
+      1. a loop's legality was read from a +/-10-line remark window, so three
+         of hintbench's four loop sites --- which sit on `macros.rs:180` and
+         `range.rs:1103`, lines every `for &x in slice` in the program shares
+         --- were told NOT VECTORIZABLE while the baseline vectorises them;
+      2. the inliner's decision about a marked function was never shown,
+         because an inline remark is located at the caller, and an invented
+         `inline budget` line asserted the opposite of it;
+      3. a uniform placeholder share was classified as `very hot` at every
+         site, which separates nothing.
+
+    v1 and v2 must stay byte-replayable (`jev_vocab.py` freezing rule), so
+    the fixes are rendered for v3 and v4 only. They change no candidate, no
+    description and no question: only what the state says it knows.
+    """
+    return V.active_version() in ("v3", "v4")
+
+
 def classify(value, table):
     if value is None:
         return None
@@ -1562,7 +1916,15 @@ def fn_verdict_lines(item, ctx):
     L.append("distinct copies in the binary: %d monomorphization(s); copy "
              "class %s (rule: %s)"
              % (copies, classify(copies, COPY_CLASSES), COPY_RULE))
-    if insts:
+    if evidence_fixes(ctx):
+        # Decision 83. The `inline budget` line this replaces divided the
+        # body's instruction count by `-inline-threshold=225` and announced
+        # whether "the body fits inside that budget". It is not an
+        # InlineCost, 225 is not the threshold this recipe uses, and at
+        # hintbench's k2 it asserted the opposite of the inliner's own
+        # measured answer. What the inliner decided is in the log.
+        L.append(inline_outcome_line(m.get("linkages"), ctx.get("inlines")))
+    elif insts:
         budget = INLINEHINT_THRESHOLD if has_hint else INLINE_THRESHOLD
         name = ("-inlinehint-threshold=%d" % INLINEHINT_THRESHOLD if has_hint
                 else "-inline-threshold=%d" % INLINE_THRESHOLD)
@@ -1577,7 +1939,7 @@ def fn_verdict_lines(item, ctx):
                     ("%.1fx, i.e. the body fits inside that budget" % r)
                     if r < 1 else "%.0fx over" % r))
     L.append("attributes already on it: %s" % attr_text)
-    if V.active_version() == "v3":
+    if V.active_version() in ("v3", "v4"):
         # Decision 77. The same sentence at every function site: it is a
         # property of the recipe, not of this site, and it names nothing.
         # Without it the `inlinehint` an attribute list may carry reads as
@@ -1605,6 +1967,17 @@ def fn_verdict_lines(item, ctx):
     if share is None:
         L.append("share of the program's user cycles: not recorded for this "
                  "mark, so no hotness class")
+    elif evidence_fixes(ctx) and ctx.get("share_placeholder"):
+        # Decision 83. hintbench's sites.json carries `share: 12.5` at all
+        # eight marks --- the design's "one eighth each", not a measurement
+        # --- and the old line turned it into `hotness class very hot` at
+        # every site. A number that is the same everywhere cannot separate
+        # anything, and calling all eight sites very hot is worse than
+        # saying nothing, so the class is dropped rather than printed.
+        L.append("share of the program's user cycles: not measured on this "
+                 "target --- the site list carries one and the same value "
+                 "(%s) for every mark, so there is no hotness class here"
+                 % fmt_share(share))
     else:
         L.append("share of the program's user cycles: %s; hotness class %s "
                  "(rule: %s)" % (fmt_share(share),
@@ -1675,9 +2048,29 @@ def loop_verdict_lines(item, ctx):
                  "not authorise reassociating it and a non-reassociable "
                  "reduction is simply not widened")
 
-    rem = [t for _ln, t in (ctx["remarks"].near(m.get("leaf_file"),
-                                                m.get("leaf_line"), span=10)
-                            if m.get("leaf_file") else [])]
+    fixes = evidence_fixes(ctx)
+    shared = False
+    if fixes:
+        # Decision 83. The loop's own leaf location, column included --- not
+        # a +/-10-line window. `n_loops_at` counts the vectoriser verdicts
+        # the log emitted at exactly that location: one verdict per loop, so
+        # more than one means several inlined loops write to the same source
+        # line and nothing there can be attributed to this one.
+        leaf_col = (item.meta.get("leaf_col")
+                    if item.meta.get("leaf_col") is not None else None)
+        rem = (ctx["remarks"].at(m.get("leaf_file"), m.get("leaf_line"),
+                                 leaf_col)
+               if m.get("leaf_file") else [])
+        n_here = (ctx["remarks"].n_loops_at(m.get("leaf_file"),
+                                            m.get("leaf_line"), leaf_col)
+                  if m.get("leaf_file") else None)
+        shared = bool(n_here and n_here > 1)
+    else:
+        rem = [t for _ln, t in (ctx["remarks"].near(m.get("leaf_file"),
+                                                    m.get("leaf_line"),
+                                                    span=10)
+                                if m.get("leaf_file") else [])]
+        n_here = None
     reasons, vf = [], []
     for t in rem:
         mm = re.search(r"loop not vectorized:\s*(.+)$", t)
@@ -1686,7 +2079,31 @@ def loop_verdict_lines(item, ctx):
             if r not in reasons:
                 reasons.append(r)
         vf += [int(x) for x in re.findall(r"vectorization width: (\d+)", t)]
-    if not rem:
+    if fixes:
+        # What the plugin's dump knows about this loop is the primary
+        # source: it is per-loop by construction, where a remark is only
+        # per-source-location. It is also narrower than it looks, and the
+        # line says exactly what it covers.
+        L.append("from the plugin's dump, which is the primary source here "
+                 "because it records this loop and not a source line: trip "
+                 "count %s, calls in the body %s, `llvm.loop.isvectorized` "
+                 "metadata at the point the hint is attached: %s --- the "
+                 "hint goes in before LoopVectorize runs, so `no` is the "
+                 "normal reading and says nothing about whether LLVM "
+                 "vectorises this loop afterwards"
+                 % ("unknown" if trip is None else "%.1f" % float(trip),
+                    "yes" if m.get("has_calls") else "no",
+                    "yes" if m.get("already_vectorized") else "no"))
+    if fixes and shared:
+        L.append("vectorisation legality: UNKNOWN (shared source line; "
+                 "remarks not attributable to this loop) --- %s:%s carries "
+                 "%d separate vectoriser verdicts in the baseline build, "
+                 "because every loop inlined from that line lands on it. "
+                 "Nothing in the remarks can be read as a statement about "
+                 "this loop."
+                 % (os.path.basename(m.get("leaf_file") or "?"),
+                    m.get("leaf_line"), n_here))
+    elif not rem:
         L.append("vectorisation legality: UNKNOWN --- no remarks were "
                  "recorded at this location, so nothing here says whether "
                  "vectorisation is legal")
@@ -1709,21 +2126,30 @@ def loop_verdict_lines(item, ctx):
         L.append("vectorisation legality, from the baseline remarks at this "
                  "line: no legality failure is reported and no vectorized "
                  "loop is reported")
-    if m.get("already_vectorized") and not vf:
+    if m.get("already_vectorized") and not vf and not fixes:
         L.append("no-op check: the dump records this loop as already "
                  "vectorized at the point the hint is attached, so a "
                  "`vectorize_*` candidate may reproduce the state it is "
                  "already in")
     adv = [t.split(": ", 1)[1] for t in rem
            if "advising against unrolling" in t and ": " in t]
-    if adv:
+    if adv and not shared:
         L.append("unroller, from the baseline remarks at this line: %s"
                  % adv[0])
-    if any("cost-model indicates that vectorization" in t for t in rem):
+    if any("cost-model indicates that vectorization" in t for t in rem) \
+            and not shared:
         L.append("cost model, from the baseline remarks at this line: "
                  "vectorization not beneficial")
-    L.append("caveat that applies to every loop here: remarks are attributed "
-             "by source location only, so several loops can share one line")
+    if fixes:
+        L.append("caveat that applies to every loop here: remarks carry a "
+                 "source location and no function name, so a line several "
+                 "inlined loops share carries all of their remarks at once; "
+                 "the readings above use this loop's own leaf location only, "
+                 "and say UNKNOWN where that location is shared")
+    else:
+        L.append("caveat that applies to every loop here: remarks are "
+                 "attributed by source location only, so several loops can "
+                 "share one line")
     return L
 
 
@@ -2590,7 +3016,7 @@ class Search:
         # v3's state template is v2's (see STATE_FORMATS): the verdict block,
         # the platform block and the V2 wording are shared, only the function
         # candidates and one verdict line differ.
-        self.state_v2 = (args.vocab in ("v2", "v3"))
+        self.state_v2 = (args.vocab in ("v2", "v3", "v4"))
         V.set_version(args.vocab)
         set_state_format(args.vocab)
         self.demangler = Demangler()
@@ -2786,10 +3212,23 @@ class Search:
             roots, comments=getattr(self.args, "source_comments",
                                     "strip"))
         self.remarks = RemarkBook(meta["log"])
+        self.inlines = InlineBook(meta["log"])
         self.share_by_mark = {i.meta["mark"]: (i.meta["share"]
                                                if i.meta["share"] is not None
                                                else i.meta["reach"])
                               for i in self.fn_list}
+        # Decision 83. A share that is the same number at every mark is a
+        # design statement ("one eighth each"), not a measurement, and the
+        # hotness class computed from it separates nothing. Detected rather
+        # than hardcoded per target: jaq's shares run 1.10% to 29.29% and
+        # are unaffected.
+        known = [v for v in self.share_by_mark.values() if v is not None]
+        self.share_placeholder = bool(len(known) > 1
+                                      and len(set(known)) == 1)
+        if self.share_placeholder and evidence_fixes():
+            print("[state] every mark carries the same profile share (%s): "
+                  "reported as `not measured`, no hotness class"
+                  % fmt_share(known[0]))
         self.loops_by_mark = {}
         for s_ in self.base_sites:
             m = s_.get("mark")
@@ -2982,6 +3421,8 @@ class Search:
              "cases": [w.split("=", 1)[0] for w in self.shell["workloads"]],
              "reps": self.reps, "mde_text": "3%",
              "source": self.source, "remarks": self.remarks,
+             "inlines": getattr(self, "inlines", None),
+             "share_placeholder": getattr(self, "share_placeholder", False),
              "share_by_mark": self.share_by_mark, "fn_source": self.fn_source,
              "loops_by_mark": self.loops_by_mark,
              "fn_choice_text": "",
@@ -3551,7 +3992,8 @@ def main():
                    help="optional sites.json with profile shares and caps")
     p.add_argument("--proposer", required=True,
                    choices=("jev", "random", "oracle"))
-    p.add_argument("--vocab", default="v3", choices=("v1", "v2", "v3"),
+    p.add_argument("--vocab", default="v3",
+                   choices=("v1", "v2", "v3", "v4"),
                    help="the frozen vocabulary AND state template: v1 is "
                         "Experiment 3's, v2 is decision 73 --- the prompt "
                         "study's W7, i.e. the mechanical verdict block in "
@@ -3561,7 +4003,13 @@ def main():
                         "v3 (default, decision 77) is v2 with the function "
                         "candidates `inline` and `cold` replaced by "
                         "`inline_always`, the two of them being inert under "
-                        "O3 + PGO + fat LTO")
+                        "O3 + PGO + fat LTO; its state is v3.1 since "
+                        "decision 83 (per-loop legality, the inliner's own "
+                        "decisions, no hotness class on a placeholder "
+                        "share). v4 (decision 84) is v3 with the function "
+                        "descriptions rebalanced so that no candidate is "
+                        "described at greater length or strength than "
+                        "another")
     p.add_argument("--readout", default="forced_top1",
                    choices=("forced_top1", "argmax"),
                    help="how a phase's answers become plan entries "

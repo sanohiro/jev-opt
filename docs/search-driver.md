@@ -33,10 +33,12 @@ scripts/jev_search.py --target jaq \
 Useful flags:
 
 ```
---vocab v1|v2|v3    the frozen vocabulary AND state template. v3 is the
-                    default (decision 77); v2 is decision 73's W7; v1 is
-                    what Experiment 3 was run with. See "The state format"
-                    below
+--vocab v1|..|v4    the frozen vocabulary AND state template. v3 is the
+                    default (decision 77), rendering the v3.1 state since
+                    decision 83; v4 (decision 84) is v3 with the six
+                    function descriptions rebalanced; v2 is decision 73's
+                    W7; v1 is what Experiment 3 was run with. See "The
+                    state format" below
 --readout           forced_top1 (default) or argmax: how a phase's answers
                     become plan entries (decision 71). See "The proposers"
 --source-comments   strip (default) or keep: whether the source excerpts in
@@ -249,10 +251,13 @@ every request log line, every plan and the run manifest, as is
 prints the whole thing --- the state of both phases **and** every question,
 with its instructions and its `criteria` --- without making a request.
 
-There are three of them, and `--vocab` selects both halves at once, because
+There are four of them, and `--vocab` selects both halves at once, because
 the wording and the template are one measurement condition and the prompt
 study measured them together. v3 is the default; it is v2 with a different
-set of function candidates and is described in its own section below.
+set of function candidates, and v4 is v3 with the function descriptions
+rebalanced. Both have their own section below, as does the decision-83
+repair of the v3 state (`state-v3.1-2026-09-22`), which v3 and v4 share and
+v1 and v2 do not.
 
 | | v1 (`state-v1-2026-09-22`, `v1-2026-09-22`) | v2 (`state-v2-2026-09-22`, `v2-2026-09-22`) |
 |---|---|---|
@@ -302,17 +307,23 @@ finding 2b of round 2.
 | size class | `<50` tiny, `<300` small, `<1000` medium, `<2000` large, `>=2000` very large |
 | copy class | 1 single, 2--8 few, `>=9` many (monomorphizations resolved by the dump) |
 | trip class | `<2` degenerate, `<16` short, `<100` medium, `>=100` long |
-| hotness class | `<1%` not hot, 1--5% hot, `>=5%` very hot (the mark's own profile share, `reach` when it has no symbol of its own) |
-| inline budget | LLVM's own `-inline-threshold=225` / `-inlinehint-threshold=325`; the line prints body instructions over whichever applies to the attributes the function already carries, and says in the same breath that it is an order-of-magnitude comparison and not an `InlineCost` computation --- the state's own remarks carry real `cost=/threshold=` pairs, and they are about this function's *callees* |
+| hotness class | `<1%` not hot, 1--5% hot, `>=5%` very hot (the mark's own profile share, `reach` when it has no symbol of its own). **v3.1 and v4:** where every mark carries one and the same share the number is a design statement, not a measurement, so the line reports `not measured` and there is no class |
+| inline budget | **v1 and v2 only.** LLVM's own `-inline-threshold=225` / `-inlinehint-threshold=325`; the line prints body instructions over whichever applies to the attributes the function already carries, and says in the same breath that it is an order-of-magnitude comparison and not an `InlineCost` computation. v3.1 replaced it with `inliner outcomes` below |
+| inliner outcomes | **v3.1 and v4.** The inline remarks of the baseline build, matched by **callee symbol** rather than by source location, aggregated over every linkage name of the mark (identical lines deduplicated, since a log holds the pre-link compilation and the LTO one): how many call sites were inlined, at which `cost=`/`threshold=` pairs, how many were declined and why. An inline remark is located at the *caller's* line, so no window around the callee's definition can find it --- which is why the site's remark block never showed it and the budget ratio above could contradict it |
 | lanes | `<register width> / <element bit width>`; the element type is the innermost `Iter<...>` of the recorded inline chain, demangled with `llvm-cxxfilt`, and the line says *not derivable* where the chain carries none (a loop over format pieces, say) rather than guessing one. An element as wide as the register says so instead of naming a width |
-| legality | `loop not vectorized: <reason>` whose reason is an early exit / unsupported switch / bad successor count / unidentifiable induction variable / undeterminable trip count / non-reduction used outside the loop. `runtime pointer checks needed` is **not** counted as a legality failure. No remarks recorded at the location prints `UNKNOWN`, not "legal" |
+| legality | `loop not vectorized: <reason>` whose reason is an early exit / unsupported switch / bad successor count / unidentifiable induction variable / undeterminable trip count / non-reduction used outside the loop. `runtime pointer checks needed` is **not** counted as a legality failure. No remarks recorded at the location prints `UNKNOWN`, not "legal". **v1 and v2** read the remarks from a +-10-line window; **v3.1 and v4** read them from the loop's own leaf `file:line:col` and print `UNKNOWN (shared source line; remarks not attributable to this loop)` where more than one vectoriser verdict was emitted there |
+| loops at this location | **v3.1 and v4.** One verdict per loop: the bare `loop not vectorized` missed-remark, or `vectorized loop (...)`. Counted *before* dedup, at the exact leaf location, it is how many loops of the program were compiled onto that source line --- 17 at `macros.rs:180:28`, 18 at `range.rs:1103:12`, 1 at a kernel's own line |
+| dump facts | **v3.1 and v4.** Trip count, calls in the body and `llvm.loop.isvectorized`, stated as the primary source because the dump records a loop and a remark records a line. The `isvectorized` reading carries its own caveat: the plugin tests it at `VectorizerStartEP`, before LoopVectorize runs, so `no` is the normal answer and is not a statement that the loop stays scalar |
 | loops per key | the dump record does not carry it, so it is the `key_copies` of `sites.json` where the key is one that file recorded, and "not recorded for this key" otherwise --- never a silent 1, since 13 of jaq's 127 keys name 2--9 loops |
 | no-op check | a candidate that reproduces what the site already carries: `inline` where the attributes already include `inlinehint` (and whether that is every copy or some), `cold` where `cold` is already there, `vectorize_width_N` where a remark already reports `vectorized loop (vectorization width: N)` |
 
 The thresholds and the phrasings are the study's, copied from
 `scripts/jev_state_variants.py` where they were pre-registered. The remark
-window is the same one the section prints (+-10 lines for a loop), so no
-line of the block can cite something the reader cannot see.
+window is the same one the section prints, so no line of the block can cite
+something the reader cannot see: +-10 lines for a loop under v1 and v2, the
+loop's own leaf location under v3.1 and v4, and under those two the
+function section additionally quotes the inline remarks the `inliner
+outcomes` line aggregates.
 
 ### The platform block
 
@@ -364,9 +375,9 @@ at the lines the hot loops live on --- can leak the same way.
 
 The mode is recorded in the state header (`source  source_comments: ...`),
 on every JSONL request line and in `run-manifest.json`. The state format
-string is **not** bumped for it: `state-v3-2026-09-22` renders one extra
+string was **not** bumped for it: `state-v3-2026-09-22` renders one extra
 header line, and that line is the disambiguator between a `keep` run and a
-`strip` run. It is added to **all three** templates, v1 and v2 included: a
+`strip` run. It is added to **every** template, v1 and v2 included: a
 state without that line was rendered before the option existed and is a
 `keep` state, so the line, not the date, is what tells the two conditions
 apart.
@@ -380,7 +391,7 @@ decision 19 says, and requires re-running whatever is being compared.
 `--vocab v1` is kept so that Experiment 3's condition can be reproduced;
 the v1 state that this driver renders is unchanged by the v2 work.
 
-One later change reaches all three templates: since commit `b955338` the
+One later change reaches every template: since commit `b955338` the
 build block carries a `source  source_comments: ...` line and the excerpts
 are stripped of comments by default (see "Source excerpts" above). So
 reproducing a pre-2026-09-22 state needs `--source-comments keep`, which
@@ -455,8 +466,92 @@ taken again under v3.
 The plugin accepts `inline: "hint"` and `cold: true` for exactly that
 replay; only the vocabulary stops offering them.
 
-`v3-2026-09-22` / `state-v3-2026-09-22` are frozen at commit `7fe1a92`, on
-the same terms as v2 above.
+`v3-2026-09-22` is frozen at commit `7fe1a92`, on the same terms as v2
+above. Its **state** is not: decision 83 replaced three defective readings
+and bumped the state format to `state-v3.1-2026-09-22`, described next. The
+vocabulary is unchanged to the byte, so a v3 run before and after that
+commit asks the same question of a differently-evidenced state, and the two
+are told apart by the state format string in every JSONL line, plan and
+manifest.
+
+### v3.1: the evidence repaired (decision 83)
+
+`state-v3.1-2026-09-22`, rendered by `--vocab v3` and `--vocab v4` and by
+neither of the older two. Three readings of the v3 state said things the
+build log does not support; `docs/experiments/hintbench/jev-oneshot-v3.md`
+sections 5 and 14 found all three and
+`docs/experiments/hintbench/jev-oneshot-v4.md` measures what fixing them
+does. Nothing about the candidates, the descriptions or the questions
+moves.
+
+| | v3 | v3.1 |
+|---|---|---|
+| loop legality | the +-10-line remark window. Three of hintbench's four loop sites, and 12 of jaq's 16, sit on a `std` line every inlined `for` loop shares, so the window pooled other loops' verdicts and asserted NOT VECTORIZABLE at loops the baseline vectorises | the loop's own leaf `file:line:col`, plus a count of the vectoriser verdicts emitted there. More than one -> `UNKNOWN (shared source line; remarks not attributable to this loop)` |
+| the loop's remark block | the same +-10-line window, unlabelled | the exact leaf location, with a header naming how many loops were compiled onto it when that number is above 1 |
+| dump facts for a loop | `already vectorized when the hint is attached: no`, which reads as "LLVM leaves this loop scalar" and is not what the field means | one line stating the dump as the primary source, and saying that `llvm.loop.isvectorized` is tested before LoopVectorize runs so `no` is the normal answer |
+| the inliner's decision about a function | an `inline budget` ratio of body instructions over `-inline-threshold=225`, which at hintbench's k2 said "the body fits inside that budget" while LLVM had measured cost 870 against threshold 787 and declined | the ratio is **gone**; `InlineBook` parses the log's inline remarks by callee symbol, aggregates them per mark, and both the verdict line and the state section quote them |
+| a placeholder profile share | `hotness class very hot` at all eight hintbench marks, from a `share: 12.5` that is the design's "one eighth each" | `not measured`, no class, wherever every mark carries the same value. Detected, not special-cased: jaq's 1.10--29.29% keep their classes |
+
+What the legality fix costs is recorded with it: LLVM really does vectorise
+k4, k5 and k8 at VF 8 x IC 4, that fact is in the log, and it is not
+reachable by source location. `UNKNOWN` is the honest reading and Jev
+answers `vectorize_width_*` at all three sites once it is given
+(`jev-oneshot-v4.md` section 5). Recovering the fact needs
+`scripts/remark_attribution.py` wired into the state, or a plugin that
+records a loop's post-vectoriser state; neither exists yet.
+
+### v4: the function descriptions, rebalanced (decision 84)
+
+`v4-2026-09-22` / `state-v4-2026-09-22`. Same candidates as v3, same ids,
+same plan fragments, same loop half, same questions, same v3.1 state. Only
+the six **function** descriptions change, so a v3/v4 difference can come
+from nothing else.
+
+Why: with the hintbench doc-comment leak removed, `inline_always` was the
+best non-`KEEP_DEFAULT` candidate at all eight function sites in all three
+repeats and the argmax at four, the control kernel included, while every
+confidence fell to 0.34--0.48 (decision 82). v3 argues for `inline_always`
+at 148 words and for `inline_never` at 117, and mentions the three
+alignments in 26--37 words of v1 prose with no applicability at all; a
+candidate argued for at five times the length of its rivals is a reason to
+pick it that has nothing to do with the site.
+
+v4's rule, applied to all six including `KEEP_DEFAULT`: one paragraph,
+383--411 characters, 67--72 words, four sentences --- what the attribute
+does, then one sentence beginning "It helps where" and one beginning "It
+hurts where". No superlatives, no numeric instruction threshold in one
+description and not in another, no claim that a candidate is immune to
+anything, and no function, loop, file or site named. The six together are
+2374 characters against v3's 2329: the words are redistributed, not added.
+The candidate **order** is v3's, so position is held constant rather than
+varied.
+
+What it did: on hintbench, with the v3.1 state, v4 moved **no argmax at any
+of the twelve sites** and halved the probability mass at the two sites where
+`inline_always` is still chosen (k2 0.94 -> 0.70, k6 0.98 -> 0.70), while
+raising `P(KEEP_DEFAULT)` everywhere else. `inline_always` is the best
+non-KEEP candidate at 4 of 8 sites instead of 8 of 8. Most of that repair
+was the v3.1 state, not the descriptions: the state fix alone already took
+it to 5 of 8. `docs/experiments/hintbench/jev-oneshot-v4.md` has both
+ablations.
+
+`v4-2026-09-22` is frozen on the same terms as v2 and v3.
+
+### One shot, API only: `scripts/jev_oneshot.py`
+
+Round 1 of a run, both phases, N repeats, **no build and no timing**. It
+loads `jev_search.py` as a module, runs the `--print-state` path to perform
+the whole round-1 setup, and then drives `JevProposer.choose()` on the
+driver's own item lists, so the state, the questions, the batching, the
+candidate validation, the confidence gate and the decision-71 readout are
+the driver's code. A phase whose every answer came back `no answer` is
+re-sent unchanged and both lines stay in the JSONL.
+
+Its one departure from a real round is forced by building nothing: phase B
+is asked against the **baseline** dump's loop sites and told `function
+attributes this round already applied: none`, which is round 1 of a run
+whose phase A answered `KEEP_DEFAULT` everywhere. Use it to compare
+prompts, never to produce a plan.
 
 **`--resume` does not carry the vocabulary.** A resumed run reads
 `rounds.jsonl` for the rounds already recorded and skips that many arms **by

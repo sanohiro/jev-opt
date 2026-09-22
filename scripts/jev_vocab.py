@@ -13,7 +13,7 @@ comparison with earlier runs. `VOCAB_VERSION` is written into the run
 manifest and into every Jev request log line so a changed vocabulary is
 visible after the fact instead of being silently mixed in.
 
-There are now three frozen vocabularies, selected by `set_version()` and by
+There are now four frozen vocabularies, selected by `set_version()` and by
 the driver's `--vocab` flag:
 
   v1   what Experiment 3 was run with. Frozen; nothing below it may change.
@@ -39,15 +39,26 @@ the driver's `--vocab` flag:
        added in their place: it never appears in `InlineCost.cpp` at all and
        has no Rust counterpart. The loop half is v2's, unchanged, so a v2/v3
        difference on a loop site cannot come from the vocabulary.
+  v4   decision 84. The same candidates, ids, plan fragments, loop half and
+       questions as v3; only the six *function* descriptions change. v3
+       argues for `inline_always` and `inline_never` at about 130 words
+       each and mentions the three alignments in about 35, and with the
+       hintbench doc-comment leak removed Jev answered `inline_always`
+       everywhere (decision 82). v4 gives all six --- KEEP_DEFAULT included
+       --- one paragraph of the same length, each with one "It helps where"
+       sentence and one "It hurts where" sentence, so that the difference
+       between two sites has to come from the state's per-site readings
+       rather than from how long a candidate's paragraph is.
 
 Every string of v2 is copied verbatim from
 `docs/experiments/jev-prompt-study/` (`scripts/jev_state_variants.py`
 `ENRICHED_FN`, `NEUTRAL_KEEP_FN`, `NEUTRAL_KEEP_LOOP`, `Q_V2_FN`,
 `Q_V2_LOOP`), so the shipped state asks what the study measured.
 
-Nothing below v1 or v2 may change: both are kept so that Experiment 3 and
-the prompt study can be replayed byte for byte, which is also why the plugin
-still accepts `inline: "hint"` and `cold: true`.
+Nothing below v1, v2 or v3 may change: they are kept so that Experiment 3,
+the prompt study and the two hintbench one-shot passes can be replayed byte
+for byte, which is also why the plugin still accepts `inline: "hint"` and
+`cold: true`.
 
 The module-level default stays **v1** so that every other importer ---
 `scripts/jev_state_variants.py` above all, which reproduces round 1 of the
@@ -467,6 +478,117 @@ LOOP_INSTRUCTIONS_V3 = LOOP_INSTRUCTIONS_V2
 
 
 # ---------------------------------------------------------------------------
+# v4 (decision 84): the function descriptions, rebalanced
+# ---------------------------------------------------------------------------
+#
+# Same candidates as v3, same ids, same plan fragments, same loop half, same
+# questions. The only thing that changes is how the six function candidates
+# are *described*, and it changes because of a measurement.
+#
+# With the kernels' doc comments stripped out of the state
+# (`docs/experiments/hintbench/jev-oneshot-v3.md` sections 9-15, decision
+# 82), `inline_always` became the best non-KEEP candidate at all eight
+# hintbench function sites in all three repeats and the argmax at four of
+# them --- including the control kernel, whose reference answer is
+# KEEP_DEFAULT --- while every confidence fell into the band 0.34-0.48. A
+# blanket answer at every site is not a judgement about any site, and the
+# most likely thing in the state that produces one is the description set
+# itself: v3 gives `inline_always` and `inline_never` about 130 words each,
+# with applicability conditions, a threshold in instructions and a sentence
+# about the profile being unable to overrule them, and gives the three
+# alignments about 35 words of v1 prose with no applicability at all.
+# Between a candidate argued for at length and one mentioned in passing,
+# length is a reason to pick the first that has nothing to do with the site.
+#
+# So v4 makes the six symmetric and lets the state's mechanical readings,
+# which are per-site, carry the difference between sites:
+#
+#   * one paragraph each, 383-411 characters, 67-72 words, four sentences;
+#   * each says what the attribute does, then one sentence beginning "It
+#     helps where" and one beginning "It hurts where" --- the same pair, in
+#     the same order, in every candidate, KEEP_DEFAULT included;
+#   * no superlatives, no numeric instruction threshold in one description
+#     and not in another, and no sentence about a candidate being immune to
+#     anything;
+#   * no function, loop, file, program or site is named, as in v2 and v3.
+#
+# `align_16` is a near no-op on x86-64 and says so, in the same shape and at
+# the same length as the others: the fix is to stop describing candidates at
+# unequal length, not to talk each of them up to the strongest one.
+
+FN_CANDIDATES_V4 = {
+    KEEP_DEFAULT: (
+        "Put no attribute on this function. Its inlining and its entry "
+        "alignment stay whatever LLVM's cost model and the platform default "
+        "produce, exactly as in the baseline build. It helps where the cost "
+        "model already reaches the decision the readings above support, so "
+        "that an attribute could only restate it. It hurts where a decision "
+        "the cost model will not revisit on its own is worth making by hand.",
+        {},
+    ),
+    "inline_always": (
+        "Put the `alwaysinline` attribute on this function (the SPEC "
+        "vocabulary's `inline(always)`). Its body is then pasted into every "
+        "call site and the cost model is not consulted. It helps where the "
+        "inliner is declining a body whose caller would specialise on what "
+        "it passes, and the call overhead is worth removing. It hurts where "
+        "the body is long or the call sites are many, since each of them "
+        "pays the code growth.",
+        {"inline": "always"},
+    ),
+    "inline_never": (
+        "Put the `noinline` attribute on this function (the SPEC "
+        "vocabulary's `inline(never)`). It then stays one out-of-line copy "
+        "and every call site pays a call and a return for it. It helps "
+        "where the pasted copies are what makes a caller's hot region long, "
+        "and the call overhead is small beside the work per call. It hurts "
+        "where the body is short and the call overhead is much of its cost.",
+        {"inline": "never"},
+    ),
+    "align_16": (
+        "Set this function's entry alignment to 16 bytes (the SPEC "
+        "vocabulary's `align=16`). The entry then begins on a 16-byte "
+        "boundary, which is what x86-64 gives a function by default, and no "
+        "padding is spent. It helps where something has given the function "
+        "a different alignment and 16 is wanted back. It hurts where a "
+        "change is expected of it and none is made: at 16 already, the "
+        "output does not move.",
+        {"align": 16},
+    ),
+    "align_32": (
+        "Set this function's entry alignment to 32 bytes (the SPEC "
+        "vocabulary's `align=32`). The entry then begins on a 32-byte "
+        "boundary, which moves the first instructions inside the "
+        "instruction-fetch windows, and up to 31 bytes of padding are "
+        "spent. It helps where a hot loop sits near the entry and "
+        "afterwards spans fewer fetch windows. It hurts where the padding "
+        "is spent and the spans do not change.",
+        {"align": 32},
+    ),
+    "align_64": (
+        "Set this function's entry alignment to 64 bytes (the SPEC "
+        "vocabulary's `align=64`). The entry then begins on a cache line, "
+        "the mechanism of `align=32` one step coarser, and up to 63 bytes "
+        "of padding are spent. It helps where a hot loop sits near the "
+        "entry and afterwards spans fewer cache lines rather than fewer "
+        "fetch windows. It hurts where the padding is spent and the spans "
+        "do not change.",
+        {"align": 64},
+    ),
+}
+
+# The loop half of v4 is v3's (which is v2's), and so are the questions.
+# Built from v3 rather than copied, so the two cannot drift: a v3/v4
+# difference on a loop site cannot come from the vocabulary, and a
+# difference on a function site can only come from the six texts above.
+LOOP_CANDIDATES_V4 = {cid: (desc, dict(frag))
+                      for cid, (desc, frag) in LOOP_CANDIDATES_V3.items()}
+
+FN_INSTRUCTIONS_V4 = FN_INSTRUCTIONS_V3
+LOOP_INSTRUCTIONS_V4 = LOOP_INSTRUCTIONS_V3
+
+
+# ---------------------------------------------------------------------------
 # frozen question wording
 # ---------------------------------------------------------------------------
 
@@ -492,12 +614,13 @@ BUILD_INSTRUCTIONS = (
 
 
 VOCAB_VERSIONS = {"v1": "v1-2026-09-22", "v2": "v2-2026-09-22",
-                  "v3": "v3-2026-09-22"}
+                  "v3": "v3-2026-09-22", "v4": "v4-2026-09-22"}
 
 _TABLES = {
     "v1": {"fn": FN_CANDIDATES, "loop": LOOP_CANDIDATES},
     "v2": {"fn": FN_CANDIDATES_V2, "loop": LOOP_CANDIDATES_V2},
     "v3": {"fn": FN_CANDIDATES_V3, "loop": LOOP_CANDIDATES_V3},
+    "v4": {"fn": FN_CANDIDATES_V4, "loop": LOOP_CANDIDATES_V4},
 }
 
 _INSTRUCTIONS = {
@@ -509,6 +632,8 @@ _INSTRUCTIONS = {
     "v2": {"fn": FN_INSTRUCTIONS_V2, "loop": LOOP_INSTRUCTIONS_V2,
            "build": BUILD_INSTRUCTIONS},
     "v3": {"fn": FN_INSTRUCTIONS_V3, "loop": LOOP_INSTRUCTIONS_V3,
+           "build": BUILD_INSTRUCTIONS},
+    "v4": {"fn": FN_INSTRUCTIONS_V4, "loop": LOOP_INSTRUCTIONS_V4,
            "build": BUILD_INSTRUCTIONS},
 }
 
