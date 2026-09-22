@@ -441,3 +441,106 @@ says why.
   now whatever arms happen to come out code-identical, plus the empty plan.
   That is a real loss of a control, and it is the price of dropping two
   candidates that could not do anything.
+
+## 5. Scored against the oracle
+
+Written 2026-09-22 after the sweep (`scripts/hintbench_oracle.sh run`, 84
+one-factor arms plus a combination, 16:39--20:28 JST). Sections 1--4 are
+untouched. Full tables: `docs/experiments/hintbench/oracle.md`; the
+narrative is results.md "Hint benchmark (oracle)".
+
+**The calibration arm passed.** K5's `interleave.count=1` measured 0.2957 on
+k5 and 0.2944 in an independent second batch --- a 70.4% loss, inside the
+−50% to −75% predicted in section 1. The threshold for what counted as
+"large" was fixed in `oracle.md` 2 at arm 21, 28 arms before this one ran.
+So the sweep can see, and the rest of this section may be read.
+
+### The winner claims
+
+Scoring rule, pre-registered in `oracle.md` 2: a kernel's measured best is
+the arm at one of its own sites with the highest ratio on its own workload,
+among arms confirmed positive in two independent batches; `KEEP_DEFAULT` if
+none was. Two readings, both pinned before the arms that separate them ---
+as frozen, and with the extra gate that the effect cleared its batch's MDE.
+
+| kernel | predicted | measured best | ratio | score | with the MDE gate |
+|---|---|---|--:|---|---|
+| K1 | `inline(never)` | `KEEP_DEFAULT` | --- | **miss** | miss |
+| K2 | `inline(always)` | **`inline(always)`** | **1.6775** | **hit** | **hit** |
+| K3 | `unroll.disable` | `unroll.count=4` | 1.0436 | **same-family** | same-family |
+| K4 | `KEEP_DEFAULT` | `inline(never)` | 1.0152 | **miss** | **hit** |
+| K5 | `KEEP_DEFAULT` | `vectorize.width=16` | 1.0265 | **miss** | **hit** |
+| K6 | `align=64` | `KEEP_DEFAULT` | --- | **miss** | miss |
+| K7 | `inline(never)` | `KEEP_DEFAULT` | --- | **miss** | miss |
+| K8 | `KEEP_DEFAULT` | `vectorize.width=16` | 1.0881 | **miss** | miss |
+
+**1 hit, 1 same-family, 6 miss of 8 as frozen; 3 hits, 1 same-family, 4
+miss with the MDE gate.** The two rows that move (K4, K5) are confirmed
+effects of 1.5% and 2.7% that are under this protocol's 3% floor.
+
+### The effect-size claims score better than the winner claims
+
+| kernel | predicted size | measured | verdict |
+|---|---|---|---|
+| K1 | +2% to +10% | −4.55% | wrong sign |
+| K2 | +2% to +10% | **+67.8%** | right sign, 7x the top of the band |
+| K3 | +2% to +10% | −29.4% for `unroll.disable`; +4.4% for `unroll.count=4` | wrong sign for the named hint; section 1's aside that "`unroll.count=2` should also win, by less" was right (+4.2%) |
+| K4 | width 16: 0% to −25% | −42.1% | right sign, outside the band |
+| K5 | IC 1: −50% to −75% | **−70.4%** | **in band** |
+| K6 | ±0% to ±3%, sign unknown | **+0.08%**, unconfirmed | **in band** |
+| K7 | 0% to +5% | **−0.01%**, unconfirmed | **in band**, at its floor |
+| K8 | every hint ≤ 0% | +8.8% (`vectorize.width=16`) | wrong |
+
+Four of eight size bands contain the measurement; one of eight winner
+claims is a hit. The calibration is on **how much a knob can matter**, not
+on **which knob**.
+
+### What was right, what was wrong, and what was wrong for the right reason
+
+* **Right: every mechanism this file claimed to have built, it built.** K1's
+  eight call sites really are inlined and `inline(never)` really takes them
+  out of line. K3's default really is a runtime unroll by 8 --- so exactly
+  that `unroll.count=8` produced a binary **identical** to the baseline, as
+  section 1 said it would, and every `vectorize.width` and
+  `interleave.count` arm at k3 was inert because the loop is refused, as
+  section 1 also said. K5's IC 4 and K4's VF 8 x IC 4 really are the
+  baseline's choices, so `interleave.count=4` at k5 and at k4 built the
+  baseline. K6's `align=64` really moves the entry from mod 64 = 16 to mod
+  64 = 0 (measured again in the sweep). The section 2c null results were
+  confirmed: `inline(always)` at K1 and K7, where the baseline already
+  inlines, built binaries identical to the baseline.
+* **Wrong, three times, on the sign of `inline(never)`.** Predicted a winner
+  at K1 (+2--10%) and at K7 (0--+5%), and implied at K3 that taking a body
+  out of line is a lever worth having. Measured: K1 −4.6%, K3 −17.1%, K7
+  exactly zero. This file priced the calls a de-inlining adds and never
+  priced the scheduling the inlined copies were getting. Three redirections
+  to `inline(never)`, three failures.
+* **Wrong for the right reason at K2, by a factor of seven.** Section 4
+  named `inline(always)` and gave +2% to +10%; the answer is +67.8%. The
+  mechanism it described is confirmed instruction for instruction --- the
+  binary has 60 fewer `imul`, exactly the 60-round chain, `mode` folded to a
+  constant and the multiply strength-reduced to `lea`. What the estimate
+  missed is that on this kernel that chain *is* the workload.
+* **Wrong at K8, which was the control.** "If any hint wins here by more
+  than the noise floor, the noise floor is wrong." `vectorize.width=16` wins
+  by +8.8%, confirmed twice and reproduced in two further batches. The noise
+  floor is fine; the premise that a store-limited VF 8 x IC 4 loop has
+  nothing left to give is not.
+* **Wrong reasoning, surviving prediction, at K4 and K5.** Both sections
+  argue a forced width of 16 "cannot add bandwidth, it can only trade lanes
+  against interleaving". At k5, a latency-bound reduction, it *does* add:
+  VF 16 on u32 is two `ymm` per vector, so with IC 4 there are about eight
+  independent chains instead of four, and it is the best arm at that kernel
+  (+2.65%). At k4 the argument is correct and width 16 costs 42%. The
+  `KEEP_DEFAULT` predictions survive under the MDE gate; the argument for
+  them does not.
+
+### What this file could not have known
+
+The two hints this benchmark's four `KEEP_DEFAULT` predictions leaned on ---
+`unroll.disable` and `interleave.count=1` --- turn out to be **the same
+instruction to an already-vectorised loop**: identical instruction counts and
+ratios at k4, k5 and k8, because LoopVectorize reads
+`llvm.loop.unroll.disable` and refuses to interleave. Only at k3, where the
+vectoriser is out, do they differ. Nothing in the evidence available before
+the sweep (section 2) would have shown that.

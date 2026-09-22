@@ -8842,3 +8842,436 @@ applied to this run (the conditions were frozen before arm 1):
   number.
 * Nothing here says anything about the loop hints, about other targets, or
   about attributes on functions that are not one of these fifteen marks.
+
+## Hint benchmark (oracle) --- the sweep that turns EXPECTED.md into a score
+
+The one-factor sweep of SPEC.ja.md 2 over `targets/hintbench`: every
+candidate of vocabulary v3, alone, at each of the twelve sites, with every
+other site at `KEEP_DEFAULT`, plus one combination arm. **84 one-factor arms
+plus the combination, 16:39--20:28 JST on 2026-09-22, no API calls.**
+
+It is the measurement decision 72 ordered the project around: a target where
+a correct answer exists, a prediction frozen before the timing
+(`targets/hintbench/EXPECTED.md`), and an oracle that says which predictions
+were right. Full per-arm tables, the scorecard under both readings and the
+raw numbers are in `docs/experiments/hintbench/oracle.md`; this section is
+what the sweep established.
+
+### 118. Three driver fixes, pre-registered and committed before arm 1
+
+Decision 80's protocol changes, in `scripts/jev_search.py`, commit `a44d8e6`,
+made and tested before the first build. None touches the vocabulary, the
+state format, the site set or the measurement conditions.
+
+**(a) The closure fan-out (decision 80 c).** `is_inner_item` decided whether
+a function is the mark or an item defined inside it by looking at the single
+character after the mark. For a **generic** mark that character is the `<` of
+the generic arguments, so `read::parse::<SliceLexer>::{closure#0}` passed as
+a monomorphization and one Choice about `read::parse` put its attribute on
+every closure the function defines. The rule now skips the balanced `::<...>`
+group and asks what follows *it*. Measured on the recorded dumps, no build:
+
+| target | plan entries in a full phase-A plan, before | after | removed |
+|---|--:|--:|--:|
+| hintbench | 8 | 8 | **0** |
+| jaq | 138 | **49** | **89** |
+
+hintbench is unaffected --- its eight marks are non-generic and each resolves
+to one function --- so this sweep measured what it would have measured
+anyway. jaq's four generic marks are where it bites: `TermId::run` 62 -> 2,
+`read::parse` 18 -> 6, `path::run` 12 -> 3, `Val::hash` 12 -> 4. Experiment 3
+and oracle A both ran with the old reach, against the one shared baseline
+dump these numbers are computed from, so **the "`inline(never)` on
+`TermId::run`" of section 112 was in fact `noinline` on 62 functions, 60 of
+them closures**, and the loop half of jaq's oracle has not been run yet and
+will use the fixed reach.
+
+**(b) No-op arms are not timed (decision 80 b).** After the build and the
+correctness check every arm's binary is classified against the baseline by
+normalised instruction sequence (`norm_code_diff.py`) *and* symbol table
+(`nm -S`): `identical` (not timed, ratio 1.0 by construction, `ci95: null`),
+`layout` (same instructions, symbols moved --- what `align=N` does when it
+works), or `code`. The plugin cannot supply this; it reports `consumed`
+whether or not LLVM acted.
+
+**(c) The confirmation batch (decision 80 a).** An arm whose interval
+excludes 1 --- on the aggregate or on its own kernel's workload --- is
+re-measured in a second independent batch over the same two binaries with a
+fresh shuffle seed, and is believed only if both batches exclude 1 with the
+same sign. This became a fourth condition of the acceptance rule, and it
+replaced the combination arm's selection rule: a site now joins with its best
+**confirmed** arm, ranked on the **per-kernel readout** that section 103
+froze rather than on the eight-way geometric mean, since a 10% win on one
+kernel is 1.2% of that mean. Both weaker rules are recorded beside the chosen
+set.
+
+### 119. The null panel, and why hintbench is not jaq
+
+Two independent batches, four stripped copies of the one baseline binary,
+under the arms' own conditions.
+
+| label | batch 1 | 95% CI | batch 2 | 95% CI |
+|---|--:|---|--:|---|
+| n1 | 0.9997 | [0.9976, 1.0018] | 1.0017 | [0.9996, 1.0039] |
+| n2 | 0.9998 | [0.9977, 1.0017] | 1.0017 | [0.9996, 1.0041] |
+| n3 | 1.0005 | [0.9984, 1.0027] | 1.0018 | [0.9991, 1.0044] |
+
+**Within-batch spread between byte-identical binaries: 0.08 points and 0.01
+points. Between batches the same comparison moved 0.17 points.** No interval
+in either batch excludes 1. jaq's dedicated panel spread 0.77 points and its
+48 in-sweep no-op builds spread 4.67 (section 113).
+
+The sweep says the same from inside. Over its 45 timed arms the in-run A/A
+interval excluded 1.0 in **5 of 45** aggregate readings, **12 of 45**
+single-workload readings and **5 of 38** confirmation batches --- against
+**41 of 90** on jaq. The aggregate interval on this target is close to
+honest; the single-workload interval is still about five times too confident,
+which is the reason the per-kernel readout needs the confirmation batch more
+than the aggregate does.
+
+A consequence worth stating plainly: **the confirmation batch changed nothing
+on hintbench.** Not one arm this sweep would have accepted on one batch was
+refused by the second, and the combination arm's membership is identical
+under the new rule and the old. Decision 80 (a) is a fix for jaq's noise
+floor, and hintbench is the control that shows it costs nothing where the
+noise floor is already sound.
+
+### 120. 39 of the 84 arms built the baseline
+
+| what the build differs in | arms | of the 40 function arms | of the 44 loop arms |
+|---|--:|--:|--:|
+| nothing: same instructions, same symbol table | **39** | 28 | 11 |
+| only where the code sits | **4** | 4 | 0 |
+| instructions changed | **41** | 8 | 33 |
+
+Correctness held in 84 of 84 and in the combination; every plan entry
+`consumed` or `attached`, nothing `vanished`, `unmatched` or `ambiguous`.
+
+By candidate: **all 8 `align=16` arms are no-ops**, and so are 6 of 8
+`align=32`, 6 of 8 `align=64`, 6 of 8 `inline(always)`, 4 of 4
+`interleave.count=4` and 7 of the 11 hints aimed at k3's loop. A skipped arm
+costs 9.6 s against 290 s for a measured one, so **the skip removed about
+3.1 hours from a 3.8-hour sweep** and removed 39 measurements that could only
+have produced noise.
+
+Two of the no-ops are worth their own line, because `consumed` hid the
+difference:
+
+* **`inline(always)` on `k1_step` is redundant, not inert.** The build log
+  carries eight `always inline attribute at callsite` remarks that the
+  baseline's log does not have, so AlwaysInliner *did* act --- and the
+  binary is **bit-for-bit the baseline's** (`sha256 07498197…`), because the
+  cost-model inliner had already inlined all eight call sites. A different
+  pass reached the same code.
+* **`align=32` and `align=64` are no-ops on six of the eight kernels
+  because there is nothing left to align.** Those six are fully inlined and
+  have no out-of-line symbol. On the two that do, the hint works exactly as
+  EXPECTED.md 1 K6 documented: `k6_hot_loop` sits at entry mod 64 = 16 in
+  the baseline, mod 32 = 0 under `align=32`, and **mod 64 = 0 under
+  `align=64`** --- and the clock does not move (1.0008 [0.9981, 1.0039],
+  unconfirmed).
+
+### 121. The calibration arm passed, so the scorecard can be read
+
+`docs/experiments/hintbench/oracle.md` 2 fixed, at arm 21 and 28 arms before
+the arm itself, what "large" had to mean: below 0.75 the prediction holds,
+0.75--0.97 the sweep sees but the mechanism model is wrong, above 0.97 the
+scorecard is void.
+
+**K5 `interleave.count=1` measures 0.2957 [0.2943, 0.2978] on k5 and 0.2944
+in the confirmation batch** --- a 70.4% loss, inside EXPECTED.md's predicted
+−50% to −75% band. `interleave.count=2` came in at 0.5953, almost exactly
+half the loss as predicted, and `interleave.count=4` produced a binary
+identical to the baseline because IC 4 is already what LoopVectorize picks.
+The kernel that "could not be constructed" did the one job it was kept for.
+
+### 122. The scorecard: 1 hit of 8, or 3 of 8 with an MDE gate
+
+
+| kernel | Claude's expected winner | expected effect | confidence | measured best (confirmed) | measured ratio | score | worst arm |
+|---|---|---|---|---|--:|---|---|
+| K1 | `inline_never` | +2% to +10% | low | `KEEP_DEFAULT` | -- | miss | `inline_never` 0.9545 |
+| K2 | `inline_always` | +2% to +10% | medium | `inline_always` | 1.6775 | **hit** | `align_64` 0.9974 |
+| K3 | `unroll_disable` | +2% to +10% | medium | `unroll_count_4` | 1.0436 | same-family | `unroll_disable` 0.7056 |
+| K4 | `KEEP_DEFAULT` | width 16: 0% to -25% | medium | `inline_never` | 1.0152 | miss | `vectorize_width_2` 0.2024 |
+| K5 | `KEEP_DEFAULT` | IC 1: -50% to -75% | high | `vectorize_width_16` | 1.0265 | miss | `vectorize_width_2` 0.2791 |
+| K6 | `align_64` | +-0% to +-3%, sign unknown | low | `KEEP_DEFAULT` | -- | miss | `align_32` 0.9985 |
+| K7 | `inline_never` | 0% to +5% | medium | `KEEP_DEFAULT` | -- | miss | `inline_never` 0.9999 |
+| K8 | `KEEP_DEFAULT` | every hint <= 0% | high | `vectorize_width_16` | 1.0881 | miss | `vectorize_width_2` 0.4467 |
+
+**1 hit, 1 same-family, 6 miss of 8.**
+
+With the post-hoc MDE gate (oracle.md 2, dated note): the same rule, plus the confirmed effect having cleared its batch's MDE.
+
+| kernel | Claude's expected winner | expected effect | confidence | measured best (confirmed) | measured ratio | score | worst arm |
+|---|---|---|---|---|--:|---|---|
+| K1 | `inline_never` | +2% to +10% | low | `KEEP_DEFAULT` | -- | miss | `inline_never` 0.9545 |
+| K2 | `inline_always` | +2% to +10% | medium | `inline_always` | 1.6775 | **hit** | `align_64` 0.9974 |
+| K3 | `unroll_disable` | +2% to +10% | medium | `unroll_count_4` | 1.0436 | same-family | `unroll_disable` 0.7056 |
+| K4 | `KEEP_DEFAULT` | width 16: 0% to -25% | medium | `KEEP_DEFAULT` | -- | **hit** | `vectorize_width_2` 0.2024 |
+| K5 | `KEEP_DEFAULT` | IC 1: -50% to -75% | high | `KEEP_DEFAULT` | -- | **hit** | `vectorize_width_2` 0.2791 |
+| K6 | `align_64` | +-0% to +-3%, sign unknown | low | `KEEP_DEFAULT` | -- | miss | `align_32` 0.9985 |
+| K7 | `inline_never` | 0% to +5% | medium | `KEEP_DEFAULT` | -- | miss | `inline_never` 0.9999 |
+| K8 | `KEEP_DEFAULT` | every hint <= 0% | high | `vectorize_width_16` | 1.0881 | miss | `vectorize_width_2` 0.4467 |
+
+**3 hit, 1 same-family, 4 miss of 8.**
+
+The two readings were both pinned before the arms that separate them
+(`oracle.md` 2, dated note at arm 21). They disagree on two rows only, K4 and
+K5, and in both cases on a confirmed effect of 1.5--2.7% that is under its
+batch's 3% MDE: the frozen rule calls such an arm the kernel's measured best,
+the MDE gate calls it undetectable. SPEC.ja.md's 3% floor says the second is
+the one to act on; the first is the one that was pre-registered. Both are
+reported and neither is argued for.
+
+**Grading the effect-size claims instead of the winner claims gives a
+different and better picture.** Four of the eight bands EXPECTED.md states
+contain the measured number (K5 −70.4% in −50/−75; K6 +0.08% in ±0--3%; K7
+−0.01% at the floor of 0--+5%; and K3's `unroll.count=2`, which EXPECTED.md
+predicted "should also win, by less", did win at +4.2%). Where Claude is well
+calibrated is **how much a knob can matter**; where it is not is **which
+knob**, and the sign of the two inlining redirections:
+
+* **K1.** `inline(never)`, predicted +2% to +10%, measured **0.9545 /
+  0.9566 in two batches** --- a 4.5% loss. The mechanism ran exactly as
+  described (eight out-of-line calls per iteration, two symbols changed);
+  EXPECTED.md priced the calls and not the scheduling the inlined copies
+  were getting.
+* **K3.** `unroll.disable`, predicted +2% to +10%, measured **0.7056** --- a
+  29% loss --- while its sibling `unroll.count=4` won +4.4% and
+  `unroll.count=2` +4.2%. The kernel's mechanism was right (the unroller is
+  the only thing a hint can reach there, and `unroll.count=8` reproduces the
+  default exactly: an identical build). The direction was not: less
+  unrolling is much worse, a little less is better.
+* **K7.** `inline(never)`, predicted 0% to +5%, measured **0.9999
+  [0.9981, 1.0017]**, unconfirmed. Exactly nothing, which is the floor of
+  the predicted band and the refutation of the winner claim at once.
+* **K2 is the one hit, and it is enormous.** `inline(always)`, predicted
+  +2% to +10%, measured **1.6775 and 1.6742 in two batches: +67.8% on k2.**
+
+Three predictions of `inline(never)` as a winner, three failures on sign.
+That is a pattern about Claude's model of call overhead, not three
+coincidences.
+
+### 123. `inline(always)` at K2: the largest confirmed effect in this project
+
+EXPECTED.md 4 replaced K2's inert `inline` with `inline(always)` after the
+source study, kept the mechanism section 1 had designed, and dropped its
+confidence to medium because "the size of the win is now the open question
+rather than its existence". The mechanism is confirmed instruction for
+instruction: round 6's binary has **60 fewer `imul`** --- exactly the
+60-round dependency chain --- because `mode` is a literal at both call sites,
+so `m = (mode & 7) | 1` folds to a constant and the 3-cycle register multiply
+becomes a `lea` pair. That accounts for roughly 1.25x of the 1.68x (5 cycles
+per round on the chain becoming 4); the rest is the call being removed and
+the two inlined copies being scheduled in place, and was not measured
+separately.
+
+`k2_mix` disappears from the symbol table --- the callee-vanishes case
+decision 77 flagged as a robustness requirement --- and the dump, the
+normalised-code comparison and the correctness check all handled it.
+
+**This is the first time in the project that a hint from the frozen
+vocabulary has made a program measurably faster by more than a few percent,
+and it is the candidate v3 added.** Decision 77 replaced `inline` with
+`inline(always)` from a reading of `InlineCost.cpp`, before any timing; the
+oracle says the replacement was worth 67.8% at the one site built to need it.
+
+### 124. Which hints are live on this benchmark, and which are furniture
+
+**Nine of the sixteen candidates in vocabulary v3 can move this benchmark by
+more than its noise floor**, counting only confirmed effects that cleared
+their batch's MDE --- and **only three of the nine ever do it in the right
+direction**:
+
+| | candidates | largest confirmed effect |
+|---|---|---|
+| live, can win | `inline(always)`, `unroll.count=4`, `vectorize.width=16` | +67.8% (k2), +4.4% (k3), +8.8% (k8) |
+| live, only ever lose | `inline(never)`, `unroll.disable`, `vectorize.width=2`, `vectorize.width=4`, `interleave.count=1`, `interleave.count=2` | −70.6% (k5, `unroll.disable`) |
+| **dead: never cleared the MDE anywhere** | `align=16`, `align=32`, `align=64`, `interleave.count=4`, `unroll.count=2`, `unroll.count=8`, `vectorize.width=8` | --- |
+
+The three alignment candidates are the whole of the function vocabulary
+except the two inlining ones, and none of them moved this benchmark at all:
+`align=16` built the baseline 8 times out of 8, and the two arms where
+`align=64` genuinely relocated the symbol moved the clock by 0.08% and
+0.26%, neither confirmed. `interleave.count=4`, `unroll.count=8` and
+`vectorize.width=8` are dead for the opposite reason --- they are what
+LLVM already chose, and the driver's classifier says so by building the
+baseline.
+
+Seven of the sixteen are, on this target, ways of telling LLVM what it has
+already decided. That is the same shape as jaq, where `align=16` was a no-op
+on all 15 marks and 48 of 90 arms changed nothing (section 113), and it is
+the ratio of live to dead hints that decision 74 said would itself be a
+result.
+
+### 125. Three findings the scorecard does not carry
+
+**(a) `unroll.disable` and `interleave.count=1` are the same instruction to
+a vectorised loop.** On k5 they produce the same instruction count (6
+`vpmulld` against the baseline's 16) and the same ratio, 0.2941 and 0.2957;
+on k4, 0.7309 and 0.7301; on k8, 0.8226 and 0.8033. LoopVectorize reads
+`llvm.loop.unroll.disable` and refuses to interleave, so **on an
+already-vectorised site one of those two arms is a duplicate measurement**
+--- 8 of this sweep's 44 loop arms, and the same waste waiting in jaq's
+176-arm loop half. On k3, whose loop the vectoriser refuses for a
+recurrence, they are properly different: `unroll.disable` reaches the
+unroller (−29.4%) and `interleave.count=1` is inert (an identical build),
+exactly as EXPECTED.md 1 K3 predicted.
+
+*The dump cannot say which sites those are.* `sites.json` records
+`already_vectorized: false` for all four hintbench loop sites, including k4,
+k5 and k8, whose own remarks read "vectorized loop (vectorization width: 8,
+interleaved count: 4)". The field is read at `VectorizerStartEP`, before the
+vectoriser runs, so it can only ever mean "this loop already carries
+`llvm.loop.isvectorized` metadata" --- the same reading decision 83 (b)
+arrived at independently, from the state side, while this sweep was
+running. It cannot be used to predict the
+duplicate arms on jaq.
+
+**(b) A wider vector width can add chains rather than trade them.**
+EXPECTED.md 1 K4 and 1 K5 both argue that a forced width of 16 "cannot add
+bandwidth, it can only trade lanes against interleaving". On k5 --- a
+latency-bound multiplicative reduction --- that is false: round 48's binary
+has **15 `ymm vpmulld` against the baseline's 8**, because VF 16 on u32 is
+two `ymm` per vector and with IC 4 that is about eight independent chains
+instead of four. Result +2.65%, confirmed, the largest gain on k5. On k4 ---
+byte counting, bandwidth-bound --- the same argument is right and width 16
+costs 42%. The prediction survived at both kernels under the MDE gate while
+the reasoning behind it was correct at one and wrong at the other.
+
+**(c) The control kernel was not a control.** K8's prediction was "every hint
+≤ 0%. If any hint wins here by more than the noise floor, the noise floor is
+wrong." `vectorize.width=16` wins there by **+8.8%**, confirmed in two
+batches, +7.0% inside the combination arm and +5.8% in the holdout batch.
+Four independent batches and a two-batch confirmation say the noise floor is
+not wrong. What is wrong is the premise that a store-limited unit-stride loop
+already at VF 8 x IC 4 has nothing left to give. K8 was built to be the arm
+that catches a broken noise floor, and instead it caught a broken assumption.
+
+### 126. The combination arm, on training and on the holdout batch
+
+Six sites joined --- every site whose best arm was confirmed positive:
+`k2_mix inline(always)`, `k4_count_bytes inline(never)`, and
+`vectorize.width=16` at the k5 and k8 loops, `unroll.count=4` at the k3 and
+k4 loops. The one-batch rule that jaq's oracle used would have chosen the
+**same six**; the point-estimate rule would have added `k6_hot_loop
+inline(always)`.
+
+**Training: 1.0881 [1.0861, 1.0901], confirmed at 1.0856 in a second
+batch.** Correctness held, three symbols changed.
+
+| kernel | best one-factor arm | in the combination | in the holdout batch |
+|---|--:|--:|--:|
+| k2 | 1.6775 | 1.6687 | 1.6721 |
+| k8 | 1.0881 | 1.0699 | 1.0584 |
+| k3 | 1.0436 | 1.0487 | 1.0444 |
+| k5 | 1.0265 | 1.0272 | 1.0243 |
+| k4 | 1.0152 | 1.0153 | 1.0138 |
+| k1, k6, k7 | (nothing chosen) | 1.0029, 1.0024, 1.0010 | 0.9994, 0.9996, 0.9992 |
+
+**The per-kernel effects survive being combined**, within a point or two of
+what they were alone. That is the sharpest contrast with jaq, where twelve
+chosen arms whose claims multiplied to +22.4% delivered +2.15% with an A/A of
++2.26% in the same batch (section 114). The difference is not the selection
+rule --- it chose the same six sites under both --- it is that here the
+one-factor arms were measuring code and there they were measuring the
+machine.
+
+The holdout, one batch, four labels, seed 20260924. **hintbench declares no
+`TRAIN_WORKLOADS`, so this is the same eight workloads: a third independent
+batch, not a generalisation test.**
+
+| label | aggregate | 95% CI | half-width |
+|---|--:|---|--:|
+| base | 1.0000 | --- | --- |
+| **comb** | **1.0847** | [1.0822, 1.0872] | 0.25% |
+| **best1f** (`k2_mix inline(always)`) | **1.0636** | [1.0609, 1.0661] | 0.26% |
+| aa | 1.0097 | [1.0069, 1.0122] | 0.26% |
+
+The batch's MDE is `max(2 x 1.95%, 3%) = 3.90%` and both candidates clear it.
+**Unlike jaq, nothing reversed.** Two caveats: the A/A label carries a 9.4%
+outlier on k5 that is the whole of its +0.97% aggregate --- this target's
+version of jaq's readwrite outlier, and the worst identical-binary reading in
+the four batches of this experiment --- and k8, where the combination's
+second-largest gain sits, is the noisiest workload in every batch
+(per-workload half-width 1.5--2.0% against 0.3--0.6% for the rest).
+
+### 127. Wall clock, and deviations
+
+```
+null panels, two batches of four labels               7 min
+84 one-factor arms + 1 combination arm             3 h 49 min  (16:39-20:28 JST)
+   39 skipped as identical                            6 min total (9.6 s each)
+   46 measured, 290 s each; 38 carried a confirmation batch
+holdout batch, four labels                            4 min
+```
+
+**About 4.1 hours, 0 API calls, $0.** The estimate in section 108 ("roughly 2
+minutes per arm, three to three and a half hours") counted two timing labels
+and no confirmation; the real batch is three labels over eight 350 ms
+workloads --- 432 executions, 2.5 minutes --- and a confirmed arm carries two
+of them. The no-op skip took about 3.1 hours off the total.
+
+* **The settle gap is 0 ms**, hintbench's frozen value; the 250 ms of the
+  protocol note is jaq's. It was not changed mid-project, and the two null
+  panels are the evidence that 0 ms is good enough here.
+* **`taskset -c 8` is physical core 4** on this machine, which is what the
+  per-target core allocation in `target_common.sh` reserves for hintbench.
+* The combination arm was selected by the confirmed-in-two-batches rule; on
+  this target it and the one-batch rule chose the same six sites, so
+  **nothing here tests the difference between them**.
+* Arms 6 and 85 were accepted under the full four-condition acceptance rule.
+* **The closure fix changed nothing on hintbench and everything on jaq.**
+  Nothing measured here says whether jaq's numbers move once one Choice stops
+  fanning out to 60 closures; that is the loop half's job, and the function
+  half would have to be re-run to find out.
+* Nothing here says anything about other targets, about inputs these kernels
+  were not tuned on, or about what Jev would answer. The next step is Jev v3
+  against this ground truth (decision 72, step 3).
+
+### 128. What the oracle settles about the Jev one-shot runs that ran beside it
+
+Decisions 83 and 84 were taken while this sweep was running, from API-only
+Jev runs on the same target (`docs/experiments/hintbench/jev-oneshot-v*.md`),
+and decision 84 registered two disputes for the oracle to decide. It decides
+both, and neither the way the dispute was framed:
+
+* **k4, `vectorize.width=16` (Jev, P 0.85) against `KEEP_DEFAULT`
+  (Claude).** Measured **0.5793 [0.5777, 0.5813]**, confirmed at 0.5791 ---
+  a **42% loss**. Claude is right and Jev is wrong, decisively. The lane
+  arithmetic in the verdict block that led Jev to width 16 is exactly the
+  reasoning EXPECTED.md used to rule it out, and on this kernel that
+  reasoning is correct.
+* **k6, `inline(always)` (Jev) against `align=64` (Claude).** Measured
+  1.0011 [0.9981, 1.0039] and 1.0008 [0.9981, 1.0039]: **both unconfirmed,
+  both indistinguishable from nothing.** Neither answer is right, and the
+  correct answer at k6 is `KEEP_DEFAULT`, which neither proposer gave. The
+  `align=64` arm really does move the entry from mod 64 = 16 to mod 64 = 0
+  and the clock does not notice.
+* Decision 84 also records Jev asking for `vectorize.width=8` at k5 and k8
+  --- the baseline's own width, a null candidate. At k5 that arm is
+  0.9950 and at k8 1.0005, both unconfirmed: correct as a null. But **k8 is
+  where `vectorize.width=16` wins +8.8%**, so at the one loop where a width
+  hint had something to gain, Jev asked for the width already in force.
+
+More important than either dispute: **the agreement figures of decisions 78,
+83 and 84 are agreement with `EXPECTED.md`, and this section measures
+`EXPECTED.md` at 1 winner claim right out of 8.** "Jev matches 10/12, then
+7/12, then 5/12 of Claude's predictions" is a distance from a reference that
+is itself mostly wrong, so the fall from 10 to 5 cannot be read as a
+regression *or* as an improvement until each of those 12 answers is scored
+against this sweep instead. That rescoring is the next step and it needs no
+new measurement --- the per-arm ratios are in
+`docs/experiments/hintbench/arms.md`.
+
+One provenance note, the same one section 110 had to make about oracle A:
+the driver process loaded its modules at 16:39 and kept them for all 85
+rounds, so this sweep executed `scripts/jev_search.py` and
+`scripts/jev_vocab.py` as of commit `a44d8e6`. The v3.1 state repair
+(decision 83) and vocabulary v4 (decision 84) landed at 19:21 and 20:11,
+while this sweep was in its 60th and 80th arm; neither reached this process,
+and the manifest records `v3-2026-09-22` for both the vocabulary and the
+state format. **Nothing in this section is a measurement of v3.1 or v4** ---
+but nothing needs to be: v4 changed only the candidate *descriptions*, and
+an oracle arm reads no descriptions.

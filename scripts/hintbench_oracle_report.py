@@ -102,8 +102,10 @@ def confirm_cell(rec):
     c = rec.get("confirm") or {}
     if "error" in c:
         return "batch failed"
-    if rec.get("confirmed"):
-        return "**yes (%s)**" % ("+" if rec["confirmed_sign"] > 0 else "-")
+    # The combination arm has no own kernel, so its verdict is the aggregate's.
+    key = "confirmed" if rec.get("kernel") else "confirmed_aggregate"
+    if rec.get(key):
+        return "**yes (%s)**" % ("+" if rec[key + "_sign"] > 0 else "-")
     return "no"
 
 
