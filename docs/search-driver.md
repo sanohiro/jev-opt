@@ -41,6 +41,10 @@ Useful flags:
                     state format" below
 --readout           forced_top1 (default) or argmax: how a phase's answers
                     become plan entries (decision 71). See "The proposers"
+--explore K         how many extra Choices a round adds for sites nothing
+                    has ever been tried at (decision 89 b, default 2).
+                    --explore 0 is the behaviour of Experiment 4. jev only.
+                    See "The proposers"
 --source-comments   strip (default) or keep: whether the source excerpts in
                     the state are stripped of comments and doc attributes
                     (decision 81). See "Source excerpts" below
@@ -52,7 +56,9 @@ Useful flags:
                     to the function-attribute sweep, the loop sweep or
                     both. A round still builds both phases
 --dry-run           list the sites (or the oracle's arms) and stop
---print-state       print the round-1 state of both phases and stop; no HTTP
+--print-state       print the state of both phases and stop; no HTTP. With
+                    --resume it prints the state of the NEXT round, history
+                    and all, and the exploration request it would send
 --n N --warmup W    bench.py --runs / --warmup for the rounds
 --bench-set         training (default, SPEC.ja.md 7) or holdout
 --baseline-dir DIR  reuse a baseline another run already built
@@ -163,7 +169,7 @@ attributes move. The key is still the only thing a plan ever names.
 
 ## The acceptance rule (pre-registered)
 
-A round becomes the best so far **only if all three hold**:
+A round becomes the best so far **only if all five hold**:
 
 1. its output matches the baseline on every case, byte for byte:
    `run_correctness` from `target_common.sh` writes one line per case
@@ -180,6 +186,26 @@ A round becomes the best so far **only if all three hold**:
 4. **the interval that did that survives a second, independent batch**
    (decision 80 a): the same two binaries, the same conditions, a fresh
    shuffle seed, and both batches' intervals excluding 1 with the same sign.
+5. **its plan is a different plan from the incumbent's** (decision 89 a).
+
+Rule 5 is what Experiment 4 was missing. Rounds 2 to 5 of
+`docs/experiments/hintbench/exp4.md` produced the **identical binary**,
+measured in four independent batches at 1.0628, 1.0636, 1.0669 and 1.0679,
+and round 5 was "accepted as the new best" over round 2 because 1.0644 >
+1.0628 --- rules 3 and 4 never ask whether the plan moved. It cost nothing
+there, the plan being the same plan; on a run where two *different* plans sit
+inside the batch-to-batch spread it promotes the luckier batch.
+
+The comparison is on `plan_sig`, a sha256 of the hints alone: `plan_id`,
+`jev_site_id`, `jev_choice`, `jev_readout`, `answer_ref` and `exploration`
+record how a plan was arrived at and change no instruction, so the four
+rounds above have four `plan_sha256` values and one `plan_sig`. A round whose
+`plan_sig` is the incumbent's is recorded with `same_plan_as_best: true`,
+its round batch and its confirmation batch are appended to the incumbent's
+`batches`, and `summary.md` prints how far those batches spread. It is never
+compared and never promoted, so the incumbent keeps the round number, the
+plan file and the ratio it was accepted at. That spread is a free null panel:
+it is the same pair of binaries measured again.
 
 Rule 3 is deliberately conservative: it never promotes a plan whose interval
 merely overlaps the incumbent. Rule 4 exists because at the frozen `n` rule 3
@@ -586,6 +612,84 @@ has a function site and a loop site and one workload, so after a round both
 lines quote the same 0.5813 and neither says which of the two answers
 earned it.
 
+### v3.3 / v4.2: cross-kernel cost, shared cases, and what LLVM did (decision 89)
+
+`state-v3.3-2026-09-22` and `state-v4.2-2026-09-22`, rendered by `--vocab v3`
+and `--vocab v4`. The candidate lists, the descriptions, the question
+wordings, the verdict *rules* and the source excerpts are v3.2's and v4.1's
+to the byte. Three things are added, all of them evidence, all gated on
+`evidence_fixes` so that v1 and v2 stay byte-replayable:
+
+**(a) What the same hint measured on the other cases (decision 89 c).** The
+per-kernel readout of v3.2 answers "did the hint help where it was applied"
+and is silent about what it cost elsewhere. `inline(always)` at hintbench's
+`k6_hot_loop` reads 1.0011 on k6 --- free, by its own case --- and 0.972 on
+k3, and that is most of what Experiment 4's accepted plan did not win. A
+site's history block now carries one extra line per distinct hint tried
+there:
+
+```
+    what inline(always) at this site measured on the OTHER cases, over the
+    1 round(s) it was in the plan (a hint can be free on the case its own
+    site is timed by and still cost time in a kernel this site has nothing
+    to do with; `*` marks a case whose own 95% CI excluded 1 in every one of
+    those rounds): k3 0.9721*, k8 1.0004, k4 1.0003, ...
+```
+
+The ratio is the geometric mean over the rounds that hint was in the plan,
+and the cases are ordered by distance from 1. It is rendered only where the
+round records carry `per_workload`, i.e. on a target with a per-case readout.
+
+**(b) Sites that share a timing case (decision 89 d).** hintbench times
+`k4_count_bytes` and the loop inside it on one workload, so after a round in
+which the loop cost 42% the *function* site's history line also said 42%. The
+readout cannot separate them, and each such site now says so:
+
+```
+  this site's own timing case, k4, is also timed by
+  `hbkernels::k4_count_bytes@macros.rs:180:28#d2`: the case's ratio is the
+  ratio of a build in which every one of them was answered, so a change in
+  it cannot be attributed to one of them alone.
+```
+
+Printed whether or not there is a history: it is a property of the case set.
+
+**(c) What LLVM did with the loop (decision 87 c, plugin).** Decision 83
+could only say `vectorisation legality: UNKNOWN (shared source line)` for
+three of hintbench's four loops, because a remark carries a source location
+and no function name --- and that is why Experiment 4's loop answers were
+chosen from lane arithmetic alone. The plugin now records, per site key, what
+the loop looked like **after** LoopVectorize (`plugin/README.md`,
+`post_vectorize`), and the loop verdict block leads with it:
+
+```
+  - what LLVM did with this loop in the baseline build, recorded by the
+    plugin itself after LoopVectorize had run --- this is a fact about this
+    one loop, not a remark attributed to a source line, and it is the primary
+    evidence here: LLVM vectorized it, with vectors of 4 lanes, interleaved 4
+    times (the vectorized loop's induction variable advances 16 elements per
+    iteration).
+  - vectorisation legality: LEGAL, and already taken --- the baseline
+    vectorizes this loop with no hint at all.
+  - no-op check: 4 is the width LLVM already uses here, so the candidate
+    `vectorize_width_4` asks for the state this site is in and the build it
+    produces can only be the baseline's.
+```
+
+The four cases it distinguishes are *vectorized* (width, interleave count and
+the no-op checks that follow from them), *not vectorized* (the loop is there
+and carries no `llvm.loop.isvectorized`; a width hint is not a permission
+slip, and why LLVM declined is still only in the remarks), *gone* (no loop
+answers to that key after the vectorizer, so a hint on it has nothing to act
+on) and *ambiguous* (two loops of one function cannot be told apart after the
+rewrite --- the same honest UNKNOWN as a shared remark line, on a much
+smaller set). The shared-line caveat survives, demoted to what it really
+covers: the *reason*.
+
+A report written by an older plugin carries no `post_vectorize`, and the
+block then falls back to the v3.2 remark reading unchanged --- which is what
+`artifacts/hintbench-sites/baseline` still does.
+
 ### One shot, API only: `scripts/jev_oneshot.py`
 
 Round 1 of a run, both phases, N repeats, **no build and no timing**. It
@@ -722,6 +826,62 @@ for a threshold but fixes no value).
   question. Under `W7` the study's ranking would have tried
   `inline(never)` at `TermId::run` first and `vectorize.width=16` at the
   byte loop third, both of which are reference picks.
+  **Exploration: `--explore K` (decision 89 b, default 2).** Experiment 4
+  showed the feedback working as a *filter* and not as a search: it dropped
+  both harmful picks in one round and discovered nothing. The reason is
+  structural --- the state can only speak about hints that have been tried,
+  so no round ever said what `unroll.count=4` at the k3 loop (+4.4%) or
+  `vectorize.width=16` at k8 (+8.8%) would be worth, and neither was tried
+  once in 58 answers. The one exploration mechanism the driver had,
+  `forced_top1`, fires only when a phase is *entirely* `KEEP_DEFAULT`, which
+  never happened because `k2_mix` alone kept phase A non-empty in all five
+  rounds.
+
+  After a phase's own answers are in, the driver therefore sends **one more
+  request** for that phase, logged as `A.explore` / `B.explore`. A site is
+  eligible when
+
+  * no earlier round, accepted or not, put a non-`KEEP_DEFAULT` hint on it,
+    **and**
+  * this round's own answer there is `KEEP_DEFAULT`.
+
+  The second clause is what makes the extra Choice additive: a site that is
+  already getting a hint this round will have been tried by the end of it, so
+  there is nothing to explore, and **no argmax is ever overridden**.
+  Eligible sites are ordered by hotness --- the dump's own `hotness` for a
+  loop, the profile share for a function, and where every mark declares the
+  same share by construction (hintbench: one eighth each, which decision 83
+  already refuses to classify) the summed hotness of the loops the dump found
+  inside the mark --- and the first `K` are asked.
+
+  The question's criteria are **every candidate that site has not already
+  been given**, filtered mechanically, with their frozen descriptions and
+  without `KEEP_DEFAULT`; nothing is left out on anyone's judgement. The
+  wording is "One of the candidates below will be tried at this site in this
+  round's build; which of them is most promising?" --- the site is going to
+  be tried either way, and the Choice is only about which hint.
+
+  The answer joins this round's plan beside the argmax entries. The entry
+  carries `exploration: true`, the site's `why` record carries
+  `source: "exploration"` and the `KEEP_DEFAULT` it replaced, and
+  `phase_a.exploration` / `phase_b.exploration` in `rounds.jsonl` record the
+  `K`, the sites asked and what each one was given. An answer that does not
+  come back, or is not one of the candidates, leaves the site at
+  `KEEP_DEFAULT`: exploration must not be able to put a hint in a plan that
+  the model did not choose.
+
+  `--explore 0` restores Experiment 4's behaviour exactly. Exploration is a
+  `jev` mechanism: `random` already draws non-`KEEP_DEFAULT` candidates by
+  construction, and the oracle's arms are enumerated. It is a command-line
+  flag and not a `jev-opt.toml` key, like `--readout` and unlike `rounds`:
+  it is a property of an experiment's arm, not of the machine.
+
+  **Round 1 of a run with `--explore 2` is no longer a one-shot control.**
+  Round 1 has no history, so every site is untried and exploration fires on
+  two of them per phase --- which is the point, and which is also why
+  `docs/experiments/hintbench/exp4.md` 1.4's "round 1 reproduces
+  `jev-oneshot-v4.md`" only holds under `--explore 0`. `scripts/jev_oneshot.py`
+  pins `--explore 0` for exactly that reason.
 * **random** --- uniform over the same candidate list, same sites, same
   number of rounds, seeded from `[evaluation] seed` and the round number.
 * **oracle** --- the arms of SPEC.ja.md 2: every candidate alone at every
@@ -812,19 +972,24 @@ a tracked artifact.
 * Remark attribution is by source location only --- the remark lines carry no
   function name (SPEC.ja.md 3) --- so a section can show a neighbouring
   function's remarks when both live within 40 lines of each other.
-* **The acceptance rule does not ask whether the plan changed.** Rule 3
-  compares the candidate's CI lower bound against the incumbent's *point*
-  estimate and rule 4 only asks that the interval exclude 1, which it does
-  for any plan with a real effect. So a round that rebuilds the **identical
-  binary** and happens to draw a luckier batch is promoted over the
-  incumbent. Measured: rounds 2--5 of
-  `docs/experiments/hintbench/exp4.md` are one binary, timed in four
-  independent batches at 1.0628, 1.0636, 1.0669 and 1.0679, and round 5 was
-  accepted "as the new best" over round 2. It cost nothing there because
-  the plan was the same plan; on a run where two *different* plans sit
-  inside the batch-to-batch spread it picks the luckier batch, which is the
-  jaq failure of decision 80 (a) in a form the confirmation batch does not
-  cover.
+* **Exploration tries a hint; it does not find the right one.** `--explore K`
+  guarantees that the K hottest untried sites of a phase stop being untried,
+  which is the gap Experiment 4 measured. It does not make the answer better:
+  the candidate is still chosen by the same model from the same descriptions,
+  and a site with eleven candidates needs eleven rounds to be swept by a
+  mechanism that offers it one a round. What it buys is that the feedback
+  loop is given something to filter.
+* **Exploration is ordered by a hotness that hintbench does not have.** Every
+  mark of `targets/hintbench` declares the same profile share by
+  construction, so the order falls back to the summed hotness of the loops
+  inside the mark --- a real profile number, but a loop number standing in
+  for a function one. On a target with a measured per-mark share (jaq) the
+  share is used and this does not arise.
+* **A round that is not compared is still built and still measured.** Rule 5
+  drops the comparison, not the build: a round whose plan is the incumbent's
+  spends two builds and one or two batches to add a point to the incumbent's
+  null panel. That is worth having --- it is the only free measurement of how
+  far this machine moves between batches --- but it is not free.
 * jaq has now been run end to end twice, five rounds each (results.md
   "Experiment 3 (jaq)"). At the frozen `n=15` the acceptance rule still let
   one random round through whose own in-run A/A moved almost as far as the
@@ -850,7 +1015,25 @@ a tracked artifact.
   is 12 of 16.
 * The verdict block's legality reading is only as good as remark
   attribution, which is by source location (SPEC.ja.md 3). The block repeats
-  that caveat at every loop rather than hiding it.
+  that caveat at every loop rather than hiding it. Where the build's reports
+  carry `post_vectorize` (a plugin from decision 87 c on), the *outcome* --
+  vectorized or not, at what width and interleave count -- comes from the
+  plugin instead and is per loop; only the compiler's **reason** for
+  declining is still a remark, and still attributed by source location.
+* **`post_vectorize` matches a loop back across the vectorizer by signature,
+  not by site key.** A site key hashes the loop body and LoopVectorize
+  rewrites the body, so the match is on (owner function, innermost debug
+  location with its inline chain, nesting depth). Two loops of one function
+  that begin at the same `file:line:col` at the same depth share a signature
+  and both are reported `ambiguous_signature` with no facts. Where the apply
+  half attached `jev.site` metadata the match is exact instead.
+* **The interleave count is derived, not read.** LoopVectorize drops the
+  `llvm.loop.vectorize.*` metadata from the loop it produces, so the plugin
+  recovers the factor from the vectorized loop's induction-variable step
+  divided by its vector width. On the toy that reproduces the remarks exactly
+  (`count_quotes` and `sum_indexed`: width 4, interleave 4). A loop whose
+  induction variable is not an integer phi incremented by a constant reports
+  `iv_step: null` and no interleave count.
 * **Every result obtained before v3 was obtained with two inert function
   candidates in the list.** Experiment 3's five rounds and both rounds of
   the prompt study offered `inline` and `cold`, neither of which can change

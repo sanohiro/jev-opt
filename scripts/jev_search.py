@@ -105,8 +105,28 @@ PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 # oxipng --- `own_workload_of` returns None there) and in round 1 of every
 # run the rendered state is identical to its predecessor's apart from this
 # header line, which is what the version bump is for (decision 19).
+# v3.3 / v4.2 (decision 89, the four protocol gaps Experiment 4 exposed).
+# Three things move, all of them evidence rather than wording, and all of
+# them gated on `evidence_fixes` so that v1 and v2 stay byte-replayable:
+#
+#   (89 c) a site's history line now also says what the same hint measured on
+#          the OTHER cases of the rounds it was in the plan. Per-kernel
+#          feedback hides cross-kernel cost: `inline(always)` at `k6_hot_loop`
+#          is inert on k6 and costs 2.8% on k3, and nothing in the v4.1 state
+#          said so.
+#   (89 d) where two sites are timed by one case, each of them says so, so
+#          that neither is read as the sole cause of what that case did.
+#   (87 c) the loop verdict block leads with what the plugin recorded at
+#          VectorizerEnd --- vectorized or not, the width and interleave count
+#          LLVM actually used --- which is a per-loop fact and replaces the
+#          UNKNOWN that a shared remark line produced.
+#
+# The exploration Choice of decision 89 (b) is a fourth request per round and
+# not part of the state template; the candidate lists, descriptions, question
+# wordings, verdict rules and source excerpts are v3.2's and v4.1's to the
+# byte.
 STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
-                 "v3": "state-v3.2-2026-09-22", "v4": "state-v4.1-2026-09-22"}
+                 "v3": "state-v3.3-2026-09-22", "v4": "state-v4.2-2026-09-22"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -324,6 +344,12 @@ def loop_sites(reports):
             seen.add(s["key"])
             s = dict(s)
             s["stage"] = rep.get("stage", "")
+            # Decision 87 (c): what LLVM did with this very loop, recorded by
+            # the plugin's VectorizerEnd pass in the same build. Absent from
+            # a report an older plugin wrote, which is why every reader of it
+            # tolerates None.
+            s["post_vectorize"] = (rep.get("post_vectorize")
+                                   or {}).get(s["key"])
             out.append(s)
     out.sort(key=lambda s: -(s.get("hotness") or 0))
     return out
@@ -1369,7 +1395,7 @@ def state_header(ctx, n_sites):
             marks.append("  %-60s  no function of its own is left in the "
                          "program (it was inlined away); %d loop site(s)"
                          % (mark[:60], ctx["loops_by_mark"][mark]))
-    hist = render_history(ctx["history"])
+    hist = render_history(ctx["history"], evidence_fixes(ctx))
     head = STATE_PREAMBLE.format(
         fmt=STATE_FORMAT_VERSION, vocab=V.VOCAB_VERSION,
         target=ctx["target"], binary=ctx["binary"],
@@ -1411,7 +1437,7 @@ def history_outcome(h):
     return HISTORY_OUTCOMES.get(h.get("status") or "", h.get("status") or "-")
 
 
-def render_history(history):
+def render_history(history, plan_rule=False):
     if not history:
         return ("  This is round 1: nothing has been measured yet. The "
                 "baseline is the build in which every site is KEEP_DEFAULT.")
@@ -1455,12 +1481,86 @@ def render_history(history):
                 cells.append("%.4f%s" % (r["ratio"], star))
             out.append("  | %d | %s |" % (h["round"], " | ".join(cells)))
     out.append("")
-    out.append("  A round is accepted as the new best only if the lower end "
-               "of its 95% CI is above the best point estimate so far.")
+    if plan_rule:
+        out.append("  A round is accepted as the new best only if its plan "
+                   "differs from the best plan so far AND the lower end of "
+                   "its 95% CI is above that plan's point estimate. A round "
+                   "that rebuilds the plan already held is the same binary; "
+                   "it is recorded as one more independent batch on it and "
+                   "cannot replace it, so a row above that repeats an "
+                   "earlier round's answers is telling you how much this "
+                   "machine moves between batches, not that the plan got "
+                   "better.")
+    else:
+        out.append("  A round is accepted as the new best only if the lower "
+                   "end of its 95% CI is above the best point estimate so "
+                   "far.")
     return "\n".join(out)
 
 
-def site_history_lines(history, site_id, cases=()):
+def sites_sharing_case(site_id, all_site_ids, cases):
+    """Other sites whose own timing case is this site's own timing case.
+
+    Decision 89 (2): hintbench times `k4_count_bytes` and the loop inside it
+    on one workload, so after a round in which the loop cost 42% the function
+    site's own history line said 42% too. The readout cannot separate them
+    and the state has to say so rather than let each site be read as the sole
+    cause of what its case did.
+    """
+    own = own_workload_of(site_id, list(cases))
+    if not own:
+        return []
+    return [sid for sid in all_site_ids
+            if sid != site_id and own_workload_of(sid, list(cases)) == own]
+
+
+def shared_case_line(site_id, ctx):
+    others = sites_sharing_case(site_id, ctx.get("all_site_ids") or [],
+                                ctx.get("cases") or [])
+    if not others:
+        return None
+    own = own_workload_of(site_id, list(ctx.get("cases") or []))
+    return ("  this site's own timing case, %s, is also timed by %s: the "
+            "case's ratio is the ratio of a build in which every one of them "
+            "was answered, so a change in it cannot be attributed to one of "
+            "them alone."
+            % (own, ", ".join("`%s`" % o for o in others)))
+
+
+def hint_cross_case(history, site_id, pick, own):
+    """What one hint measured on the cases that are NOT this site's own.
+
+    Decision 89 (3): a per-kernel readout answers "did the hint help where it
+    was applied" and is silent about what it cost elsewhere. `inline(always)`
+    at `k6_hot_loop` is 1.0011 on k6 --- free, by its own case --- and 0.972
+    on k3, which is where the accepted plan of Experiment 4 lost most of what
+    it did not win. Returns (rounds counted, [(case, geometric mean ratio,
+    every round's own CI excluded 1), ...]) ordered by distance from 1.
+    """
+    acc, n = {}, 0
+    for h in history:
+        if h["choices"].get(site_id) != pick:
+            continue
+        pw = h.get("per_workload") or {}
+        if not pw:
+            continue
+        n += 1
+        for w, r in pw.items():
+            if w == own or not r or not r.get("ratio"):
+                continue
+            a = acc.setdefault(w, {"logs": [], "excl": 0})
+            a["logs"].append(math.log(float(r["ratio"])))
+            ci = r.get("ci95") or [None, None]
+            if ci[0] is not None and (ci[0] > 1.0 or ci[1] < 1.0):
+                a["excl"] += 1
+    rows = [(w, math.exp(sum(a["logs"]) / len(a["logs"])),
+             a["excl"] == len(a["logs"]))
+            for w, a in acc.items()]
+    rows.sort(key=lambda r: -abs(math.log(r[1])))
+    return n, rows
+
+
+def site_history_lines(history, site_id, cases=(), cross_case=False):
     """What earlier rounds chose here, and what was measured when they did.
 
     Experiment 4: the whole-build ratio alone cannot say whether a hint at
@@ -1469,6 +1569,10 @@ def site_history_lines(history, site_id, cases=()):
     site has a case of its own (`own_workload_of`) the line quotes that
     case's ratio and 95% CI as well, and says whether the round was accepted.
     Where it does not, the line is what it always was.
+
+    Decision 89 (c) adds one line per distinct hint tried here: the same
+    hint's ratio on the cases this site is NOT timed by, which is the only
+    place the state can show what a hint costs somewhere else.
     """
     own = own_workload_of(site_id, list(cases))
     rows = []
@@ -1495,6 +1599,26 @@ def site_history_lines(history, site_id, cases=()):
                        else "not accepted"))
     if not rows:
         return "    (this site was not asked about in an earlier round)"
+    if cross_case:
+        seen = []
+        for h in history:
+            pick = h["choices"].get(site_id)
+            if pick and pick != V.KEEP_DEFAULT and pick not in seen:
+                seen.append(pick)
+        for pick in seen:
+            n, cells = hint_cross_case(history, site_id, pick, own)
+            if not cells:
+                continue
+            rows.append(
+                "    what %s at this site measured on the OTHER cases, over "
+                "the %d round(s) it was in the plan (a hint can be free on "
+                "the case its own site is timed by and still cost time in a "
+                "kernel this site has nothing to do with; `*` marks a case "
+                "whose own 95%% CI excluded 1 in every one of those rounds): "
+                "%s"
+                % (V.spec_spelling_safe(pick), n,
+                   ", ".join("%s %.4f%s" % (w, r, "*" if e else "")
+                             for w, r, e in cells)))
     return "\n".join(rows)
 
 
@@ -1738,10 +1862,19 @@ def state_section(item, ctx):
         out.append("  This is not a per-function decision: whatever is chosen "
                    "here applies to every function in the program, including "
                    "the ones nobody marked.")
+    if evidence_fixes(ctx):
+        # Decision 89 (d). Printed whether or not there is a history: it is a
+        # property of the case set, and a round-1 request needs it as much as
+        # a round-5 one.
+        shared = shared_case_line(item.id, ctx)
+        if shared:
+            out.append("")
+            out.append(shared)
     out.append("")
     out.append("  what earlier rounds chose here:")
     out.append(site_history_lines(ctx["history"], item.id,
-                                  ctx.get("cases") or []))
+                                  ctx.get("cases") or [],
+                                  cross_case=evidence_fixes(ctx)))
     out.append("")
     return "\n".join(out)
 
@@ -2070,6 +2203,72 @@ def fn_verdict_lines(item, ctx):
     return L
 
 
+def post_vectorize_lines(item, ctx):
+    """What LLVM did with THIS loop, from the plugin (decision 87 c).
+
+    Decision 83 could only say UNKNOWN for a loop whose leaf location several
+    inlined loops share, because a remark carries a source location and no
+    function name --- three of hintbench's four loops, and the reason
+    Experiment 4's loop answers were chosen from lane arithmetic alone
+    (decision 87 b). The plugin now runs at `VectorizerEndEP`, after
+    LoopVectorize, and records per site key whether the loop is still there,
+    whether it carries `llvm.loop.isvectorized`, and the vector width and
+    interleave count it ended up with. That is a statement about one loop, so
+    it replaces the UNKNOWN rather than qualifying it.
+
+    Returns [] when the report has no such record (a build made with an older
+    plugin, or a loop whose owner function the pass never saw).
+    """
+    pv = item.meta.get("post_vectorize")
+    if not isinstance(pv, dict) or not pv.get("watched"):
+        return []
+    head = ("what LLVM did with this loop in the baseline build, recorded by "
+            "the plugin itself after LoopVectorize had run --- this is a "
+            "fact about this one loop, not a remark attributed to a source "
+            "line, and it is the primary evidence here: ")
+    if pv.get("ambiguous_signature"):
+        return [head + "UNKNOWN. Two of this function's loops cannot be told "
+                "apart after the vectorizer rewrote them, so nothing "
+                "recorded there can be assigned to this one."]
+    if not pv.get("exists"):
+        return [head + "the loop is no longer in the program by the time the "
+                "vectorizer has finished with it (it was removed, merged or "
+                "fully unrolled), so a hint attached to it has nothing left "
+                "to act on."]
+    if not pv.get("isvectorized"):
+        line = (head + "LLVM did NOT vectorize it: after LoopVectorize the "
+                "loop is still there and carries no `llvm.loop.isvectorized` "
+                "metadata.")
+        if pv.get("vector_width"):
+            line += (" Vector values of %d lanes do appear in its body, but "
+                     "they are the SLP vectorizer's or the unroller's, not a "
+                     "vectorized loop." % pv["vector_width"])
+        return [line, "a `vectorize.width` hint is not a permission slip: "
+                "where LLVM declined to vectorize a loop, asking for a width "
+                "does not make it legal or profitable. What it declined for "
+                "is not recorded per loop; only the remarks below speak to "
+                "that, and they speak about a source line."]
+    vf, ic = pv.get("vector_width"), pv.get("interleave_count")
+    out = [head + "LLVM vectorized it%s%s."
+           % ("" if not vf else ", with vectors of %d lanes" % vf,
+              "" if not ic else
+              (", interleaved %d times (the vectorized loop's induction "
+               "variable advances %s elements per iteration)"
+               % (ic, pv.get("iv_step"))))]
+    out.append("vectorisation legality: LEGAL, and already taken --- the "
+               "baseline vectorizes this loop with no hint at all.")
+    if vf and "vectorize_width_%d" % vf in candidates_of(item, ctx["knobs"]):
+        out.append("no-op check: %d is the width LLVM already uses here, so "
+                   "the candidate `vectorize_width_%d` asks for the state "
+                   "this site is in and the build it produces can only be "
+                   "the baseline's." % (vf, vf))
+    if ic and "interleave_count_%d" % ic in candidates_of(item, ctx["knobs"]):
+        out.append("no-op check: %d is the interleave count LLVM already "
+                   "uses here, so `interleave_count_%d` asks for the state "
+                   "this site is in." % (ic, ic))
+    return out
+
+
 def loop_verdict_lines(item, ctx):
     """The mechanical readings for one loop site."""
     m = item.meta
@@ -2175,7 +2374,24 @@ def loop_verdict_lines(item, ctx):
                  % ("unknown" if trip is None else "%.1f" % float(trip),
                     "yes" if m.get("has_calls") else "no",
                     "yes" if m.get("already_vectorized") else "no"))
-    if fixes and shared:
+    pv_lines = post_vectorize_lines(item, ctx) if fixes else []
+    if pv_lines:
+        # Decision 87 (c). The per-loop record answers the question the
+        # remarks could not, so it comes first and the shared-line caveat
+        # below is demoted to what it really covers: the *reason*.
+        L += pv_lines
+        if shared:
+            L.append("the remarks cannot add to that: %s:%s carries %d "
+                     "separate vectoriser verdicts in the baseline build, "
+                     "because every loop inlined from that line lands on it, "
+                     "so none of them can be read as a statement about this "
+                     "loop."
+                     % (os.path.basename(m.get("leaf_file") or "?"),
+                        m.get("leaf_line"), n_here))
+        elif reasons:
+            L.append("what the remarks at this loop's own leaf location say, "
+                     "as a secondary reading: %s" % "; ".join(reasons))
+    elif fixes and shared:
         L.append("vectorisation legality: UNKNOWN (shared source line; "
                  "remarks not attributable to this loop) --- %s:%s carries "
                  "%d separate vectoriser verdicts in the baseline build, "
@@ -2423,6 +2639,111 @@ def questions_for(items, ctx, knobs):
     return questions, site_map
 
 
+EXPLORE_INSTRUCTIONS = (
+    "Section `{qname}` of the state describes this site. No hint has ever "
+    "been tried there: in every round of this run so far it was answered "
+    "KEEP_DEFAULT, so nothing that has been measured says what any of the "
+    "hints below would be worth, and the results table cannot say. One of "
+    "the candidates below will be tried at this site in this round's build; "
+    "which of them is most promising? The list is every candidate this site "
+    "has not already been given, filtered mechanically --- KEEP_DEFAULT is "
+    "not among them and nothing was left out on anyone's judgement."
+)
+
+
+def tried_at(history, site_id):
+    """Every non-KEEP_DEFAULT candidate an earlier round put at this site.
+
+    Accepted or not: a round that was measured and rejected has tried its
+    hint just as much as one that was promoted, and the point of the filter
+    is to stop re-offering what is already known.
+    """
+    out = []
+    for h in history:
+        pick = h["choices"].get(site_id)
+        if pick and pick != V.KEEP_DEFAULT and pick not in out:
+            out.append(pick)
+    return out
+
+
+def hotness_of(item, ctx=None):
+    """One number per site, for ordering only.
+
+    A loop carries the dump's own `hotness`, which is the profile's header
+    count times the body size. A function carries its profile share, or its
+    reach where it has no hot symbol of its own --- except on a target whose
+    marks all declare the same share by construction (hintbench: one eighth
+    each), where that number separates nothing and decision 83 already
+    refuses to classify it. There the fallback is the summed hotness of the
+    loops the dump found inside the mark, which is measured. With neither,
+    the order is the site list's own, which is the marks file's.
+    """
+    if item.kind == "loop":
+        return float(item.meta.get("hotness") or 0.0)
+    share = item.meta.get("share")
+    if share is None:
+        share = item.meta.get("reach")
+    if share is not None and not (ctx or {}).get("share_placeholder"):
+        return float(share)
+    by_mark = (ctx or {}).get("hotness_by_mark") or {}
+    return float(by_mark.get(item.meta.get("mark")) or 0.0)
+
+
+def exploration_sites(items, picks, ctx, knobs, k):
+    """The sites this round adds an exploration Choice for (decision 89 b).
+
+    Experiment 4's finding: feedback works as a filter and not as a search.
+    It removed both harmful picks in one round and discovered nothing,
+    because the state can only speak about hints that have been tried, and
+    the one exploration mechanism the driver had (`forced_top1`) fires only
+    when a whole phase is KEEP_DEFAULT --- which never happened, because one
+    site alone kept phase A non-empty in all five rounds. The two hints the
+    run never found, `unroll.count=4` at the k3 loop (+4.4%) and
+    `vectorize.width=16` at k8 (+8.8%), were never tried once in 58 answers.
+
+    A site is eligible when no earlier round put a non-KEEP_DEFAULT hint on
+    it AND this round's own answer there is KEEP_DEFAULT. The second clause
+    is what makes the extra Choice additive: a site that is already getting a
+    hint this round will have been tried by the end of it, so there is
+    nothing to explore, and no argmax is ever overridden. Eligible sites are
+    ordered by hotness and the first `k` are taken.
+
+    Returns [(item, {candidate: description}), ...].
+    """
+    if k <= 0:
+        return []
+    rows = []
+    for i, it in enumerate(items):
+        if it.kind == "build":
+            continue
+        if picks.get(it.id, V.KEEP_DEFAULT) != V.KEEP_DEFAULT:
+            continue
+        tried = set(tried_at(ctx["history"], it.id))
+        cands = {c: d for c, d in candidates_of(it, knobs).items()
+                 if c != V.KEEP_DEFAULT and c not in tried}
+        if not cands or tried:
+            continue
+        rows.append((hotness_of(it, ctx), i, it, cands))
+    rows.sort(key=lambda r: (-r[0], r[1]))
+    return [(it, cands) for _h, _i, it, cands in rows[:k]]
+
+
+def exploration_questions(pairs, ctx):
+    """The `questions` object and site map for one exploration request."""
+    questions, site_map = {}, {}
+    for i, (it, cands) in enumerate(pairs):
+        it.qname = "e%d" % i
+        site_map[it.qname] = {"site_id": it.id, "kind": it.kind,
+                              "label": it.label, "exploration": True}
+        instructions = EXPLORE_INSTRUCTIONS.format(qname=it.qname)
+        if ctx.get("verdicts"):
+            instructions += verdict_block(it, ctx)
+        questions[it.qname] = {"type": "choice",
+                               "instructions": instructions,
+                               "criteria": dict(cands)}
+    return questions, site_map
+
+
 # ---------------------------------------------------------------------------
 # the readout (decision 71)
 # ---------------------------------------------------------------------------
@@ -2638,12 +2959,13 @@ class JevProposer:
     name = "jev"
 
     def __init__(self, client, cfg, knobs, max_state_chars,
-                 readout="forced_top1"):
+                 readout="forced_top1", explore=2):
         self.client = client
         self.cfg = cfg
         self.knobs = knobs
         self.max_state_chars = max_state_chars
         self.readout = readout
+        self.explore = int(explore)
 
     def choose(self, items, ctx, round_no, phase):
         picks, why = self._ask(items, ctx, round_no, phase)
@@ -2663,7 +2985,53 @@ class JevProposer:
             time.sleep(10)
             picks, why = self._ask(items, ctx, round_no, "%s.retry" % phase)
         self.read_out(items, picks, why, ctx, phase)
+        self.explore_round(items, picks, why, ctx, round_no, phase)
         return picks, why
+
+    def explore_round(self, items, picks, why, ctx, round_no, phase):
+        """Decision 89 (b): one extra Choice per untried hot site, per round.
+
+        Sent as its own request, after the phase's own answers are in, so
+        that the eligible set can require this round's answer at the site to
+        be KEEP_DEFAULT. The hint chosen here goes into this round's plan
+        beside the argmax entries; it never replaces one.
+
+        A site whose answer does not come back --- a 503, or a choice that is
+        not one of the candidates --- is left as it was. Exploration must not
+        be able to turn a phase into something the model did not say.
+        """
+        pairs = exploration_sites(items, picks, ctx, self.knobs, self.explore)
+        rec = {"k": self.explore, "phase": phase,
+               "sites": [it.id for it, _c in pairs], "picks": {}}
+        ctx["exploration"] = rec
+        if not pairs:
+            return rec
+        questions, site_map = exploration_questions(pairs, ctx)
+        state = state_header(ctx, len(pairs)) + \
+            "".join(state_section(it, ctx) for it, _c in pairs)
+        answers, line_no = self.client.ask(state, questions, round_no,
+                                           "%s.explore" % phase, site_map)
+        ref = "%s.jsonl#%d" % (self.client.run_id, line_no)
+        for it, cands in pairs:
+            a = (answers or {}).get(it.qname) or {}
+            pick = a.get("choice")
+            if pick not in cands:
+                print("[%s.explore] %s: no usable answer (%r), the site "
+                      "stays KEEP_DEFAULT" % (phase, it.label, pick))
+                continue
+            picks[it.id] = pick
+            w = why.setdefault(it.id, {})
+            w["argmax"] = V.KEEP_DEFAULT
+            w["source"] = "exploration"
+            w["exploration"] = True
+            w["readout"] = "exploration"
+            w["answer_ref"] = ref
+            w["confidence"] = a.get("confidence")
+            w["probabilities"] = a.get("probabilities")
+            rec["picks"][it.id] = pick
+            print("[%s.explore] %s: nothing has been tried here; trying %s"
+                  % (phase, it.label, V.spec_spelling_safe(pick)))
+        return rec
 
     def _ask(self, items, ctx, round_no, phase):
         picks, why = {}, {}
@@ -2927,9 +3295,36 @@ def fn_attrs_from(picks, items, why, knobs):
             e["jev_choice"] = pick
             e["jev_readout"] = (why.get(it.id) or {}).get("readout")
             e["answer_ref"] = (why.get(it.id) or {}).get("answer_ref")
+            # Decision 89 (b): this entry is here because nothing had
+            # ever been tried at the site, not because it was the
+            # argmax of the phase's own question.
+            if (why.get(it.id) or {}).get("exploration"):
+                e["exploration"] = True
             entries.append(e)
     entries.sort(key=lambda e: e["fn"])
     return entries
+
+
+def plan_signature(fn_attrs, loop_md):
+    """What makes two rounds the same build (decision 89 a).
+
+    sha256 of the hints alone: the annotation fields (`jev_site_id`,
+    `jev_choice`, `jev_readout`, `answer_ref`, `exploration`) record how a
+    plan was arrived at and the `plan_id` records which round wrote it, and
+    neither changes a single instruction. Rounds 2 to 5 of Experiment 4 are
+    one binary with four different `plan_sha256` values, which is exactly why
+    the acceptance rule could promote the same plan twice.
+    """
+    keep_fn = ("fn", "inline", "cold", "hot", "align")
+    keep_loop = ("key", "stage", "unroll_count", "unroll_disable",
+                 "vectorize_width", "interleave_count", "vectorize_enable")
+    core = {
+        "fn_attrs": sorted(({k: v for k, v in e.items() if k in keep_fn}
+                            for e in fn_attrs), key=lambda e: e["fn"]),
+        "loop_md": sorted(({k: v for k, v in e.items() if k in keep_loop}
+                           for e in loop_md), key=lambda e: e["key"]),
+    }
+    return hashlib.sha256(canonical(core).encode()).hexdigest()
 
 
 def basis_of(fn_attrs):
@@ -2956,6 +3351,11 @@ def loop_md_from(picks, items, why):
         e["jev_choice"] = pick
         e["jev_readout"] = (why.get(it.id) or {}).get("readout")
         e["answer_ref"] = (why.get(it.id) or {}).get("answer_ref")
+        # Decision 89 (b): this entry is here because nothing had
+        # ever been tried at the site, not because it was the
+        # argmax of the phase's own question.
+        if (why.get(it.id) or {}).get("exploration"):
+            e["exploration"] = True
         entries.append(e)
     entries.sort(key=lambda e: e["key"])
     return entries
@@ -3149,8 +3549,14 @@ class Search:
         self.target_dir = os.path.join(REPO, "target-%s-jevsearch" % self.target)
         self.rounds_path = os.path.join(self.out, "rounds.jsonl")
         self.history = []
+        # `plan_sig` is the empty plan's: the incumbent at round 0 is the
+        # baseline, and a round whose plan is empty rebuilds it (decision
+        # 89 a). `batches` collects every independent batch measured on the
+        # incumbent's own binary, which is what makes the batch-to-batch
+        # spread reportable.
         self.best = {"round": 0, "ratio": 1.0, "plan": None,
-                     "label": "baseline"}
+                     "label": "baseline",
+                     "plan_sig": plan_signature([], []), "batches": []}
         self.jev = None
         self.t0 = time.time()
 
@@ -3346,9 +3752,15 @@ class Search:
                   "reported as `not measured`, no hotness class"
                   % fmt_share(known[0]))
         self.loops_by_mark = {}
+        # Summed loop hotness per mark. Used only to order the exploration
+        # Choices of decision 89 (b) where the profile share is a
+        # placeholder; nothing in the state quotes it.
+        self.hotness_by_mark = {}
         for s_ in self.base_sites:
             m = s_.get("mark")
             self.loops_by_mark[m] = self.loops_by_mark.get(m, 0) + 1
+            self.hotness_by_mark[m] = (self.hotness_by_mark.get(m, 0)
+                                       + int(s_.get("hotness") or 0))
         # Where each mark's own source is. The dump gives a source location
         # only for loops, and a loop's leaf location is usually in core's
         # iterator machinery, so the definition search comes first and the
@@ -3397,9 +3809,14 @@ class Search:
             return 0
 
         if self.args.print_state:
+            # With --resume this prints the state of the NEXT round, history
+            # and all, which is the only way to see what a round other than
+            # the first one is sent.
+            self.load_resume()
             for phase, items in (("A", self.fn_list + self.build_list),
                                  ("B", self.base_loops)):
                 ctx = self.ctx({"arm": None,
+                                "loop_items": self.base_loops,
                                 "fn_choice_text": "(none: this is a preview)"})
                 # Through the same function the proposer uses, so what is
                 # printed is what would be sent, verdict block included.
@@ -3423,9 +3840,39 @@ class Search:
                     for cid, desc in q["criteria"].items():
                         print("  %s: %s" % (cid, desc))
                     print("")
+                # The exploration request of decision 89 (b). It is sent
+                # after the phase's own answers are in, so the preview has
+                # to assume one: KEEP_DEFAULT everywhere, which is the case
+                # the mechanism exists for.
+                pairs = exploration_sites(items, {}, ctx, self.knobs,
+                                          self.args.explore)
+                print("=" * 72)
+                print("### phase %s exploration request (%d question(s), "
+                      "--explore %d; the preview assumes this phase answered "
+                      "KEEP_DEFAULT everywhere) ###"
+                      % (phase, len(pairs), self.args.explore))
+                print("=" * 72)
+                if not pairs:
+                    print("(no site is eligible: every site of this phase "
+                          "has already been given a hint in an earlier "
+                          "round, or --explore is 0)")
+                    print("")
+                    continue
+                eq, _ = exploration_questions(pairs, ctx)
+                print(state_header(ctx, len(pairs))
+                      + "".join(state_section(it, ctx) for it, _c in pairs))
+                for it, _c in pairs:
+                    q = eq[it.qname]
+                    print("--- %s  %s  [%s] ---" % (it.qname, it.id, it.kind))
+                    print(q["instructions"])
+                    print("criteria:")
+                    for cid, desc in q["criteria"].items():
+                        print("  %s: %s" % (cid, desc))
+                    print("")
             return 0
 
-        self.load_resume()
+        if not self.history:
+            self.load_resume()
 
         round_no = len(self.history)
         limit = (10 ** 9 if self.args.proposer == "oracle"
@@ -3517,7 +3964,7 @@ class Search:
                              self.args.source_comments)
         return JevProposer(self.jev, self.cfg["jev"], self.knobs,
                            int(self.cfg["search"]["max_state_chars"]),
-                           self.args.readout)
+                           self.args.readout, self.args.explore)
 
     def platform(self):
         """The platform block, read from the machine once and cached in the
@@ -3532,7 +3979,15 @@ class Search:
         return self._platform
 
     def ctx(self, extra=None):
+        # Decision 89 (d): a site has to be able to name the other sites its
+        # timing case is shared with, which means knowing every site of the
+        # round and not just its own phase's.
+        loops = (extra or {}).get("loop_items")
+        if loops is None:
+            loops = getattr(self, "base_loops", [])
         c = {"target": self.target, "binary": self.shell["bin_name"],
+             "all_site_ids": ([i.id for i in self.fn_list]
+                              + [i.id for i in loops]),
              "fn_items": self.fn_list, "history": self.history,
              "cases": [w.split("=", 1)[0] for w in self.shell["workloads"]],
              "reps": self.reps, "mde_text": "3%",
@@ -3541,6 +3996,7 @@ class Search:
              "share_placeholder": getattr(self, "share_placeholder", False),
              "share_by_mark": self.share_by_mark, "fn_source": self.fn_source,
              "loops_by_mark": self.loops_by_mark,
+             "hotness_by_mark": getattr(self, "hotness_by_mark", {}),
              "fn_choice_text": "",
              "source_comments": getattr(self.args,
                                         "source_comments", "strip"),
@@ -3580,6 +4036,7 @@ class Search:
         knob_flags = build_knob_flags(picks_a, self.knobs)
         rec["phase_a"] = {"choices": picks_a, "why": why_a,
                           "readout": ctx_a.get("readout"),
+                          "exploration": ctx_a.get("exploration"),
                           "fn_attrs": fn_attrs, "basis": basis,
                           "plan_sha256": sha_a, "build_knobs": knob_flags,
                           "fn_fanout": {i.meta["mark"]: {
@@ -3626,14 +4083,19 @@ class Search:
             "%s -> %s" % (i.label, V.spec_spelling("fn", picks_a[i.id]))
             for i in self.fn_list if picks_a.get(i.id, V.KEEP_DEFAULT)
             != V.KEEP_DEFAULT) or "none"
-        ctx_b = self.ctx({"arm": arm, "fn_choice_text": fn_text})
+        ctx_b = self.ctx({"arm": arm, "fn_choice_text": fn_text,
+                          "loop_items": items_b})
         picks_b, why_b = proposer.choose(items_b, ctx_b, round_no, "B")
         loop_md = loop_md_from(picks_b, items_b, why_b)
         plan_b = os.path.join(rdir, "plan-b.json")
         sha_b = write_plan(plan_b, "r%d-b" % round_no, fn_attrs, loop_md, basis)
         rec["phase_b"] = {"choices": picks_b, "why": why_b,
                           "readout": ctx_b.get("readout"),
+                          "exploration": ctx_b.get("exploration"),
                           "loop_md": loop_md, "plan_sha256": sha_b}
+        # Decision 89 (a): what makes this round's build different from
+        # another round's, with the annotations left out.
+        rec["plan_sig"] = plan_signature(fn_attrs, loop_md)
         if basis_of(fn_attrs) != basis:
             rec["status"] = "basis-mismatch"
             rec["accepted"] = rec["correct"] = False
@@ -3915,7 +4377,36 @@ class Search:
         # same two binaries. Rule 3 by itself is satisfiable by noise at this
         # n --- it accepted three arms of jaq's oracle A, all of which the
         # holdout reversed.
+        # Decision 89 (a) adds the fifth: a round is compared with the
+        # incumbent only when its plan is a DIFFERENT plan. Rounds 2 to 5 of
+        # Experiment 4 were the identical binary measured in four
+        # independent batches at 1.0628 to 1.0679, and round 5 was
+        # "accepted as the new best" over round 2 because the luckier batch
+        # cleared the unluckier one's point estimate. Rules 3 and 4 never
+        # ask whether the plan moved; this does, and an identical plan is
+        # recorded as one more batch on the incumbent instead.
+        same_plan = (rec.get("status") == "measured"
+                     and rec.get("plan_sig") == self.best.get("plan_sig"))
+        rec["same_plan_as_best"] = bool(same_plan)
+        if same_plan:
+            self.best.setdefault("batches", []).append(
+                {"round": rec["round"], "ratio": rec["ratio"],
+                 "ci95": rec.get("ci95"), "batch": "round"})
+            if (rec.get("confirm") or {}).get("ratio") is not None:
+                self.best["batches"].append(
+                    {"round": rec["round"], "ratio": rec["confirm"]["ratio"],
+                     "ci95": rec["confirm"].get("ci95"),
+                     "batch": "confirmation"})
+            rs = [b["ratio"] for b in self.best["batches"]]
+            rec["best_plan_batches"] = list(self.best["batches"])
+            rec["best_plan_spread"] = (max(rs) - min(rs)) if rs else 0.0
+            print("[accept] round %d builds the same plan as %s: recorded as "
+                  "%d further batch(es) on it (%.4f..%.4f, spread %.2f pt), "
+                  "not compared and not promoted"
+                  % (rec["round"], self.best["label"], len(rs),
+                     min(rs), max(rs), 100.0 * (max(rs) - min(rs))))
         ok = (rec.get("status") == "measured" and rec.get("correct")
+              and not same_plan
               and rec["ci95"][0] > self.best["ratio"]
               and (self.args.no_confirm_batch
                    or rec.get("confirmed_aggregate")))
@@ -3931,11 +4422,19 @@ class Search:
                 self.drop_binary(os.path.join(
                     self.out, "round-%02d" % rec["round"], "bin"))
             return
+        batches = [{"round": rec["round"], "ratio": rec["ratio"],
+                    "ci95": rec.get("ci95"), "batch": "round"}]
+        if (rec.get("confirm") or {}).get("ratio") is not None:
+            batches.append({"round": rec["round"],
+                            "ratio": rec["confirm"]["ratio"],
+                            "ci95": rec["confirm"].get("ci95"),
+                            "batch": "confirmation"})
         self.best = {"round": rec["round"], "ratio": rec["ratio"],
                      "ci95": rec["ci95"],
                      "plan": os.path.join(self.out, "round-%02d" % rec["round"],
                                           "plan-b.json"),
-                     "label": "round-%02d" % rec["round"]}
+                     "label": "round-%02d" % rec["round"],
+                     "plan_sig": rec.get("plan_sig"), "batches": batches}
         shutil.copy2(self.best["plan"], os.path.join(self.out, "best-plan.json"))
         print("[accept] round %d is the new best (%.4f)"
               % (rec["round"], rec["ratio"]))
@@ -3954,7 +4453,11 @@ class Search:
                              "ci95": rec.get("ci95"),
                              "plan": os.path.join(self.out, "round-%02d"
                                                   % rec["round"], "plan-b.json"),
-                             "label": "round-%02d" % rec["round"]}
+                             "label": "round-%02d" % rec["round"],
+                             "plan_sig": rec.get("plan_sig"),
+                             "batches": rec.get("best_plan_batches") or []}
+            elif rec.get("same_plan_as_best") and rec.get("best_plan_batches"):
+                self.best["batches"] = rec["best_plan_batches"]
         print("[resume] %d rounds already recorded, best = %s (%.4f)"
               % (len(self.history), self.best["label"], self.best["ratio"]))
 
@@ -3975,6 +4478,7 @@ class Search:
             "state_format": STATE_FORMAT_VERSION,
             "source_comments": self.args.source_comments,
             "readout": self.args.readout,
+            "explore": self.args.explore,
             "platform_block": (os.path.join(self.out, "platform.json")
                                if self.state_v2 else None),
             "config": self.cfg["_path"], "config_sha256": self.cfg["_sha256"],
@@ -4026,16 +4530,30 @@ class Search:
                       STATE_FORMAT_VERSION, self.args.readout))
         out.append("")
         out.append("Acceptance rule, fixed before the first round: a round "
-                   "becomes the best so far only if its output matches the "
-                   "baseline on every case, every plan entry was applied, and "
-                   "the lower end of its 95% CI is above the best point "
-                   "estimate so far (the baseline, 1.0000, is the first).")
+                   "becomes the best so far only if its plan differs from "
+                   "the incumbent's, its output matches the baseline on "
+                   "every case, every plan entry was applied, and the lower "
+                   "end of its 95% CI is above the best point estimate so "
+                   "far (the baseline, 1.0000, is the first). A round whose "
+                   "plan is the incumbent's plan is the incumbent's binary: "
+                   "it is recorded as one more independent batch on it and "
+                   "cannot re-promote it (decision 89 a).")
         out.append("")
+        batches = self.best.get("batches") or []
+        if len(batches) > 1:
+            rs = [b["ratio"] for b in batches]
+            out.append("Batches measured on the best plan\'s own binary: %d "
+                       "(%s), spread %.2f points. Nothing inside that spread "
+                       "separates two plans."
+                       % (len(rs), ", ".join("%.4f" % r for r in rs),
+                          100.0 * (max(rs) - min(rs))))
+            out.append("")
         out.append("| round | site | candidate | code vs base | fn hints | "
-                   "loop hints | apply problems | correct | ratio | 95% CI | "
-                   "own kernel | own-kernel CI | confirmed | in-run A/A | "
-                   "accepted |")
-        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+                   "loop hints | explored | plan | apply problems | correct | "
+                   "ratio | 95% CI | own kernel | own-kernel CI | confirmed | "
+                   "in-run A/A | accepted |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+                   "---|---|---|")
         for r in rows:
             pa, pb = r.get("phase_a") or {}, r.get("phase_b") or {}
             arm = r.get("arm") or {}
@@ -4049,7 +4567,12 @@ class Search:
                 "no" if r.get("confirm") else
                 ("n/a" if r.get("status") == "identical_to_baseline"
                  else "not triggered"))
-            out.append("| %d | %s | %s | %s | %d | %d | %s | %s | %s | %s | "
+            explored = []
+            for ph in (pa, pb):
+                for sid, pick in ((ph.get("exploration") or {})
+                                  .get("picks") or {}).items():
+                    explored.append("%s=%s" % (sid, pick))
+            out.append("| %d | %s | %s | %s | %d | %d | %s | %s | %s | %s | %s | %s | "
                        "%s | %s | %s | %s | %s |"
                        % (r["round"],
                           (arm.get("site") or "combination"),
@@ -4057,6 +4580,9 @@ class Search:
                           r.get("code_class") or "-",
                           len(pa.get("fn_attrs") or []),
                           len(pb.get("loop_md") or []),
+                          ", ".join(explored) or "none",
+                          ("same as best" if r.get("same_plan_as_best")
+                           else (r.get("plan_sig") or "-")[:8]),
                           ", ".join("%s=%s" % kv for kv in
                                     (pb.get("bad_outcomes") or {}).items()) or "none",
                           "yes" if r.get("correct") else "NO",
@@ -4152,6 +4678,22 @@ def main():
                         "which leaves such a phase empty. The ranking is "
                         "recorded either way."
                    )
+    p.add_argument("--explore", type=int, default=2, metavar="K",
+                   help="decision 89 (b): how many extra Choices a round "
+                        "adds for sites nothing has ever been tried at. "
+                        "After each phase's own answers are in, the K "
+                        "hottest sites that no earlier round gave a hint to "
+                        "and that this round answered KEEP_DEFAULT are asked "
+                        "once more, with only the candidates they have not "
+                        "been given (mechanically filtered, no KEEP_DEFAULT) "
+                        "and the question `one of these will be tried this "
+                        "round`. The answer joins this round's plan beside "
+                        "the argmax entries and never replaces one. "
+                        "--explore 0 is the behaviour of Experiment 4, whose "
+                        "feedback filtered and never discovered. Applies to "
+                        "--proposer jev only: random already draws non-"
+                        "KEEP_DEFAULT candidates by construction, and the "
+                        "oracle's arms are enumerated")
     p.add_argument("--source-comments", default="strip",
                    choices=("strip", "keep"),
                    help="how the source excerpts in the state are rendered "

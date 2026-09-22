@@ -51,6 +51,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
@@ -575,6 +576,37 @@ SiteKey computeSiteKey(const Function &F, const Loop &L) {
   return K;
 }
 
+/// A loop's identity across LoopVectorize (decision 87 c).
+///
+/// The site key cannot be recomputed after the vectorizer has run: its
+/// material includes the sorted fingerprint of the body, and LoopVectorize
+/// rewrites the body. What does survive is where the loop came from --- the
+/// function that holds it, its innermost debug location together with the
+/// inline chain above it, and its nesting depth. That is what this returns,
+/// and it is what JevWatchLoops matches on at VectorizerEnd.
+///
+/// It is deliberately coarser than a site key: two loops of one function that
+/// begin at the same file:line:col and the same depth share a signature. Such
+/// a signature is recorded as ambiguous and carries no facts, for the same
+/// reason a shared remark line carries none.
+std::string loopSignature(const Function &F, const Loop &L) {
+  std::string S = F.getName().str();
+  S += "\x1f";
+  if (DebugLoc DL = loopLoc(L)) {
+    SmallVector<const DISubprogram *, 8> Chain;
+    frameChain(DL.get(), Chain);
+    for (auto It = Chain.rbegin(); It != Chain.rend(); ++It) {
+      S += subprogramLinkage(*It);
+      S += "\x1e";
+    }
+    S += DL->getFilename().str() + ":" + std::to_string(DL->getLine()) + ":" +
+         std::to_string(DL->getColumn());
+  }
+  S += "\x1f";
+  S += std::to_string(L.getLoopDepth());
+  return S;
+}
+
 //===----------------------------------------------------------------------===//
 // loop metadata helpers
 //===----------------------------------------------------------------------===//
@@ -789,6 +821,68 @@ struct Bucket {
 std::map<std::string, Bucket> Buckets; // key: moduleId + "\x1f" + stage
 bool AtexitInstalled = false;
 
+//===----------------------------------------------------------------------===//
+// post-vectorization facts (decision 87 c)
+//===----------------------------------------------------------------------===//
+//
+// Decision 83 left the state unable to say what LLVM did with a loop: the
+// only evidence was the vectorizer's remarks, which carry a source location
+// and no function name, so three of hintbench's four loops came out as
+// "UNKNOWN (shared source line)". These structures let the plugin answer the
+// question per loop instead.
+//
+// Every loop the dump or the apply half reports on registers, at
+// VectorizerStart, the signature above together with its site key.
+// JevWatchLoops then runs at VectorizerEnd --- after LoopVectorize, and under
+// fat LTO after the post-link LoopUnroll that follows it --- and matches each
+// loop it finds back to a key, preferring the `jev.site` string the apply
+// half attached, because LoopVectorize carries metadata that is not
+// `llvm.loop.vectorize.*` or `llvm.loop.interleave.*` onto the loop it
+// produces (makeFollowupLoopID), so that string survives with the loop.
+
+struct PostVecLoop {
+  bool IsVectorized = false;
+  unsigned Width = 0, IvStep = 0, Insts = 0;
+};
+
+struct PostVecFacts {
+  unsigned NLoops = 0;        // loops at VectorizerEnd that matched this key
+  bool IsVectorized = false;  // any of them carries llvm.loop.isvectorized
+  unsigned Width = 0;         // widest vector element count in the body
+  unsigned IvStep = 0;        // that loop's integer induction-variable step
+  unsigned BodyInsts = 0;
+  bool ByMetadata = false;    // matched through jev.site, not the signature
+  std::vector<PostVecLoop> Loops;  // one per matched loop, as found
+};
+
+struct PreVecRec {
+  std::vector<std::string> Keys;  // more than one: the signature is ambiguous
+};
+
+std::map<std::string, PreVecRec> PreVecBySig;    // bucket \x1f signature
+std::map<std::string, std::string> PreVecOwner;  // bucket \x1f key -> linkage
+std::map<std::string, PostVecFacts> PostVec;     // bucket \x1f key
+std::set<std::string> PostVecAmbiguous;          // bucket \x1f key
+std::set<std::string> VecEndFns;                 // bucket \x1f linkage
+
+/// Caller holds StateMutex.
+void notePreVectorizeSite(const std::string &BucketKey, const std::string &Sig,
+                          const std::string &Key, const std::string &Owner) {
+  PreVecRec &R = PreVecBySig[BucketKey + "\x1f" + Sig];
+  bool Have = false;
+  for (const std::string &K : R.Keys)
+    if (K == Key) {
+      Have = true;
+      break;
+    }
+  if (!Have)
+    R.Keys.push_back(Key);
+  if (R.Keys.size() > 1)
+    for (const std::string &K : R.Keys)
+      PostVecAmbiguous.insert(BucketKey + "\x1f" + K);
+  PreVecOwner[BucketKey + "\x1f" + Key] = Owner;
+}
+
 std::string sanitizeFile(StringRef S) {
   std::string O;
   for (char C : S)
@@ -828,6 +922,80 @@ void writeJsonArray(std::ostream &O, StringRef Name,
   for (size_t I = 0; I < Items.size(); ++I)
     O << (I ? ",\n    " : "\n    ") << Items[I];
   O << (Items.empty() ? "]" : "\n  ]") << (Last ? "\n" : ",\n");
+}
+
+void writeJsonObject(std::ostream &O, StringRef Name,
+                     const std::vector<std::string> &Items, bool Last) {
+  O << "  " << jstr(Name) << ": {";
+  for (size_t I = 0; I < Items.size(); ++I)
+    O << (I ? ",\n    " : "\n    ") << Items[I];
+  O << (Items.empty() ? "}" : "\n  }") << (Last ? "\n" : ",\n");
+}
+
+/// One `"<site key>": {...}` entry per loop this bucket registered before the
+/// vectorizer ran. Caller holds StateMutex.
+///
+/// `watched` is false when the VectorizerEnd extension point never ran for
+/// the function that held the loop in this process, in which case nothing
+/// below it is a statement about the program: it is the loop half of the
+/// `callee_present: null` rule above.
+std::vector<std::string> postVectorizeJson(const std::string &BucketKey) {
+  std::vector<std::string> Out;
+  const std::string Pfx = BucketKey + "\x1f";
+  for (auto &KV : PreVecOwner) {
+    if (KV.first.size() < Pfx.size() ||
+        KV.first.compare(0, Pfx.size(), Pfx) != 0)
+      continue;
+    std::string Key = KV.first.substr(Pfx.size());
+    bool Watched = VecEndFns.count(Pfx + KV.second) != 0;
+    bool Amb = PostVecAmbiguous.count(KV.first) != 0;
+    auto It = PostVec.find(KV.first);
+    const PostVecFacts *Fa = It == PostVec.end() ? nullptr : &It->second;
+    std::ostringstream S;
+    S << jstr(Key) << ": {"
+      << "\"watched\": " << (Watched ? "true" : "false")
+      << ", \"ambiguous_signature\": " << (Amb ? "true" : "false")
+      << ", \"matched_by\": "
+      << (Fa ? jstr(Fa->ByMetadata ? "jev.site" : "signature")
+             : std::string("null"))
+      << ", \"exists\": "
+      << (!Watched ? "null" : (Fa ? "true" : "false"))
+      << ", \"loops\": "
+      << (!Watched ? std::string("null")
+                   : std::to_string(Fa ? Fa->NLoops : 0))
+      << ", \"isvectorized\": "
+      << (!Watched ? "null" : ((Fa && Fa->IsVectorized) ? "true" : "false"))
+      << ", \"vector_width\": "
+      << ((Fa && Fa->Width) ? std::to_string(Fa->Width) : std::string("null"))
+      << ", \"iv_step\": "
+      << ((Fa && Fa->IvStep) ? std::to_string(Fa->IvStep) : std::string("null"))
+      << ", \"interleave_count\": ";
+    // Only where LoopVectorize actually vectorized the loop: a vector value
+    // in a loop it declined is the SLP vectorizer's or the unroller's, and
+    // an interleave count derived from it would mean nothing.
+    if (Fa && Fa->IsVectorized && Fa->Width && Fa->IvStep &&
+        Fa->IvStep % Fa->Width == 0)
+      S << (Fa->IvStep / Fa->Width);
+    else if (Fa && Fa->IsVectorized && !Fa->Width && Fa->IvStep)
+      S << Fa->IvStep;  // interleaved without being widened: VF is 1
+    else
+      S << "null";
+    S << ", \"matched\": [";
+    if (Fa)
+      for (size_t I = 0; I < Fa->Loops.size(); ++I) {
+        const PostVecLoop &PL = Fa->Loops[I];
+        S << (I ? ", {" : "{") << "\"isvectorized\": "
+          << (PL.IsVectorized ? "true" : "false") << ", \"vector_width\": "
+          << PL.Width << ", \"iv_step\": " << PL.IvStep
+          << ", \"insts\": " << PL.Insts << "}";
+      }
+    S << "]";
+    S << ", \"body_inst_count\": "
+      << (Fa ? std::to_string(Fa->BodyInsts) : std::string("null"))
+      << ", \"owner_fn\": " << jstr(KV.second) << "}";
+    Out.push_back(S.str());
+  }
+  return Out;
 }
 
 void writeReports() {
@@ -870,6 +1038,8 @@ void writeReports() {
     F << "  \"profile_summary\": " << (B.HasProfileSummary ? "true" : "false") << ",\n";
     F << "  \"loop_ep_ran\": " << (B.LoopEpRan ? "true" : "false") << ",\n";
     writeJsonArray(F, "unmatched_marks", Unmatched, false);
+    writeJsonObject(F, "post_vectorize",
+                    postVectorizeJson(B.ModuleId + "\x1f" + B.Stage), false);
     if (TheMode == Mode::Apply) {
       writeJsonArray(F, "results", B.ResultJson, true);
     } else if (TheMode == Mode::ApplyDump) {
@@ -1069,6 +1239,9 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
 
     std::vector<std::string> Sites;
     std::set<std::string> Hit;
+    // (signature, site key) for every loop this dump reports on, so that
+    // JevWatchLoops can find the same loops again after LoopVectorize.
+    std::vector<std::pair<std::string, std::string>> PreReg;
 
     SmallVector<Loop *, 8> Work(LI.begin(), LI.end());
     while (!Work.empty()) {
@@ -1085,6 +1258,7 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
         Hit.insert(S);
 
       SiteKey K = computeSiteKey(F, *L);
+      PreReg.emplace_back(loopSignature(F, *L), K.Key);
       unsigned Body = 0;
       bool HasCalls = false;
       for (const BasicBlock *BB : L->getBlocks()) {
@@ -1169,6 +1343,147 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
       for (std::string &S : Sites) B.SiteJson.push_back(std::move(S));
       if (!FnRow.empty()) B.FnJson[F.getName().str()] = std::move(FnRow);
       B.MatchedMarks.insert(Hit.begin(), Hit.end());
+      for (auto &P : PreReg)
+        notePreVectorizeSite(B.ModuleId + "\x1f" + B.Stage, P.first, P.second,
+                             F.getName().str());
+    }
+    return PreservedAnalyses::all();
+  }
+  static bool isRequired() { return true; }
+};
+
+//===----------------------------------------------------------------------===//
+// what LLVM did (VectorizerEnd)
+//===----------------------------------------------------------------------===//
+
+/// The element count of the widest fixed vector value anywhere in the loop.
+///
+/// This is the vectorization factor as it ended up in the IR, which is not
+/// necessarily the one a `llvm.loop.vectorize.width` hint asked for: LLVM
+/// clamps a width it cannot legally or profitably use, and the metadata that
+/// asked for it is dropped from the loop it produces.
+unsigned maxVectorElems(const Loop &L) {
+  unsigned Max = 0;
+  auto Note = [&](Type *T) {
+    if (const auto *VT = dyn_cast<FixedVectorType>(T))
+      Max = std::max(Max, unsigned(VT->getNumElements()));
+  };
+  for (const BasicBlock *BB : L.getBlocks())
+    for (const Instruction &I : *BB) {
+      Note(I.getType());
+      for (const Value *V : I.operand_values())
+        Note(V->getType());
+    }
+  return Max;
+}
+
+/// The constant step of the loop's integer induction variable: how many
+/// scalar iterations one iteration of this loop now performs. For a loop
+/// LoopVectorize widened to VF lanes and interleaved IC times it is VF * IC,
+/// which is how the interleave count is recovered --- the metadata that
+/// requested it does not survive on to the vectorized loop.
+unsigned ivStep(const Loop &L) {
+  const BasicBlock *H = L.getHeader();
+  const BasicBlock *Latch = L.getLoopLatch();
+  if (!H || !Latch)
+    return 0;
+  unsigned Best = 0;
+  for (const PHINode &P : H->phis()) {
+    if (!P.getType()->isIntegerTy())
+      continue;
+    const auto *BO = dyn_cast_or_null<BinaryOperator>(
+        P.getIncomingValueForBlock(Latch));
+    if (!BO || BO->getOpcode() != Instruction::Add)
+      continue;
+    if (BO->getOperand(0) != &P)
+      continue;
+    if (const auto *C = dyn_cast<ConstantInt>(BO->getOperand(1)))
+      if (!C->isNegative() && C->getZExtValue() > 0 &&
+          C->getZExtValue() < (1u << 16))
+        Best = std::max(Best, unsigned(C->getZExtValue()));
+  }
+  return Best;
+}
+
+/// Records, at VectorizerEnd, what became of every loop a dump or an apply
+/// registered at VectorizerStart. Registered in every non-off mode; it reads
+/// the IR and changes nothing.
+struct JevWatchLoops : PassInfoMixin<JevWatchLoops> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
+    if (F.isDeclaration())
+      return PreservedAnalyses::all();
+    Module &M = *F.getParent();
+    std::string BK = M.getModuleIdentifier() + "\x1f" + stageOf(M);
+    {
+      std::lock_guard<std::mutex> Lk(StateMutex);
+      if (PreVecOwner.empty())
+        return PreservedAnalyses::all();
+      VecEndFns.insert(BK + "\x1f" + F.getName().str());
+    }
+
+    LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
+    if (LI.empty())
+      return PreservedAnalyses::all();
+
+    struct Found {
+      std::string Key;
+      bool ByMD, Vec;
+      unsigned W, Step, Body;
+    };
+    std::vector<Found> Hits;
+    SmallVector<Loop *, 8> Work(LI.begin(), LI.end());
+    while (!Work.empty()) {
+      Loop *L = Work.pop_back_val();
+      Work.append(L->begin(), L->end());
+
+      MDNode *ID = L->getLoopID();
+      std::string Key = loopIdStrValue(ID, "jev.site");
+      bool ByMD = !Key.empty();
+      if (Key.empty()) {
+        std::string Sig = loopSignature(F, *L);
+        std::lock_guard<std::mutex> Lk(StateMutex);
+        auto It = PreVecBySig.find(BK + "\x1f" + Sig);
+        if (It != PreVecBySig.end() && It->second.Keys.size() == 1)
+          Key = It->second.Keys.front();
+      }
+      if (Key.empty())
+        continue;
+      unsigned Body = 0;
+      for (const BasicBlock *BB : L->getBlocks())
+        Body += BB->size();
+      Hits.push_back({Key, ByMD, loopIdHas(ID, "llvm.loop.isvectorized"),
+                      maxVectorElems(*L), ivStep(*L), Body});
+    }
+    if (Hits.empty())
+      return PreservedAnalyses::all();
+
+    std::lock_guard<std::mutex> Lk(StateMutex);
+    for (const Found &H : Hits) {
+      std::string PK = BK + "\x1f" + H.Key;
+      // A `jev.site` string can name a key this bucket never registered (the
+      // plan is applied in every stage the entry allows); such a loop is not
+      // this report's business.
+      if (!PreVecOwner.count(PK))
+        continue;
+      PostVecFacts &Fa = PostVec[PK];
+      Fa.NLoops++;
+      Fa.IsVectorized = Fa.IsVectorized || H.Vec;
+      Fa.ByMetadata = Fa.ByMetadata || H.ByMD;
+      Fa.BodyInsts += H.Body;
+      // The widest matched loop is the vector body; the others are its
+      // scalar prologue and epilogue, which carry no width of their own.
+      if (H.W > Fa.Width) {
+        Fa.Width = H.W;
+        Fa.IvStep = H.Step;
+      } else if (H.W == Fa.Width && H.Step > Fa.IvStep) {
+        // Several loops of the same width: the vector body, its vector
+        // epilogue and the scalar remainder all match one signature. The
+        // body is the one that advances furthest per iteration.
+        Fa.IvStep = H.Step;
+      } else if (!Fa.IvStep) {
+        Fa.IvStep = H.Step;
+      }
+      Fa.Loops.push_back({H.Vec, H.W, H.Step, H.Body});
     }
     return PreservedAnalyses::all();
   }
@@ -1244,6 +1559,7 @@ struct JevApplyLoopMD : PassInfoMixin<JevApplyLoopMD> {
 
     std::vector<std::string> Results;
     std::vector<std::pair<std::string, unsigned>> Hits;
+    std::vector<std::pair<std::string, std::string>> PreReg;
 
     SmallVector<Loop *, 8> Work(LI.begin(), LI.end());
     while (!Work.empty()) {
@@ -1260,6 +1576,7 @@ struct JevApplyLoopMD : PassInfoMixin<JevApplyLoopMD> {
       if (!E)
         continue;
       Hits.emplace_back(E->Key, 1);
+      PreReg.emplace_back(loopSignature(F, *L), E->Key);
 
       MDNode *ID = L->getLoopID();
       const char *Outcome = nullptr;
@@ -1321,6 +1638,8 @@ struct JevApplyLoopMD : PassInfoMixin<JevApplyLoopMD> {
       std::string BK = B.ModuleId + "\x1f" + B.Stage;
       for (auto &H : Hits) KeyHits[BK][H.first] += H.second;
       for (std::string &S : Results) B.ResultJson.push_back(std::move(S));
+      for (auto &P : PreReg)
+        notePreVectorizeSite(BK, P.first, P.second, F.getName().str());
     }
     // Loop metadata changes neither the CFG nor any analysis result
     // (SPEC.ja.md 8.2).
@@ -1621,6 +1940,15 @@ void registerCallbacks(PassBuilder &PB) {
           MPM.addPass(JevMarkStageFromPhase("thinlto"));
         else if (P == ThinOrFullLTOPhase::FullLTOPostLink)
           MPM.addPass(JevMarkStageFromPhase("lto"));
+      });
+  // What LLVM did, per loop, after LoopVectorize has run. Registered in every
+  // non-off mode: the dump needs it to describe the baseline, and an apply
+  // needs it to say whether the width it asked for is the width it got. The
+  // pass reads the IR and preserves every analysis, so a build that carries
+  // it is the build that would have been produced without it.
+  PB.registerVectorizerEndEPCallback(
+      [](FunctionPassManager &FPM, OptimizationLevel) {
+        FPM.addPass(JevWatchLoops());
       });
 
   if (TheMode == Mode::ApplyDump) {

@@ -64,6 +64,7 @@ Fixed by measurement (`scripts/plugin_ep_table.sh`, results.md "Day 3
 | function attributes | `PipelineStartEP` | once per CGU, **pre-link only**. `buildLTODefaultPipeline` does not invoke it, so there is no merged-module second call. This is the only point before any inlining. |
 | loop metadata | `VectorizerStartEP` | under fat LTO, only in the **merged** module; under `lto=off`, in the single per-CGU pipeline. Either way it is the last point at which a hint still reaches LoopVectorize. |
 | `alwaysinline` presence check | `VectorizerStartEP` | alongside the loop pass, in every mode that applies a plan. It only records which of the functions this process gave `alwaysinline` to are still in the module: see `callee_present` under "Report schema". |
+| post-vectorization facts | `VectorizerEndEP` | in **every** non-`off` mode, after `LoopVectorize` (and, in the fat-LTO post-link pipeline, after the `LoopUnroll` that `addVectorPasses` runs next to it). It records what became of each loop a `dump` or an `apply` reported on: see `post_vectorize` under "Report schema". It reads the IR, changes nothing and preserves every analysis. Measured, not argued: the toy built with `JEV_MODE=dump` and this pass registered has a `.text` whose sha256 is the one a build with **no plugin loaded at all** produces, and `norm_code_diff.py` calls the two IDENTICAL over all 371 symbols. |
 
 Stage detection: under fat LTO `rustc` reuses the primary CGU's module
 identifier *and* its process for the merged module, so the stage cannot be
@@ -273,6 +274,17 @@ One file per `(module, stage, pid)`:
   "profile_summary": true,
   "loop_ep_ran": true,
   "unmatched_marks": [],
+  "post_vectorize": {
+    "8d0b9cbf99f073bc--macros.rs-279": {
+      "watched": true, "ambiguous_signature": false,
+      "matched_by": "signature", "exists": true, "loops": 3,
+      "isvectorized": true, "vector_width": 4, "iv_step": 16,
+      "interleave_count": 4,
+      "matched": [{"isvectorized": true, "vector_width": 0, "iv_step": 1, "insts": 10},
+                  {"isvectorized": true, "vector_width": 4, "iv_step": 4, "insts": 10},
+                  {"isvectorized": true, "vector_width": 4, "iv_step": 16, "insts": 28}],
+      "body_inst_count": 48, "owner_fn": "_RNvCs..._3toy4main"}
+  },
   "functions": [
     {"linkage": "_RNvCs..._8toyloops12count_quotes",
      "demangled": "toyloops::count_quotes",
@@ -325,6 +337,63 @@ exit, not when the attribute is applied:
   LTO that is the normal case for a **dependency crate**: its pre-link
   pipeline stops before the vectorizers, and the merged module belongs to the
   binary crate's process. A `null` says nothing about the function either way.
+
+### `post_vectorize`: what LLVM did with each loop
+
+Decision 87 (c). Until this existed the only evidence about a loop's fate was
+the vectorizer's remarks, which carry a source location and **no function
+name**, so on `targets/hintbench` three of the four loop sites sat on
+`macros.rs:180` --- a line 17 inlined loops write to --- and the driver could
+only say `UNKNOWN (shared source line)` (decision 83). This is the per-loop
+answer to the same question.
+
+One entry per site key the dump or the apply half of this bucket reported on,
+in every mode, written at process exit:
+
+| field | meaning |
+|---|---|
+| `watched` | the `VectorizerEndEP` pass ran for the function that held this loop, in this process and this stage. **`false` means nothing below it is a statement about the program** --- the loop half of the `callee_present: null` rule above |
+| `exists` | at least one loop at `VectorizerEnd` matched this key. `false`: the loop was removed, merged or fully unrolled, so a hint on it has nothing left to act on |
+| `isvectorized` | any matched loop carries `llvm.loop.isvectorized` |
+| `vector_width` | the element count of the widest fixed vector value in the matched loops. It is what LLVM ended up using, which need not be what a `vectorize.width` hint asked for: a width LLVM cannot legally or profitably use is clamped, and the metadata that asked for it is dropped from the loop it produces. With `isvectorized: false` a non-null width is the **SLP** vectorizer's or the unroller's, not a vectorized loop |
+| `iv_step` | the constant step of that loop's integer induction variable: how many scalar iterations one iteration of it now performs |
+| `interleave_count` | `iv_step / vector_width`, reported **only** where `isvectorized` is true. On the toy it reproduces the remarks exactly: `count_quotes` and `sum_indexed` both come out width 4, interleave 4, and `-pass-remarks` says `vectorized loop (vectorization width: 4, interleaved count: 4)` for both. **It is trustworthy in a `dump` and not in an `apply` that carries an unroll hint**: in the fat-LTO post-link pipeline `addVectorPasses` runs `LoopUnroll` before `VectorizerEndEP` fires, so a loop given `unroll.count=4` on top of a VF-4 IC-4 vectorization reports `iv_step` 64 and an interleave count four times too high. `iv_step` itself is always the honest number --- how many scalar iterations one iteration of that loop performs --- and the derived count is what to distrust |
+| `ambiguous_signature` | two different site keys claimed one signature (below); no facts are reported for either |
+| `matched_by` | `jev.site` (exact) or `signature` |
+| `matched` | one row per matched loop, as found: the vector body, its vector epilogue and the scalar remainder all answer to one key. The aggregate above takes the width of the widest and, among the widest, the largest `iv_step`, which is the body |
+| `body_inst_count` | instructions over all matched loops |
+| `owner_fn` | linkage name of the function the loop was in at `VectorizerStart` |
+
+**How a loop is found again.** A site key hashes, among other things, the
+sorted fingerprint of the loop body, and `LoopVectorize` rewrites the body,
+so the key cannot be recomputed afterwards. Two mechanisms, in order:
+
+1. **`jev.site`.** Where the apply half attached metadata it also attached
+   `!{!"jev.site", !"<key>"}`, and `LoopVectorize` carries metadata that is
+   not `llvm.loop.vectorize.*` or `llvm.loop.interleave.*` onto the loop it
+   produces (`makeFollowupLoopID`), so the string survives with the loop.
+   This match is exact.
+2. **The signature**, for every other loop, including every loop of a
+   `dump`: `(owner function, innermost debug location with the inline chain
+   above it, nesting depth)`, registered at `VectorizerStart` and looked up
+   at `VectorizerEnd`. It is coarser than a key --- two loops of one function
+   that begin at the same `file:line:col` at the same depth share it --- and
+   a signature two keys claim is reported `ambiguous_signature` with no
+   facts, for the same reason a shared remark line carries none. Much
+   smaller a set, though: it is per function, where a remark line is per
+   program.
+
+Two things it does not cover:
+
+* **In `apply` mode, an ambiguous signature is not detected.** `JevApplyLoopMD`
+  registers only the loops a plan entry matched, so a *second* loop of the
+  same function with the same signature --- which the plan did not name ---
+  is silently attributed to the plan key instead of flagged. A `dump`
+  registers every loop it reports on and does catch it. The driver reads
+  `post_vectorize` out of the baseline dump, so nothing consumes the
+  apply-mode record yet; anything that starts to has to fix this first.
+* A key is matched per `(module, stage)`. A `jev.site` string naming a key
+  this bucket never registered is ignored rather than reported.
 
 `unmatched` is per module and must be merged before it means anything: a
 `fn_attrs` entry naming a function of one crate is legitimately unmatched in

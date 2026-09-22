@@ -64,6 +64,11 @@ class _Args:
         self.baseline_dir = None
         self.vocab = "v3"
         self.readout = "forced_top1"
+        # The one-shot is round 1 of a run and nothing else: no build, no
+        # history, and therefore no exploration request either (decision
+        # 89 b). Its whole purpose is that a pass taken today is comparable
+        # with one recorded before the mechanism existed.
+        self.explore = 0
         self.source_comments = "strip"
         self.proposer = "jev"
         self.out = None
@@ -156,7 +161,7 @@ def main():
                          source_comments=a.source_comments)
     proposer = S.JevProposer(client, cfg["jev"], search.knobs,
                              int(cfg["search"]["max_state_chars"]),
-                             readout=a.readout)
+                             readout=a.readout, explore=0)
 
     items_a = search.fn_list + search.build_list
     items_b = search.base_loops
