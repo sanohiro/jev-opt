@@ -429,3 +429,18 @@
 - **知見**: v4 は 6 候補すべて 4 文・「helps where / hurts where」の対・383〜411 字(v3 は 161〜876 字で 5.4 倍差)。壊れた state(pass2)では 8/8 site で `inline_always` が最良非既定、confidence 0.34〜0.48。**state を直しただけ**(v3.1)で 5/8、対照カーネルの偏りも消え、confidence 0.73〜0.97 に回復。v4 は argmax を 1 つも動かさず、残る 2 site(k2、k6。基準がインラインを断っている唯一の 2 マークで、判定行がコスト単位でそれを言う)の質量を半減。EXPECTED との一致は両方 5/12(関数 5/8、ループ 0/4)、12/12 安定。ループでは UNKNOWN にしたことで vectorize の質量が跳ね、k4 は判定行のレーン算術に従って幅 16(P 0.85)、k5 / k8 は基準と同じ幅 8 を要求(null 候補)。k6 は `inline(always)` を選び、Claude はそれを検討していなかった。
 - **判断**: v4 を既定にする。一致率の低下(10 → 7 → 5)は劣化ではなく、漏れと誤った前提が剝がれた結果。正解は oracle。k4 の幅 16(Jev)対 KEEP(Claude)、k6 の `inline(always)`(Jev)対 `align=64`(Claude)は、oracle が決着させる具体的な争点。
 - **影響**: `jev_vocab.py` v4、spec §1(2)、§6。
+
+### 85. hintbench の oracle(85 arm、4.1 時間): 正解が出た。`inline(always)` が k2 で +67.8%、幅 16 が k8 で +8.8%、unroll 4 が k3 で +4.4%
+- **知見**: 85 arm 全部で出力一致。基準と同一のバイナリは 39 本(関数 27/40、ループ 12/44)で計測をスキップ(3.1 時間削減)。null パネルはバッチ内 0.08 pt、バッチ間 0.17 pt(jaq の 0.77 / 4.67 pt よりはるかに静か)。較正 arm(k5 `interleave.count=1`)は予告どおり −70%。**生きているヒント 9/16、うち正方向に効くのは 3 つだけ**: `inline(always)`(k2 +67.8%、`mode` がリテラルになって 60 段の `imul` 鎖が `lea` に。callee はシンボル表から消えた)、`vectorize.width=16`(k8 +8.8%、k5 +2.65%)、`unroll.count=4`(k3 +4.4%)。`align` 3 種は 1 つも動かない(エントリは 64 境界に動くが時計は動かない)。`unroll.disable` と `interleave.count=1` はベクトル化済みループでは同一命令(44 arm 中 8 本が重複測定。jaq の 176 arm にも同じ無駄がある)。組み合わせは訓練 +8.8%、第 3 バッチ +8.5%、カーネル別効果がほぼそのまま残る。`results.md` §118〜§128、`docs/experiments/hintbench/oracle.md`、`EXPECTED.md` §5。
+- **判断**: (a) この基準で速さを出せるヒントは、強制インライン(定数特殊化を解く)、ベクトル幅、unroll 回数、の 3 種。関数属性の `align` は語彙から外してよい(次回)。(b) `unroll.disable` はベクトル化済みループでは `interleave.count=1` と同じなので、片方に統合する。(c) jaq の関数属性 oracle は 1 Choice が 60 クロージャに波及していた(決定 80c 修正で 138 → 49 entry)ので、jaq の関数半分は修正後に再実行が要る。
+- **影響**: spec §1(2)、§9。
+
+### 86. Claude の予測は 8 問中 1 問正解(MDE ゲートで 3)。`inline(never)` の符号を 3 回外した。効果量の較正は良い
+- **知見**: 素点 1 hit(k2)/ 1 same-family(k3: `unroll.disable` は −17%、正解は `unroll.count=4`)/ 6 miss。K1 `inline(never)` は −4.6%(8 箇所が out-of-line になるコストより、インライン済みコピーが得ていたスケジューリングの損が大きい)、K7 は 0、K6 `align=64` は 0。対照カーネル K8 は「余地なし」の予測に反して幅 16 で +8.8%。K4 では「幅 16 は帯域を増やせない」が正しく −42%、K5 では同じ論が逆で +2.65%(遅延律速の reduction では幅を広げると鎖が増える)。効果量のバンドは 8 中 4 が的中。
+- **判断**: Claude の「どのつまみか」の判断は信用できない(正解との一致は Jev より低い)。参照点は Claude ではなく oracle。決定 69 の指標「Claude との一致率」は補助に降格し、主指標は「oracle の正解との一致率」。
+- **影響**: spec §2。
+
+### 87. Jev v4(state 修正後)の一発回答を正解で採点: 関数 7/8(k2 の +67.8% を含む)、ループ 0/4(k4 で −42% の有害な選択)
+- **知見**: 関数フェーズ(MDE ゲート、正解 = 確認済みで MDE 超えの最良、無ければ KEEP): k1 KEEP ○、k2 `inline(always)` ○、k3 KEEP ○、k4 KEEP ○(`inline(never)` +1.5% は MDE 未満)、k5 KEEP ○、k6 `inline(always)` ×(正解 KEEP)、k7 KEEP ○、k8 KEEP ○。**Claude(3/8)より高い。** ループフェーズ: k3 KEEP ×(正解 `unroll.count=4`)、k4 `vectorize.width=16` ×(**−42%**、正解 KEEP)、k5 `vectorize.width=8` ×(null、正解は幅 16 だが MDE 未満なので KEEP 扱い)、k8 `vectorize.width=8` ×(null、正解 `vectorize.width=16` +8.8%)。ループでは state に「LLVM が何をしたか」が載らない(共有行で UNKNOWN)ため、判定行のレーン算術に従って一律に幅を選んでいる。
+- **判断**: (a) 関数属性については、state の証拠が揃えば Jev の一発判断は正解に近く、Claude を上回った。k2 の +67.8% を一発で当てたのは本プロジェクトで最初の「Jev のヒントで速くなった」事例。(b) ループでは一発は当たらず、有害な選択(k4)もある。フィードバック付きラウンド(測って結果を返す)が必須で、正しさと速度のゲートが有害な plan を止める。(c) ループの state は帰属の改善(plugin でベクトル化後の VF / IC / 判定を記録)が要る。
+- **影響**: spec §1(3)、§2、§6、plugin(次の改修)。
