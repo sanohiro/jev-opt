@@ -374,3 +374,18 @@
 - **知見**: (a) **選択肢の説明に適用条件を書く**(`inline(never)`「数千命令の本体や多数の複製で効く、小さな葉では逆効果」等)だけで、Jev が最大の body に `inline` を付ける挙動は全反復で消え、`TermId::run` と `write::write` に `inline(never)` を選ぶようになった(confidence 0.78)。(b) **機械的な判定行**(「u8 → 1 レジスタ 32 レーン → この一覧で収まる最大は 16」「本体 10496 命令、閾値の桁上」)を質問の横に置くと、バイトループで幅 16 を 3 回とも選ぶ。Jev はこの算術をしないが、してやれば従う。(c) 両者はループで干渉する(適用条件の文がバイトループを unroll 4 に引く)ので、**関数フェーズは適用条件付き説明、ループフェーズは判定行のみ**(W7)。結果 8/9 完全一致、24/27 安定。(d) 同じ説明文でも state のブロックに置くと 100% KEEP、`criteria` の中に置くと選ぶ。配置が本質。(e) legality の判定は完璧化(不能ループの vectorize 質量 0.056 → 0.003)。(f) 強制(KEEP 削除)は形状で選ぶようになったが「触るな」が正解の 6 site を落とすので依然誤った聞き方。2 択総当たりは診断には最良、提案には最悪。(g) 残る不一致は `read::parse`(Jev は `inline(never)`、Claude は触るな。根拠はどの判定行にも載らない inline host の情報)。`docs/experiments/jev-prompt-study/` Round 2。
 - **判断**: state v2 = W7(判定ブロックは両フェーズ、適用条件付き説明は関数フェーズのみ)。決定 70(d) の「解説書を state に入れるな」は、一般的な機構説明を `criteria` に置く形に限り撤回(実測例と Claude の理由付けは従来どおり除外)。読み出しは決定 71 のとおり `1 − P(KEEP)` 順。**限界**: 閾値と文言を書いた人間は 9 site を既に見ている。参照判断が正しいかは oracle 待ち。ヒントベンチマークがこの限界を埋める測定になる(ベンチマークの site は閾値を書いた後に作られたものとして扱う)。
 - **影響**: spec §6(state v2)、`scripts/jev_vocab.py` v2。
+
+### 74. ヒントベンチマーク: 8 カーネル中 4 つは意図どおり作れなかった。うち 2 つは「ヒントが不活性」という発見
+- **知見**: `targets/hintbench/`(8 カーネル、`EXPECTED.md` に計測前の期待と根拠)。(a) K4(u8 → u32 のバイト数え、jaq の `to_ascii_lowercase` と同形)と K5(u32 の乗算 reduction)は基準が既に VF 8 × IC 4 で、幅 16 も IC も余地がない。LLVM は reduction を持つベクトル化ループに常に最大の IC を返す。期待を KEEP_DEFAULT に改訂(K5 は `interleave.count=1` で大幅悪化するはずの校正 site に)。**Claude が study で選んだ幅 16 は、この形では効かない可能性が高い。** (b) `inline`(inlinehint)と `cold` は plugin が付け、LTO パイプラインの入力 IR にも属性が存在するのに、**inliner は無いかのように振る舞う**(remark の threshold が変わらず、インライン判断も変わらない)。`inline(never)`(noinline)と `align=64` は効く。原因は未確定(PGO の profile summary があると callee の inlinehint / cold 属性より profile 由来の hotness が優先される LLVM の設計が有力な仮説)。`results.md` §103〜§109。
+- **判断**: (1) 原因を LLVM 23.1.1 のソース(`InlineCost.cpp` の閾値決定)で確認し、PGO 下で不活性なら語彙の `inline` を `inline(always)`(alwaysinline、profile に関係なく強制)に置き換えるか、`inline` / `cold` を「PGO 下では不活性」と明記して語彙から外す。jaq でも apply 1 本で確認する。(2) study で Jev が最も多く選んだのが `inline` だったので、結論の読み方が変わる(選んでも何も起きない候補だった)。
+- **影響**: spec §1(2) 語彙、`jev_vocab.py` v2(要改訂)。
+
+### 75. hintbench のビルドには `-Zcross-crate-inline-threshold=never` が必須
+- **知見**: 無いと rustc の MIR inliner が 8 カーネル中 6 つを LLVM に届く前に消し、IR に無い関数には属性を付けられない。`-Cprofile-use` は MIR のハッシュで照合するので、計装ビルドにも同じフラグが要る(無いと `main` の profile が丸ごと hash mismatch)。
+- **判断**: hintbench の固定フラグに追加。他の対象には影響なし。「マークした関数が LTO 後に存在するか」は dump で必ず確認する(jaq でも 2 マークがループを持たなかった)。
+- **影響**: `scripts/target_common.sh`、`target_pgo_baseline.sh`。
+
+### 76. hintbench の oracle は 93 ビルド、約 3 時間。ループ site は 4 に凍結
+- **知見**: 12 site(関数 8 × 6 候補 + ループ 4 × 11 候補)。ループ site の凍結規則: ループヒントが検証対象のマークのみ、マーク内で hotness 最大の key 1 本。k3 は driver 側のループが `loop_in_mark` に紛れ込む(決定 61 の曖昧さの再現)ので規則 (2) が要った。
+- **判断**: jaq の oracle A 完了後に `scripts/hintbench_oracle.sh run`。K2 の `inline` と K7 の `cold` は基準とコード同一なので in-sweep null パネルとして現れるはず(74 の追認)。
+- **影響**: spec §9。
