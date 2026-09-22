@@ -419,3 +419,13 @@
 - **知見**: source 窓から Rust のコメントを除く `--source-comments strip`(既定)を driver に実装(カーネルのソースは不変、行番号も不変)。取り直すと、関数 4/8、ループ 3/4 の一致。pass1 で当たっていた非既定 3 件のうち k6 `align=64` と k3 fill `unroll.disable` は消滅(どちらもコメントが名指ししていたヒント)。残った k2 `inline(always)` も、pass2 では関数 8 site 全部で `inline_always` が最良非既定候補、4 site で argmax、というフェーズ一律の答えがたまたま k2 で正解した形。対照カーネル k8 まで `inline_always` を拾う。関数の confidence は全 site 0.34〜0.48 に崩れ、ループは全 KEEP。`1 − P(KEEP)` 順の首位も Claude の予測勝者から外れた(決定 71 への最初の肯定証拠は消えた)。コメントは送信量の 12% で、`///` の 1 行だけでなく各カーネル上のブロックコメントが機構そのもの(「8 か所にインライン展開されて約 1000 命令」)を書いていた。`docs/experiments/hintbench/jev-oneshot-v3.md` §9〜§15。
 - **判断**: (a) 一発の Jev v3 は、漏れの無い state では Claude の予測をほぼ再現しない。関数フェーズには `inline_always` への一律の偏りがある(適用条件の記述が強すぎる可能性。v3 の関数の説明文を見直す)。(b) hintbench の state 欠陥(legality の誤帰属 3/4、k2 の cost 帰属、share 一律)を直してから、「結果のフィードバック付き 5 ラウンド」を回す。「いろいろやる」の本体はフィードバックであり、一発一致は前提ではない。(c) study 第 2 弾の 8/9(jaq)も、閾値と説明文を書いた人間が site を見ていたという別種の漏れを含む。正解との一致は oracle でしか測れない。
 - **影響**: `jev_vocab.py` v3 の関数説明文(要見直し)、spec §1(3)、§6。
+
+### 83. state の証拠を機械的に修復: inline の remark は callee 名で集計、legality はループ自身の位置からだけ、一律の share は分類しない
+- **知見**: (a) inline の remark は呼び出し側の行に付くので、定義周辺の窓では原理的に拾えない。callee 名で索引すると 8 マーク全部が `EXPECTED.md` の根拠を独立に再現(k2 は「2 call site が cost=870 > threshold=787 で拒否」)。(b) ループの legality を leaf の `file:line:col` 完全一致で取り、同じ行に複数ループの判定行が出ていれば「UNKNOWN(共有行)」と書く。hintbench の 4 ループ中 3 つが共有行(17〜18 ループ分の remark が混在)で、以前の「NOT VECTORIZABLE」は誤りだった。`already_vectorized` は VectorizerStart(LoopVectorize の前)で見ているだけなので `no` が正常。(c) 全マークの share が同一値なら hotness を書かない。jaq は無影響で完走。`docs/experiments/hintbench/jev-oneshot-v4.md`。
+- **判断**: v3 の state を v3.1 に(語彙は不変)。dump を一次情報と明記。次に直すべきは prompt でなく**帰属**(共有行のループには「LLVM が何をしたか」を載せられない。plugin にベクトル化後の状態を記録させるか、`remark_attribution.py` を state に繋ぐ)。
+- **影響**: driver、spec §6。
+
+### 84. 語彙 v4: 関数ヒントの説明を長さと強さで対称にする。一律の `inline_always` 偏りは記述でなく state の壊れが主因だった
+- **知見**: v4 は 6 候補すべて 4 文・「helps where / hurts where」の対・383〜411 字(v3 は 161〜876 字で 5.4 倍差)。壊れた state(pass2)では 8/8 site で `inline_always` が最良非既定、confidence 0.34〜0.48。**state を直しただけ**(v3.1)で 5/8、対照カーネルの偏りも消え、confidence 0.73〜0.97 に回復。v4 は argmax を 1 つも動かさず、残る 2 site(k2、k6。基準がインラインを断っている唯一の 2 マークで、判定行がコスト単位でそれを言う)の質量を半減。EXPECTED との一致は両方 5/12(関数 5/8、ループ 0/4)、12/12 安定。ループでは UNKNOWN にしたことで vectorize の質量が跳ね、k4 は判定行のレーン算術に従って幅 16(P 0.85)、k5 / k8 は基準と同じ幅 8 を要求(null 候補)。k6 は `inline(always)` を選び、Claude はそれを検討していなかった。
+- **判断**: v4 を既定にする。一致率の低下(10 → 7 → 5)は劣化ではなく、漏れと誤った前提が剝がれた結果。正解は oracle。k4 の幅 16(Jev)対 KEEP(Claude)、k6 の `inline(always)`(Jev)対 `align=64`(Claude)は、oracle が決着させる具体的な争点。
+- **影響**: `jev_vocab.py` v4、spec §1(2)、§6。
