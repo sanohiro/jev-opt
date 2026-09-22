@@ -77,7 +77,14 @@ PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 # V2 wording of "What is being decided". `--vocab` selects both the
 # vocabulary and the state template, because the two together are the one
 # measurement condition the prompt study measured (`W7`).
-STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22"}
+#
+# v3 (decision 77) is v2's template with two changes, both in the function
+# phase: the candidate list loses `inline` and `cold` and gains
+# `inline_always` (`jev_vocab.py` v3), and the verdict block states the
+# mechanical fact that made that necessary. Everything else --- the loop
+# phase, the platform block, the source excerpts, the remarks --- is v2's.
+STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
+                 "v3": "state-v3-2026-09-22"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -1382,17 +1389,30 @@ def fn_verdict_lines(item, ctx):
                     ("%.1fx, i.e. the body fits inside that budget" % r)
                     if r < 1 else "%.0fx over" % r))
     L.append("attributes already on it: %s" % attr_text)
-    if all_hinted:
-        L.append("no-op check: every copy already carries `inlinehint`, so "
-                 "the candidate `inline` reproduces the state this site is "
-                 "already in")
-    elif has_hint:
-        L.append("no-op check: some copies already carry `inlinehint`, so "
-                 "the candidate `inline` reproduces, on those copies, the "
-                 "state this site is already in")
-    if has_cold:
-        L.append("no-op check: `cold` already appears among the attribute "
-                 "sets this site carries")
+    if V.active_version() == "v3":
+        # Decision 77. The same sentence at every function site: it is a
+        # property of the recipe, not of this site, and it names nothing.
+        # Without it the `inlinehint` an attribute list may carry reads as
+        # evidence about the inliner's threshold, which under a profile it
+        # is not.
+        L.append("inliner mechanics of this recipe: with a profile present, "
+                 "`inlinehint` and `cold` on a function do not change the "
+                 "inliner's threshold for it, because the call site's own "
+                 "hotness class assigns that threshold afterwards; "
+                 "`alwaysinline` and `noinline` are decided before the cost "
+                 "model runs and are always honoured")
+    else:
+        if all_hinted:
+            L.append("no-op check: every copy already carries `inlinehint`, "
+                     "so the candidate `inline` reproduces the state this "
+                     "site is already in")
+        elif has_hint:
+            L.append("no-op check: some copies already carry `inlinehint`, "
+                     "so the candidate `inline` reproduces, on those copies, "
+                     "the state this site is already in")
+        if has_cold:
+            L.append("no-op check: `cold` already appears among the "
+                     "attribute sets this site carries")
     share = m.get("share") if m.get("share") is not None else m.get("reach")
     if share is None:
         L.append("share of the program's user cycles: not recorded for this "
@@ -2269,7 +2289,10 @@ class Search:
         self.run_id = args.run_id or os.path.basename(self.out.rstrip("/"))
         self.knobs = list(cfg["search"]["build_knobs"])
         self.vocab = args.vocab
-        self.state_v2 = (args.vocab == "v2")
+        # v3's state template is v2's (see STATE_FORMATS): the verdict block,
+        # the platform block and the V2 wording are shared, only the function
+        # candidates and one verdict line differ.
+        self.state_v2 = (args.vocab in ("v2", "v3"))
         V.set_version(args.vocab)
         set_state_format(args.vocab)
         self.demangler = Demangler()
@@ -3065,14 +3088,17 @@ def main():
                    help="optional sites.json with profile shares and caps")
     p.add_argument("--proposer", required=True,
                    choices=("jev", "random", "oracle"))
-    p.add_argument("--vocab", default="v2", choices=("v1", "v2"),
+    p.add_argument("--vocab", default="v3", choices=("v1", "v2", "v3"),
                    help="the frozen vocabulary AND state template: v1 is "
-                        "Experiment 3's, v2 (default) is decision 73 --- the "
-                        "prompt study's W7, i.e. the mechanical verdict "
-                        "block in both phases, the applicability conditions "
-                        "in the function criteria only, a neutral "
-                        "KEEP_DEFAULT, the V2 question wording and the "
-                        "platform block")
+                        "Experiment 3's, v2 is decision 73 --- the prompt "
+                        "study's W7, i.e. the mechanical verdict block in "
+                        "both phases, the applicability conditions in the "
+                        "function criteria only, a neutral KEEP_DEFAULT, "
+                        "the V2 question wording and the platform block. "
+                        "v3 (default, decision 77) is v2 with the function "
+                        "candidates `inline` and `cold` replaced by "
+                        "`inline_always`, the two of them being inert under "
+                        "O3 + PGO + fat LTO")
     p.add_argument("--readout", default="forced_top1",
                    choices=("forced_top1", "argmax"),
                    help="how a phase's answers become plan entries "

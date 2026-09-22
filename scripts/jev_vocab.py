@@ -13,7 +13,7 @@ comparison with earlier runs. `VOCAB_VERSION` is written into the run
 manifest and into every Jev request log line so a changed vocabulary is
 visible after the fact instead of being silently mixed in.
 
-There are now two frozen vocabularies, selected by `set_version()` and by
+There are now three frozen vocabularies, selected by `set_version()` and by
 the driver's `--vocab` flag:
 
   v1   what Experiment 3 was run with. Frozen; nothing below it may change.
@@ -25,16 +25,34 @@ the driver's `--vocab` flag:
        pick with a mechanism --- (c) `KEEP_DEFAULT` described neutrally
        and (d) the V2 question wording ("which single hint is most likely
        to make this faster") instead of "pick KEEP_DEFAULT unless".
+  v3   decision 77. The function candidates change for the first time:
+       `inline` (`inlinehint`) and `cold` are dropped and `inline_always`
+       (`alwaysinline`) takes their place. Under this recipe --- O3,
+       `-Cprofile-use`, fat LTO --- the inliner reads `inlinehint` and then
+       overwrites the threshold it produced with the call site's
+       profile-derived one, and the single arm that reads the callee's
+       `cold` is unreachable whenever the call site is classified at all;
+       the reasoning, with the LLVM 23.1.1 line numbers, is in
+       `docs/experiments/hintbench/inline-attrs-under-pgo.md`.
+       `alwaysinline` and `noinline` are decided before the cost analyser is
+       constructed and are therefore immune to the profile. `hot` is NOT
+       added in their place: it never appears in `InlineCost.cpp` at all and
+       has no Rust counterpart. The loop half is v2's, unchanged, so a v2/v3
+       difference on a loop site cannot come from the vocabulary.
 
 Every string of v2 is copied verbatim from
 `docs/experiments/jev-prompt-study/` (`scripts/jev_state_variants.py`
 `ENRICHED_FN`, `NEUTRAL_KEEP_FN`, `NEUTRAL_KEEP_LOOP`, `Q_V2_FN`,
 `Q_V2_LOOP`), so the shipped state asks what the study measured.
 
+Nothing below v1 or v2 may change: both are kept so that Experiment 3 and
+the prompt study can be replayed byte for byte, which is also why the plugin
+still accepts `inline: "hint"` and `cold: true`.
+
 The module-level default stays **v1** so that every other importer ---
 `scripts/jev_state_variants.py` above all, which reproduces round 1 of the
 study --- keeps the vocabulary it was measured with. The search driver
-selects v2 explicitly.
+selects its own vocabulary explicitly (v3 since decision 77).
 
 Three kinds of site:
 
@@ -368,6 +386,87 @@ LOOP_CANDIDATES_V2 = {
 
 
 # ---------------------------------------------------------------------------
+# v3 (decision 77): the function candidates that are live under PGO
+# ---------------------------------------------------------------------------
+#
+# v2's function list contained two candidates that cannot change a decision
+# in this recipe. `docs/experiments/hintbench/inline-attrs-under-pgo.md`
+# reads the LLVM 23.1.1 source line by line; the short form is:
+#
+#   * `inlinehint` is read at `InlineCost.cpp:2137` and then thrown away at
+#     `:2154`, which assigns (not `max`es) the threshold of a hot or locally
+#     hot call site. Under `-Copt-level=3` a call site inside a driver loop
+#     is locally hot by frequency alone.
+#   * the callee's `cold` attribute is read in the last `else if` of that
+#     same chain (`:2163-2179`), which a classified call site never reaches.
+#   * `alwaysinline` (`:3209`) and `noinline` (`:3242`) are answered by
+#     `getAttributeBasedInliningDecision` before the cost analyser exists.
+#   * `align=N` is not an inliner input at all.
+#
+# So the function half becomes KEEP_DEFAULT + `inline_always` +
+# `inline_never` + the three alignments: five candidates plus the default,
+# every one of them with a mechanism that survives the profile. `hot` is not
+# added (it is absent from `InlineCost.cpp` and from Rust's surface syntax).
+#
+# Wording follows v2's rule: the two inlining candidates carry the W7
+# applicability conditions (helps / hurts / no-op, in the same vocabulary as
+# the verdict block), the alignments keep v1's plain descriptions --- the
+# study's enriched align text is nothing but a restatement of the same
+# mechanism, and v1's is shorter --- and KEEP_DEFAULT stays neutral. No
+# sentence names a function, a loop, a file or a site.
+
+FN_CANDIDATES_V3 = {
+    KEEP_DEFAULT: (FN_CANDIDATES_V2[KEEP_DEFAULT][0], {}),
+    "inline_always": (
+        "Add the `alwaysinline` attribute (the SPEC vocabulary's "
+        "`inline(always)`). The body is pasted into every call site, "
+        "whatever the inliner's cost model would have decided: the choice "
+        "is made before any cost is computed, so a call site's measured "
+        "hotness cannot overrule it. It tends to help a small hot leaf "
+        "(roughly under 300 instructions) that the inliner is declining to "
+        "paste in, because the caller then specialises on what it passes "
+        "and the call overhead goes away. It tends to hurt a large body (a "
+        "thousand instructions and up) and a function with many "
+        "monomorphized copies, since every call site pays the full code "
+        "growth with no cost model left to stop it. Where inlining is "
+        "impossible --- a recursive self-call, a target-feature mismatch --- "
+        "nothing happens and the build says so with a `NotInlined` remark. "
+        "It is a no-op where every call site was being inlined anyway.",
+        {"inline": "always"},
+    ),
+    "inline_never": (
+        "Add the `noinline` attribute (the SPEC vocabulary's "
+        "`inline(never)`). The function stays one out-of-line copy: call "
+        "overhead is paid at every call site and the callers stay small. "
+        "Like `alwaysinline` it is decided before the cost model runs, so "
+        "the profile cannot overrule it either. It tends to help a very "
+        "large body (thousands of instructions) or a function with many "
+        "monomorphized copies, by stopping code growth and "
+        "instruction-cache pressure --- especially where an `inlinehint` is "
+        "already asking the inliner to paste that body in. It tends to hurt "
+        "a small hot leaf, where the call overhead is the bulk of the cost. "
+        "It is a no-op where the body is already too large for any caller's "
+        "threshold.",
+        {"inline": "never"},
+    ),
+    "align_16": (FN_CANDIDATES["align_16"][0],
+                 dict(FN_CANDIDATES["align_16"][1])),
+    "align_32": (FN_CANDIDATES["align_32"][0],
+                 dict(FN_CANDIDATES["align_32"][1])),
+    "align_64": (FN_CANDIDATES["align_64"][0],
+                 dict(FN_CANDIDATES["align_64"][1])),
+}
+
+# The loop half of v3 is v2's, and the questions are v2's. Built from v2
+# rather than copied, so the two cannot drift.
+LOOP_CANDIDATES_V3 = {cid: (desc, dict(frag))
+                      for cid, (desc, frag) in LOOP_CANDIDATES_V2.items()}
+
+FN_INSTRUCTIONS_V3 = FN_INSTRUCTIONS_V2
+LOOP_INSTRUCTIONS_V3 = LOOP_INSTRUCTIONS_V2
+
+
+# ---------------------------------------------------------------------------
 # frozen question wording
 # ---------------------------------------------------------------------------
 
@@ -392,11 +491,13 @@ BUILD_INSTRUCTIONS = (
 )
 
 
-VOCAB_VERSIONS = {"v1": "v1-2026-09-22", "v2": "v2-2026-09-22"}
+VOCAB_VERSIONS = {"v1": "v1-2026-09-22", "v2": "v2-2026-09-22",
+                  "v3": "v3-2026-09-22"}
 
 _TABLES = {
     "v1": {"fn": FN_CANDIDATES, "loop": LOOP_CANDIDATES},
     "v2": {"fn": FN_CANDIDATES_V2, "loop": LOOP_CANDIDATES_V2},
+    "v3": {"fn": FN_CANDIDATES_V3, "loop": LOOP_CANDIDATES_V3},
 }
 
 _INSTRUCTIONS = {
@@ -406,6 +507,8 @@ _INSTRUCTIONS = {
     # the study never varied it, and inventing wording for it here would be
     # a change nothing measured.
     "v2": {"fn": FN_INSTRUCTIONS_V2, "loop": LOOP_INSTRUCTIONS_V2,
+           "build": BUILD_INSTRUCTIONS},
+    "v3": {"fn": FN_INSTRUCTIONS_V3, "loop": LOOP_INSTRUCTIONS_V3,
            "build": BUILD_INSTRUCTIONS},
 }
 
@@ -475,8 +578,11 @@ def spec_spelling(kind, candidate):
     if candidate == KEEP_DEFAULT:
         return KEEP_DEFAULT
     if kind == "fn":
+        # Every id of every vocabulary: v1/v2's `inline` and `cold` are still
+        # spelled out here so an old run's tables can be reprinted.
         return {
             "inline": "inline",
+            "inline_always": "inline(always)",
             "inline_never": "inline(never)",
             "cold": "cold",
             "align_16": "align=16",

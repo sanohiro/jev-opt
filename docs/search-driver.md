@@ -33,9 +33,10 @@ scripts/jev_search.py --target jaq \
 Useful flags:
 
 ```
---vocab v1|v2       the frozen vocabulary AND state template. v2 is the
-                    default (decision 73); v1 is what Experiment 3 was run
-                    with. See "The state format" below
+--vocab v1|v2|v3    the frozen vocabulary AND state template. v3 is the
+                    default (decision 77); v2 is decision 73's W7; v1 is
+                    what Experiment 3 was run with. See "The state format"
+                    below
 --readout           forced_top1 (default) or argmax: how a phase's answers
                     become plan entries (decision 71). See "The proposers"
 --site-set PATH     the frozen loop-site key list inside sites.json, e.g.
@@ -204,11 +205,12 @@ every request log line, every plan and the run manifest. `--print-state`
 prints the whole thing --- the state of both phases **and** every question,
 with its instructions and its `criteria` --- without making a request.
 
-There are two of them, and `--vocab` selects both halves at once, because
+There are three of them, and `--vocab` selects both halves at once, because
 the wording and the template are one measurement condition and the prompt
-study measured them together:
+study measured them together. v3 is the default; it is v2 with a different
+set of function candidates and is described in its own section below.
 
-| | v1 (`state-v1-2026-09-22`, `v1-2026-09-22`) | v2 (`state-v2-2026-09-22`, `v2-2026-09-22`, the default) |
+| | v1 (`state-v1-2026-09-22`, `v1-2026-09-22`) | v2 (`state-v2-2026-09-22`, `v2-2026-09-22`) |
 |---|---|---|
 | question | "Which attribute should the build put on it? Pick KEEP_DEFAULT unless there is a reason..." | "Which single hint from the list is most likely to make this function faster on this workload?" |
 | `KEEP_DEFAULT` | "Leave this function's attributes exactly as they are" | "This is the 'no change' option ... exactly as in the baseline" |
@@ -299,6 +301,64 @@ site count from the dump instead --- the same number the marks table and the
 verdict block use, so one request cannot contradict itself. The v1 line is
 left exactly as Experiment 3 sent it.
 
+### v3 (the default): the function candidates that survive the profile
+
+`v3-2026-09-22` / `state-v3-2026-09-22`, decision 77. v3 is v2 with three
+changes, all in the **function** phase. The loop phase --- candidates,
+descriptions, verdict lines --- is v2's, byte for byte, so a v2/v3
+difference at a loop site cannot come from the vocabulary.
+
+| | v2 | v3 |
+|---|---|---|
+| function candidates | `KEEP_DEFAULT`, `inline`, `inline_never`, `cold`, `align_16/32/64` | `KEEP_DEFAULT`, **`inline_always`**, `inline_never`, `align_16/32/64` |
+| plan fragment of the new one | -- | `{"inline": "always"}` → `alwaysinline` |
+| function `criteria` | applicability text on all six | applicability text on the two inlining candidates; v1's plain text on the three alignments |
+| verdict block | the `inline` / `cold` no-op checks | one generic line on the inliner's mechanics (below) |
+| arms per function site (oracle) | 6 | **5** |
+
+Why: `docs/experiments/hintbench/inline-attrs-under-pgo.md` reads LLVM
+23.1.1 and finds that under this recipe --- `-Copt-level=3`,
+`-Cprofile-use`, fat LTO --- `inlinehint` is read
+(`InlineCost.cpp:2137`) and then discarded by the assignment at `:2154`
+that gives a hot or locally hot call site its own threshold, and that the
+only arm reading the callee's `cold` (`:2163-2179`) is unreachable once the
+call site has been classified at all. `alwaysinline` (`:3209`) and
+`noinline` (`:3242`) are decided by `getAttributeBasedInliningDecision`
+before the cost analyser is constructed, so the profile cannot touch them.
+`hot` is **not** added in their place: it does not appear in
+`InlineCost.cpp` at all and no Rust attribute produces it.
+
+The verdict block's function half therefore loses the two no-op checks that
+referred to the departed candidates and gains one line, the same at every
+site, naming no site:
+
+```
+  - inliner mechanics of this recipe: with a profile present, `inlinehint`
+    and `cold` on a function do not change the inliner's threshold for it,
+    because the call site's own hotness class assigns that threshold
+    afterwards; `alwaysinline` and `noinline` are decided before the cost
+    model runs and are always honoured
+```
+
+It is there because the attribute list of a site can still *say*
+`inlinehint` or `cold` --- `PGOInstrumentationUse` stamps both, after the
+plugin has run --- and without that line those words read as evidence about
+the inliner's threshold, which under a profile they are not.
+
+**What this means for the earlier results.** Experiment 3 (decision 66) and
+the prompt study (decisions 70, 73) were run with v1 and v2, whose function
+list contained two candidates that cannot change a decision in this recipe.
+`inline` was the hint Jev reached for most often in round 1, so the
+agreement and disagreement figures of those runs are partly figures about
+*inert* candidates and have to be read that way. Nothing in them is
+retracted: the reference picks of `inline(never)` stand, the plans were
+applied and measured as recorded, and the `--vocab v1` / `--vocab v2` paths
+still render those conditions exactly. Decision 77 is that the comparison is
+taken again under v3.
+
+The plugin accepts `inline: "hint"` and `cold: true` for exactly that
+replay; only the vocabulary stops offering them.
+
 The API takes one `state` string and N questions, so the per-site material
 lives in the state, one section per question, named after the question:
 
@@ -358,7 +418,8 @@ for a threshold but fixes no value).
 
 ## The proposers
 
-* **jev** --- one request per phase, still one, under v2 as under v1.
+* **jev** --- one request per phase, still one, under v2 and v3 as under
+  v1.
   Everything is logged twice: the raw request and response as JSONL
   (`jev-log/<run-id>.jsonl`, one line per request, no `Authorization` ---
   the `request` object holds the **full rendered state** and every question,
@@ -402,8 +463,8 @@ for a threshold but fixes no value).
   CI **lower bound is above 1**, not merely its point estimate; the set the
   point-estimate rule would have combined is recorded beside it in the arm
   record (`point_rule_would_pick`). `--oracle-phase A|B` runs one half of the
-  sweep, so that the 90 function-attribute arms and the 176 loop arms can be
-  separate jobs; the rounds are unchanged by it. The combination is applied through the normal two-phase
+  sweep, so that jaq's 75 function-attribute arms and its 176 loop arms can
+  be separate jobs; the rounds are unchanged by it. The combination is applied through the normal two-phase
   round, so its loop choices are remapped from `site_id` onto whatever keys
   the combined attributes produce. Build count is
   `sum(sites x candidates) + 1 + 1`, which is why `max_sites` is a hard
@@ -431,7 +492,7 @@ report directory is also accepted in its place.
     correctness.txt
   platform.json        the machine as lscpu and the cache sysfs report it,
                        read once and reused for every request of the run
-                       (state v2 only)
+                       (state v2 and v3 only)
   rounds.jsonl         one line per round: plans, apply outcomes, correctness,
                        ratio, CI, in-run A/A, accepted, and the readout
                        ranking of each phase
@@ -485,3 +546,9 @@ a tracked artifact.
 * The verdict block's legality reading is only as good as remark
   attribution, which is by source location (SPEC.ja.md 3). The block repeats
   that caveat at every loop rather than hiding it.
+* **Every result obtained before v3 was obtained with two inert function
+  candidates in the list.** Experiment 3's five rounds and both rounds of
+  the prompt study offered `inline` and `cold`, neither of which can change
+  an inlining decision under this recipe (decision 77, and the v3 section
+  above). The measurements stand; the agreement figures are the ones that
+  have to be read with it, since `inline` was round 1's most frequent pick.

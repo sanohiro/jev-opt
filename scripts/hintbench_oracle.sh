@@ -61,7 +61,8 @@ RD="$OUT/rep-dump"
 #       is the one the kernel is about.
 #
 # Together: 4 loop sites, so 12 sites in total with the 8 marked functions, and
-# 8x6 + 4x11 = 92 one-factor arms plus one combination arm.
+# 8x5 + 4x11 = 84 one-factor arms plus one combination arm. (It was 8x6 + 4x11
+# = 92 until vocabulary v3 dropped two inert function candidates, decision 77.)
 #
 # The set is stored as keys but selected by mark and hotness, because keys move
 # when a function attribute changes (decision 61) and the driver re-resolves
@@ -212,15 +213,18 @@ do_smoke() {
   LOOP_MARKS="$LOOP_MARKS" python3 - "$SITES" "$plan" <<'PY'
 import json, sys
 sites = json.load(open(sys.argv[1]))
-# One hint per kernel, exactly as EXPECTED.md section 0 predicts. The two
-# kernels whose expected winner is KEEP_DEFAULT (k4, k5) and the control (k8)
-# carry the *challenger* here instead, because the point of the smoke test is
-# that the hint is reachable, not that it is good.
+# One hint per kernel, exactly as EXPECTED.md predicts --- section 0, as
+# revised by section 4 (decision 77): k2 carries `inline(always)` and k7
+# carries `inline(never)`, the two kernels' `inline`/`cold` originals having
+# left the vocabulary at v3 because they cannot move a decision under this
+# recipe. The two kernels whose expected winner is KEEP_DEFAULT (k4, k5) and
+# the control (k8) carry the *challenger* here instead, because the point of
+# the smoke test is that the hint is reachable, not that it is good.
 fn_attrs = [
     {"fn": "hbkernels::k1_step", "inline": "never"},
-    {"fn": "hbkernels::k2_mix", "inline": "hint"},
+    {"fn": "hbkernels::k2_mix", "inline": "always"},
     {"fn": "hbkernels::k6_hot_loop", "align": 64},
-    {"fn": "hbkernels::k7_error_path", "cold": True},
+    {"fn": "hbkernels::k7_error_path", "inline": "never"},
 ]
 loop_hint = {
     "hbkernels::k3_fill_run": {"unroll_disable": True},

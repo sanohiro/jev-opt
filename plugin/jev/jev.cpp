@@ -645,7 +645,7 @@ MDNode *mdStrStr(LLVMContext &Ctx, StringRef Name, StringRef Val) {
 
 struct FnAttrEntry {
   std::string Fn;            // linkage name or demangled Rust path
-  std::string Inline;        // "hint" | "never" | ""
+  std::string Inline;        // "hint" | "always" | "never" | ""
   bool Cold = false, Hot = false;
   int Align = 0;             // 0 = leave alone
 };
@@ -711,9 +711,9 @@ void loadPlanOnce() {
         const JVal *In = E.get("inline");
         if (In && In->kind == JVal::Str) {
           F.Inline = In->str;
-          if (F.Inline != "hint" && F.Inline != "never")
-            fatal("fn_attrs.inline must be \"hint\", \"never\" or null, got \"" +
-                  F.Inline + "\"");
+          if (F.Inline != "hint" && F.Inline != "always" && F.Inline != "never")
+            fatal("fn_attrs.inline must be \"hint\", \"always\", \"never\" or "
+                  "null, got \"" + F.Inline + "\"");
         }
         F.Cold = jbool(E.get("cold"));
         F.Hot = jbool(E.get("hot"));
@@ -799,6 +799,7 @@ std::string sanitizeFile(StringRef S) {
 
 void writeReports();
 void finalizeKeyOutcomes();
+void finalizeAlwaysRows();
 
 Bucket &bucketFor(const Module &M, const std::string &Stage) {
   // Caller holds StateMutex.
@@ -835,6 +836,9 @@ void writeReports() {
     return;
   if (TheMode == Mode::Apply)
     finalizeKeyOutcomes();
+  // Both apply and apply-dump run the fn_attrs pass, so both can be holding
+  // unfinished `inline: "always"` rows.
+  finalizeAlwaysRows();
   for (auto &KV : Buckets) {
     Bucket &B = KV.second;
     const char *Prefix = TheMode == Mode::Apply ? "apply-report" : "sites";
@@ -1181,6 +1185,48 @@ struct JevDumpLoops : PassInfoMixin<JevDumpLoops> {
 /// because the count is the health metric for the whole design).
 std::map<std::string, std::map<std::string, unsigned>> KeyHits; // bucketKey -> key -> n
 
+/// `inline: "always"` bookkeeping.
+///
+/// `AlwaysInliner` erases a trivially dead `alwaysinline` callee from the
+/// module once every call site has taken a copy
+/// (`llvm/lib/Transforms/IPO/AlwaysInliner.cpp:120-129`), so the function a
+/// plan marked can be gone by the time anything downstream looks for it. The
+/// apply-report row for such an entry is therefore left unfinished until
+/// process exit, when the answer is known: `callee_present` is
+///
+///   true   the loop extension point ran in this process and the function was
+///          still in the module then,
+///   false  it ran and the function was gone,
+///   null   it never ran in this process, so presence was not observable
+///          here. Under fat LTO that is the normal case for a dependency
+///          crate: its pre-link pipeline stops before the vectorizers (see
+///          the extension-point note at the top of this file), and the
+///          merged module is compiled by the binary crate's process.
+struct AlwaysRow {
+  std::string BucketKey, Linkage, Prefix;
+};
+std::vector<AlwaysRow> AlwaysRows;   // finished by finalizeAlwaysRows()
+std::set<std::string> AlwaysWatch;   // linkage names given alwaysinline here
+std::set<std::string> AlwaysSeenAtLoopEP;
+bool LoopEpRanAnywhere = false;
+
+/// Records, at the loop extension point, which of the functions this process
+/// gave `alwaysinline` to are still in the module. Registered next to the
+/// loop pass in every mode that applies a plan, including apply-dump, whose
+/// loop-EP pass is the dump.
+struct JevWatchAlwaysInline : PassInfoMixin<JevWatchAlwaysInline> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+    std::lock_guard<std::mutex> Lk(StateMutex);
+    if (AlwaysWatch.empty())
+      return PreservedAnalyses::all();
+    LoopEpRanAnywhere = true;
+    if (!F.isDeclaration() && AlwaysWatch.count(F.getName().str()))
+      AlwaysSeenAtLoopEP.insert(F.getName().str());
+    return PreservedAnalyses::all();
+  }
+  static bool isRequired() { return true; }
+};
+
 struct JevApplyLoopMD : PassInfoMixin<JevApplyLoopMD> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
     if (F.isDeclaration() || ThePlan.LoopMD.empty())
@@ -1292,6 +1338,7 @@ struct JevApplyFnAttrs : PassInfoMixin<JevApplyFnAttrs> {
 
     bool Changed = false;
     std::vector<std::string> Results;
+    std::vector<AlwaysRow> PendingAlways;
     std::map<std::string, unsigned> Matches;
     for (const FnAttrEntry &E : ThePlan.FnAttrs)
       Matches[E.Fn] = 0;
@@ -1312,9 +1359,14 @@ struct JevApplyFnAttrs : PassInfoMixin<JevApplyFnAttrs> {
       Matches[E->Fn]++;
 
       std::vector<std::string> Applied;
+      std::string Outcome;   // non-empty: overrides consumed/skipped_empty
+      bool IsAlways = false;
       if (E->Inline == "never") {
         // The verifier rejects a function that is both noinline and
-        // inlinehint/alwaysinline, so the opposite attribute goes first.
+        // alwaysinline (`llvm/lib/IR/Verifier.cpp:2137-2141`), so that one
+        // has to come off first. noinline + inlinehint is legal -- it is
+        // merely pointless -- and is removed for tidiness, not for the
+        // verifier.
         F.removeFnAttr(Attribute::InlineHint);
         F.removeFnAttr(Attribute::AlwaysInline);
         if (!F.hasFnAttribute(Attribute::NoInline)) {
@@ -1322,6 +1374,26 @@ struct JevApplyFnAttrs : PassInfoMixin<JevApplyFnAttrs> {
           Changed = true;
         }
         Applied.push_back("noinline");
+      } else if (E->Inline == "always") {
+        // optnone is legal only in company with noinline
+        // (`llvm/lib/IR/Verifier.cpp:2363-2365`), so such a function cannot
+        // be given alwaysinline at all: taking its noinline off to make room
+        // would break the module verifier. Leave it exactly as it is and say
+        // so in the report.
+        if (F.hasFnAttribute(Attribute::OptimizeNone)) {
+          Outcome = "skipped_optnone";
+        } else {
+          if (F.hasFnAttribute(Attribute::NoInline)) {
+            F.removeFnAttr(Attribute::NoInline);
+            Changed = true;
+          }
+          if (!F.hasFnAttribute(Attribute::AlwaysInline)) {
+            F.addFnAttr(Attribute::AlwaysInline);
+            Changed = true;
+          }
+          Applied.push_back("alwaysinline");
+          IsAlways = true;
+        }
       } else if (E->Inline == "hint") {
         F.removeFnAttr(Attribute::NoInline);
         if (!F.hasFnAttribute(Attribute::InlineHint)) {
@@ -1358,19 +1430,34 @@ struct JevApplyFnAttrs : PassInfoMixin<JevApplyFnAttrs> {
       std::string AppliedStr;
       for (size_t I = 0; I < Applied.size(); ++I)
         AppliedStr += (I ? "," : "") + Applied[I];
+      if (Outcome.empty())
+        Outcome = Applied.empty() ? "skipped_empty" : "consumed";
       std::ostringstream S;
-      S << "{\"fn\": " << jstr(E->Fn) << ", \"outcome\": "
-        << jstr(Applied.empty() ? "skipped_empty" : "consumed")
+      S << "{\"fn\": " << jstr(E->Fn) << ", \"outcome\": " << jstr(Outcome)
         << ", \"linkage\": " << jstr(F.getName())
         << ", \"demangled\": " << jstr(Dem)
-        << ", \"attached\": " << jstr(AppliedStr) << "}";
-      Results.push_back(S.str());
+        << ", \"attached\": " << jstr(AppliedStr);
+      if (IsAlways) {
+        // Finished at process exit, when `callee_present` is known.
+        AlwaysRow R;
+        R.BucketKey = M.getModuleIdentifier() + "\x1f" + "prelink";
+        R.Linkage = F.getName().str();
+        R.Prefix = S.str();
+        PendingAlways.push_back(std::move(R));
+      } else {
+        S << "}";
+        Results.push_back(S.str());
+      }
     }
 
     {
       std::lock_guard<std::mutex> Lk(StateMutex);
       Bucket &B = bucketFor(M, "prelink");
       for (std::string &S : Results) B.ResultJson.push_back(std::move(S));
+      for (AlwaysRow &R : PendingAlways) {
+        AlwaysWatch.insert(R.Linkage);
+        AlwaysRows.push_back(std::move(R));
+      }
       // A fn_attrs entry naming a function defined in another crate is
       // legitimately absent from this module; the CLI decides, over all
       // modules, whether it was never found anywhere.
@@ -1474,6 +1561,23 @@ struct JevMarkStageFromPhase : PassInfoMixin<JevMarkStageFromPhase> {
 // registration
 //===----------------------------------------------------------------------===//
 
+void finalizeAlwaysRows() {
+  // Called from writeReports via atexit ordering, when the loop extension
+  // point has either run or definitively not run in this process. See the
+  // AlwaysRow comment for what the three values of `callee_present` mean.
+  for (AlwaysRow &R : AlwaysRows) {
+    auto It = Buckets.find(R.BucketKey);
+    if (It == Buckets.end())
+      continue;
+    const char *Present = !LoopEpRanAnywhere            ? "null"
+                          : AlwaysSeenAtLoopEP.count(R.Linkage) ? "true"
+                                                                : "false";
+    It->second.ResultJson.push_back(R.Prefix + ", \"callee_present\": " +
+                                    Present + "}");
+  }
+  AlwaysRows.clear();
+}
+
 void finalizeKeyOutcomes() {
   // Called from writeReports via atexit ordering: fold the per-key hit counts
   // into vanished / ambiguous rows.
@@ -1534,6 +1638,7 @@ void registerCallbacks(PassBuilder &PB) {
         });
     PB.registerVectorizerStartEPCallback(
         [](FunctionPassManager &FPM, OptimizationLevel) {
+          FPM.addPass(JevWatchAlwaysInline());
           FPM.addPass(JevDumpLoops());
         });
     return;
@@ -1569,6 +1674,7 @@ void registerCallbacks(PassBuilder &PB) {
       });
   PB.registerVectorizerStartEPCallback(
       [](FunctionPassManager &FPM, OptimizationLevel) {
+        FPM.addPass(JevWatchAlwaysInline());
         FPM.addPass(JevApplyLoopMD());
       });
 }

@@ -63,6 +63,7 @@ Fixed by measurement (`scripts/plugin_ep_table.sh`, results.md "Day 3
 |---|---|---|
 | function attributes | `PipelineStartEP` | once per CGU, **pre-link only**. `buildLTODefaultPipeline` does not invoke it, so there is no merged-module second call. This is the only point before any inlining. |
 | loop metadata | `VectorizerStartEP` | under fat LTO, only in the **merged** module; under `lto=off`, in the single per-CGU pipeline. Either way it is the last point at which a hint still reaches LoopVectorize. |
+| `alwaysinline` presence check | `VectorizerStartEP` | alongside the loop pass, in every mode that applies a plan. It only records which of the functions this process gave `alwaysinline` to are still in the module: see `callee_present` under "Report schema". |
 
 Stage detection: under fat LTO `rustc` reuses the primary CGU's module
 identifier *and* its process for the merged module, so the stage cannot be
@@ -172,13 +173,31 @@ A loop is related to a mark in one of two ways, and the dump says which:
 | field | type | meaning |
 |---|---|---|
 | `fn` | string | linkage name, or a Rust path matched like a mark |
-| `inline` | `"hint"` / `"never"` / null | `inlinehint` / `noinline` |
+| `inline` | `"hint"` / `"always"` / `"never"` / null | `inlinehint` / `alwaysinline` / `noinline` |
 | `cold` | bool | `cold` |
 | `hot` | bool | `hot` (mutually exclusive with `cold`) |
 | `align` | int / null | function alignment, power of two |
 
-`inline` and `cold`/`hot` remove the opposing attribute first: the verifier
-rejects a function that is both `noinline` and `inlinehint`.
+`inline` and `cold`/`hot` remove the opposing attribute first. What the
+verifier actually rejects is `noinline` together with `alwaysinline`
+(`llvm/lib/IR/Verifier.cpp:2137-2141`); `noinline` together with
+`inlinehint` is legal and merely pointless, and is cleared for tidiness.
+
+`"always"` has one extra rule: a function carrying **`optnone`** is left
+exactly as it is and reported `skipped_optnone`. `optnone` is legal only in
+company with `noinline` (`Verifier.cpp:2363-2365`), so taking that
+`noinline` off to make room for `alwaysinline` would produce a module the
+verifier rejects. rustc emits `optnone` for `#[optimize(none)]`, always
+paired with `InlineAttr::Never`.
+
+Which of the four is worth asking for is a question about the *recipe*, not
+about the plugin: under `-Copt-level=3` with a profile and fat LTO the
+inliner overwrites any threshold `inlinehint` produced with the call site's
+own, and never reaches the arm that reads the callee's `cold`, while
+`alwaysinline` and `noinline` are answered before the cost analyser is built.
+`docs/experiments/hintbench/inline-attrs-under-pgo.md` has the LLVM line
+numbers; decision 77 is where vocabulary v3 acts on them. The plugin keeps
+accepting all four so that a v1 or v2 run can be replayed.
 
 A `fn` is matched by exactly the rule marks use (above), on the full
 demangled name, so a **generic** function name reaches every
@@ -282,10 +301,30 @@ One file per `(module, stage, pid)`:
  "leaf": {...}, "attached": "vectorize.width=8"}
 {"fn": "toyloops::count_quotes", "outcome": "consumed",
  "linkage": "...", "demangled": "...", "attached": "noinline,align=64"}
+{"fn": "toyloops::find_special", "outcome": "consumed",
+ "linkage": "...", "demangled": "...", "attached": "alwaysinline",
+ "callee_present": null}
 ```
 
 Outcomes: `attached` / `consumed` (the hint went in), `already_vectorized`,
-`skipped_idempotent`, `skipped_empty`, `vanished`, `ambiguous`, `unmatched`.
+`skipped_idempotent`, `skipped_empty`, `skipped_optnone`, `vanished`,
+`ambiguous`, `unmatched`.
+
+`callee_present` appears on an `inline: "always"` row and on no other.
+`AlwaysInliner` erases a trivially dead `alwaysinline` callee from the module
+once every call site has taken its copy
+(`llvm/lib/Transforms/IPO/AlwaysInliner.cpp:120-129`), so the function a plan
+named can simply be gone afterwards; the field is what makes that
+explainable rather than mysterious. The row is therefore finished at process
+exit, not when the attribute is applied:
+
+* `true` — the loop extension point ran in this process and the function was
+  still in the module then.
+* `false` — it ran and the function was gone.
+* `null` — it never ran in this process, so nothing was observed. Under fat
+  LTO that is the normal case for a **dependency crate**: its pre-link
+  pipeline stops before the vectorizers, and the merged module belongs to the
+  binary crate's process. A `null` says nothing about the function either way.
 
 `unmatched` is per module and must be merged before it means anything: a
 `fn_attrs` entry naming a function of one crate is legitimately unmatched in

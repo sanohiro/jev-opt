@@ -368,3 +368,76 @@ known shape.
 ## 3. Corrections after the first timing run
 
 *(none yet)*
+
+## 4. Revision after decision 77
+
+Written 2026-09-22, still **before any timing run**, after the source study
+`docs/experiments/hintbench/inline-attrs-under-pgo.md` explained the K2 and K7
+null results and vocabulary v3 (decision 77) replaced the candidate `inline`
+with `inline(always)`. Sections 1--3 above are frozen and untouched; this
+section is the only place the prediction moves.
+
+The sweep this file is the prediction for now runs **84 one-factor arms + 1
+combination arm** (8 functions x 5 function candidates + 4 loops x 11 loop
+candidates), not 92 + 1. The vocabulary's function list is `KEEP_DEFAULT`,
+`inline(always)`, `inline(never)`, `align=16`, `align=32`, `align=64`: the
+inert `inline` (`inlinehint`) and `cold` are gone and `hot` was not added.
+
+### What the source study settled
+
+`inlinehint` *is* read (`InlineCost.cpp:2137`), and then the threshold it
+produced is overwritten --- by assignment, not by `max` --- at `:2154`, which
+gives a hot or locally hot call site its own threshold. The 787 that section 1
+records for K1, K2 and K7 is `LocallyHotCallSiteThreshold` (525) plus the
+single-basic-block bonus (+50%), and the 525 at K6 is that constant verbatim;
+both are reproduced exactly by that path. The arm that reads the callee's
+`cold` attribute (`:2163-2179`) is the last `else if` of the same chain and is
+unreachable once the call site has been classified. `alwaysinline` and
+`noinline` are answered at `:3209` and `:3242`, before the cost analyser
+exists, and cannot be reached by the profile at all. So the K2 and K7 nulls
+were not anomalies; they were the predicted behaviour of this recipe, and the
+two control builds section 2c calls "ruled out" are explained by the same two
+lines.
+
+### Revised expectation, K2 --- `inline(always)`
+
+| | section 0 said | now |
+|---|---|---|
+| K2 expected winner | **`KEEP_DEFAULT`** (every candidate 0%) | **`inline(always)`** |
+| expected effect | 0% | +2% to +10% on the k2 workload |
+| confidence | high | medium |
+
+The mechanism section 1 designed for K2 is intact and was never the problem:
+`k2_mix` measures **cost 870 against threshold 787**, so the inliner declines
+it by 83 cost units, and inlining is worth a great deal because `mode` is a
+literal at both call sites --- `m = (mode & 7) | 1` becomes a constant, so the
+three-cycle register `imul` on a sixty-long dependency chain becomes a
+one-cycle `lea`. What was wrong was the lever. `inlinehint` could not raise
+787, because 787 is assigned after it is read; `alwaysinline` does not raise a
+threshold at all, it removes the comparison. The body is 870 cost units and
+straight-line, so the code growth it pays for is small and bounded.
+
+Confidence drops to medium because the size of the win is now the open
+question rather than its existence: whether the constant-mode specialisation
+is worth the growth at both call sites is exactly what the sweep measures.
+The `inline(always)` arm should produce a binary that **differs** from the
+baseline --- if its normalised code hash matches, the attribute did not take,
+and the `NotInlined` remark AlwaysInliner emits (`AlwaysInliner.cpp:60-69`)
+says why.
+
+### Unchanged
+
+* **K7 stays `inline(never)`**, 0% to +5%, confidence medium. The redirection
+  section 1 made for the right reason keeps standing for a better one: the
+  callee's `cold` could never have reached the threshold here, and
+  `inline(never)` is the one candidate that takes the body out of the loop.
+  `inline(always)` at K7 is expected to be a no-op or a small loss --- the
+  baseline already inlines both call sites.
+* **K1, K3, K4, K5, K6, K8 are unchanged**, including the four `KEEP_DEFAULT`
+  predictions that remain. K1's `inline(never)` was measured live in section
+  2c and the source study explains why it must be.
+* The **in-sweep null panel** loses its two pre-registered members. K2's
+  `inline` arm and K7's `cold` arm do not exist under v3, so the null panel is
+  now whatever arms happen to come out code-identical, plus the empty plan.
+  That is a real loss of a control, and it is the price of dropping two
+  candidates that could not do anything.
