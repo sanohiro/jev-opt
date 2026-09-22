@@ -359,6 +359,17 @@ taken again under v3.
 The plugin accepts `inline: "hint"` and `cold: true` for exactly that
 replay; only the vocabulary stops offering them.
 
+`v3-2026-09-22` / `state-v3-2026-09-22` are frozen at commit `7fe1a92`, on
+the same terms as v2 above.
+
+**`--resume` does not carry the vocabulary.** A resumed run reads
+`rounds.jsonl` for the rounds already recorded and skips that many arms **by
+position**, not by `(site, candidate)`; the vocabulary comes from `--vocab`
+(now v3) every time. So a run started under v1 or v2 must be resumed with
+that same `--vocab` spelled out, or the arms will silently realign onto a
+list of a different length and composition. Each round records its own
+`vocab_version`, which is where to check what a run was started with.
+
 The API takes one `state` string and N questions, so the per-site material
 lives in the state, one section per question, named after the question:
 
