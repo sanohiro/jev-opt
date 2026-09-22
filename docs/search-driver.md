@@ -259,6 +259,12 @@ rebalanced. Both have their own section below, as does the decision-83
 repair of the v3 state (`state-v3.1-2026-09-22`), which v3 and v4 share and
 v1 and v2 do not.
 
+The four format strings, as `STATE_FORMATS` in `jev_search.py` spells them:
+`state-v1-2026-09-22`, `state-v2-2026-09-22`, **`state-v3.2-2026-09-22`**
+and **`state-v4.1-2026-09-22`**. The last two are the decision-19 bump for
+the round-history change of Experiment 4, described in "v3.2 / v4.1" below;
+v3's own repair (v3.1) and v4's first form are the sections before it.
+
 | | v1 (`state-v1-2026-09-22`, `v1-2026-09-22`) | v2 (`state-v2-2026-09-22`, `v2-2026-09-22`) |
 |---|---|---|
 | question | "Which attribute should the build put on it? Pick KEEP_DEFAULT unless there is a reason..." | "Which single hint from the list is most likely to make this function faster on this workload?" |
@@ -476,8 +482,10 @@ manifest.
 
 ### v3.1: the evidence repaired (decision 83)
 
-`state-v3.1-2026-09-22`, rendered by `--vocab v3` and `--vocab v4` and by
-neither of the older two. Three readings of the v3 state said things the
+`state-v3.1-2026-09-22`, the evidence content that `--vocab v3` and
+`--vocab v4` both render and neither of the older two does. The string
+itself has since been superseded by `state-v3.2` / `state-v4.1` for the
+round-history change below; everything in this section is in both. Three readings of the v3 state said things the
 build log does not support; `docs/experiments/hintbench/jev-oneshot-v3.md`
 sections 5 and 14 found all three and
 `docs/experiments/hintbench/jev-oneshot-v4.md` measures what fixing them
@@ -502,7 +510,9 @@ records a loop's post-vectoriser state; neither exists yet.
 
 ### v4: the function descriptions, rebalanced (decision 84)
 
-`v4-2026-09-22` / `state-v4-2026-09-22`. Same candidates as v3, same ids,
+`v4-2026-09-22`, whose state string was `state-v4-2026-09-22` until the
+round-history change below took it to `state-v4.1-2026-09-22`. Same
+candidates as v3, same ids,
 same plan fragments, same loop half, same questions, same v3.1 state. Only
 the six **function** descriptions change, so a v3/v4 difference can come
 from nothing else.
@@ -536,6 +546,45 @@ it to 5 of 8. `docs/experiments/hintbench/jev-oneshot-v4.md` has both
 ablations.
 
 `v4-2026-09-22` is frozen on the same terms as v2 and v3.
+
+### v3.2 / v4.1: the round history reports every case (Experiment 4)
+
+`state-v3.2-2026-09-22` and `state-v4.1-2026-09-22`, rendered by
+`--vocab v3` and `--vocab v4`. The candidates, the descriptions, the
+questions, the verdict block and the source excerpts are v3.1's and v4's to
+the byte; only what the state *reports back* about earlier rounds changes.
+
+Why: `## Results of the previous rounds` carried the **aggregate** ratio
+only, and a site's own history line the whole-build ratio only. On a target
+with one case per site the aggregate is the geometric mean over all of
+them, so the 42% that `vectorize.width=16` costs at hintbench's k4 reached
+the proposer as 6% of a number that names no site. And `record_batch` kept
+only the arm's own kernel, which a one-factor oracle arm has and a search
+round --- many sites at once, `arm` is `None` --- does not, so under
+`--proposer jev` and `--proposer random` **no per-case reading was recorded
+at all**.
+
+| | v3.1 / v4 | v3.2 / v4.1 |
+|---|---|---|
+| round record | the aggregate ratio, its CI, the in-run A/A, and the arm's own kernel where there is an arm | the same, plus `per_workload`: every case's ratio, CI, half-width and A/A, in the round's batch and in its confirmation batch |
+| the history table | round, correct, aggregate ratio, CI, accepted | the same plus an **`outcome`** column, which says why a round was not timed (`identical_to_baseline`, output mismatch, apply-incomplete, build failure) instead of printing a bare `-` |
+| a second table | -- | one row per round, one column per case, with `*` on a ratio whose own 95% CI excludes 1. Rendered only where the round records carry `per_workload` |
+| a site's history line | `round N: <hint> -> whole-build ratio R` | the same, plus the ratio and CI **on that site's own case** where `own_workload_of` resolves one, and whether the round was accepted |
+
+The extra material is data-driven, not vocabulary-driven: `own_workload_of`
+returns a case only on a target whose workloads are named after its sites
+(`targets/hintbench`), so on jaq, zopfli and oxipng the per-case table and
+the per-case history line do not appear and the only differences from v3.1
+and v4 are the header line and the `outcome` column, which is added
+unconditionally. **Round 1 of any run has no history at all**, so its state
+is its predecessor's apart from the header line --- which is what makes
+round 1 of a run comparable with a `jev_oneshot.py` pass, and
+`docs/experiments/hintbench/exp4.md` 1.4 records the diff.
+
+What it does not do is separate two sites that share a case. hintbench's k4
+has a function site and a loop site and one workload, so after a round both
+lines quote the same 0.5813 and neither says which of the two answers
+earned it.
 
 ### One shot, API only: `scripts/jev_oneshot.py`
 
@@ -631,6 +680,20 @@ for a threshold but fixes no value).
   human-readable line per request plus a totals block (`<run-id>.log`:
   requests, questions, latency, tokens, cost, and the share of the run's
   wall clock spent waiting for Jev).
+
+  **A phase that never got through is re-sent unchanged.** When all three
+  internal retries of a request fail --- a 503 burst on the gateway, which
+  decision 87 recorded taking out both phases of a one-shot repeat --- every
+  answer of that phase is replaced by `KEEP_DEFAULT` with `source: "no
+  answer"` and no probabilities, so the plan is empty *and* the decision-71
+  readout has nothing to rank. `JevProposer.choose` therefore detects a
+  phase whose every answer is `no answer` and sends the **same request
+  again**, ten seconds later, logged as phase `A.retry` / `B.retry`; the
+  exhausted line stays in the JSONL with its `http_status`. No request is
+  ever modified to make it succeed. This is what `scripts/jev_oneshot.py`
+  has always done at the harness level, and that harness's own `ask_phase`
+  now retries on top of this one --- a second re-send after this one has
+  also failed, recorded as `A.retry.retry`.
 
   **The readout (decision 71).** The argmax alone throws the probabilities
   away, and Experiment 3 spent five rounds answering `KEEP_DEFAULT`
@@ -749,6 +812,19 @@ a tracked artifact.
 * Remark attribution is by source location only --- the remark lines carry no
   function name (SPEC.ja.md 3) --- so a section can show a neighbouring
   function's remarks when both live within 40 lines of each other.
+* **The acceptance rule does not ask whether the plan changed.** Rule 3
+  compares the candidate's CI lower bound against the incumbent's *point*
+  estimate and rule 4 only asks that the interval exclude 1, which it does
+  for any plan with a real effect. So a round that rebuilds the **identical
+  binary** and happens to draw a luckier batch is promoted over the
+  incumbent. Measured: rounds 2--5 of
+  `docs/experiments/hintbench/exp4.md` are one binary, timed in four
+  independent batches at 1.0628, 1.0636, 1.0669 and 1.0679, and round 5 was
+  accepted "as the new best" over round 2. It cost nothing there because
+  the plan was the same plan; on a run where two *different* plans sit
+  inside the batch-to-batch spread it picks the luckier batch, which is the
+  jaq failure of decision 80 (a) in a form the confirmation batch does not
+  cover.
 * jaq has now been run end to end twice, five rounds each (results.md
   "Experiment 3 (jaq)"). At the frozen `n=15` the acceptance rule still let
   one random round through whose own in-run A/A moved almost as far as the

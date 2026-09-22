@@ -213,9 +213,15 @@ at `k2_mix`, the +67.8% of decision 85, in every round.
 | best plan (round 5) on the third batch | **1.0673** | [1.0645, 1.0704] | 1.0034 ±0.0024 | 3.34% |
 
 **(1.0673 − 1) / (1.0847 − 1) = 79.4% of the oracle combination's own third
-batch**, against 77.1% of it on training. Three independent batches of the
-same plan (1.0679 training, 1.0663 confirmation, 1.0673 third) agree to
-within 0.2 points.
+batch**, against 77.1% of it on training.
+
+77.1% is the frozen `best`, and section 6 says why that is the optimistic
+end: rounds 2--5 are the same binary, and the nine batches this run spent
+on it --- four rounds, four confirmations and the third batch --- run
+1.0628, 1.0636, 1.0656, 1.0663, 1.0665, 1.0669, 1.0672, 1.0673, 1.0679.
+The honest reading of the plan is **+6.3% to +6.8%, or 71--77% of the
+combination**, and every one of the nine batches is well outside the
+0.4-point A/A spread.
 
 Where the missing 21% is: the combination also carries `unroll.count=4` at
 the k3 loop, `vectorize.width=16` at k8 and k5, and `inline(never)` at the
@@ -389,7 +395,7 @@ nothing catches it: k6's own case says the hint is free.
 |---|--:|
 | wall clock, Jev run (5 rounds + third batch) | 29.0 min |
 | wall clock, random run (5 rounds + third batch) | 27.0 min |
-| both runs, 20:55--22:11 JST | **56.0 min** |
+| both runs | **56.0 min** of run time, inside a 20:55--22:11 JST window (76 min elapsed; the gap is the scoring between them) |
 | builds | 20 (2 per round x 10 rounds); the baseline was reused |
 | timing batches | **21** = 10 rounds + 9 confirmations + 2 third batches |
 | Jev HTTP requests | 12 (10 answered 200, **2 exhausted on 503 and re-sent unchanged**) |

@@ -9285,8 +9285,8 @@ an oracle arm reads no descriptions.
 
 Five rounds of `scripts/jev_search.py --proposer jev`, five of
 `--proposer random`, over `targets/hintbench`, scored against the oracle of
-section 122. **20:55--22:11 JST on 2026-09-22, 56 minutes, 12 API calls,
-$0.** Full tables, per-round states and the per-site scoring are in
+section 122. **2026-09-22, 56 minutes of runs (29.0 + 27.0) inside a
+20:55--22:11 JST window, 12 API calls, $0.** Full tables, per-round states and the per-site scoring are in
 `docs/experiments/hintbench/exp4.md`; the runs' own records are copied into
 `docs/experiments/hintbench/exp4-jev/` and `exp4-random/`.
 
@@ -9310,8 +9310,11 @@ case's ratio and CI --- it kept only the arm's own kernel, and a search
 round has no single arm, so `--proposer jev|random` recorded **none** ---
 `render_history` prints a per-case table, and a site's history line quotes
 its own case, its interval and whether the round was accepted. State format
-bumped to `state-v3.2` / `state-v4.1` (decision 19); everything else is
-byte-identical, and on a target with no per-case readout so is the state.
+bumped to `state-v3.2` / `state-v4.1` (decision 19). Candidates,
+descriptions, questions, verdict blocks and source excerpts are unchanged
+to the byte; on a target with no per-case readout (jaq, zopfli, oxipng) the
+only differences are the header line and one new `outcome` column in the
+round-history table, which is added unconditionally.
 
 **Round 1 is therefore the one-shot control, and it held.** Its phase-A
 state differs from the state in `jev-oneshot-v4.jsonl` by exactly one line
@@ -9341,6 +9344,11 @@ Third batch, best plan: **1.0673 [1.0645, 1.0704]**, A/A 1.0034 ±0.0024,
 MDE 3.34%. Against the combination arm of section 126 (1.0881 training,
 1.0847 on its own third batch), `(plan−1)/(comb−1)` gives **77.1% of the
 oracle combination on training and 79.4% on the third batch.**
+
+Read that with section 133: rounds 2--5 are the same binary, and the nine
+batches this run spent on it (four rounds, four confirmations, the third
+batch) span **1.0628--1.0679, i.e. 71--77% of the combination**. 77.1% is
+the frozen `best`, which is the highest of them.
 
 Round 1 reproduces decision 87 exactly --- 7 of 12, functions 7/8, loops
 0/4 --- and is the only round that is **slower than the baseline**. The
