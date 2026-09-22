@@ -789,6 +789,526 @@ profile and shape of this loop, as a table
            hot=p["hot"], chain=p["chain"], rc=p["remark_class"])
 
 
+# ===========================================================================
+# ROUND 2 --- W1..W6
+# ===========================================================================
+#
+# Round 1 found that Jev reads *verdicts* (a remark saying "not vectorized:
+# unsupported switch" is obeyed exactly, 54 cells out of 54) and does not
+# *infer* from structural facts (10496 instructions in the section header did
+# not stop it choosing `inline`). Round 2 asks whether the two halves of that
+# finding can be joined: turn the structural facts into verdict-shaped lines,
+# and put the applicability conditions into the option descriptions.
+#
+# The hard rule, from decision 58 and decision 69: nothing below may name a
+# site of this program or say which hint a site should get. Every line the
+# verdict block emits is produced by one rule applied to all nine sites, and
+# the rules are the module constants right here so that a reader can check
+# that no site was special-cased.
+
+STUDY_VERSION_R2 = "prompt-study-r2-2026-09-22"
+
+# --- the classification rules, stated once, applied to every site ----------
+
+SIZE_CLASSES = [(50, "tiny"), (300, "small"), (1000, "medium"),
+                (2000, "large"), (None, "very large")]
+SIZE_RULE = ("<50 tiny, <300 small, <1000 medium, <2000 large, "
+             ">=2000 very large")
+
+COPY_CLASSES = [(2, "single"), (9, "few"), (None, "many")]
+COPY_RULE = "1 single, 2-8 few, >=9 many"
+
+TRIP_CLASSES = [(2, "degenerate"), (16, "short"), (100, "medium"),
+                (None, "long")]
+TRIP_RULE = "<2 degenerate, <16 short, <100 medium, >=100 long"
+
+HOT_CLASSES = [(1.0, "not hot"), (5.0, "hot"), (None, "very hot")]
+HOT_RULE = "<1% not hot, 1-5% hot, >=5% very hot"
+
+# LLVM's own defaults, not this study's numbers: InlineCost.cpp's
+# `-inline-threshold` and `-inlinehint-threshold` command-line defaults.
+INLINE_THRESHOLD = 225
+INLINEHINT_THRESHOLD = 325
+
+# The ISA, not a preference: one 256-bit ymm register holds 256/elem_bits
+# lanes. The frozen vocabulary stops at width 16.
+VECTOR_REGISTER_BITS = 256
+MAX_WIDTH_IN_VOCAB = 16
+
+ELEM_BITS = {"u8": 8, "i8": 8, "u16": 16, "i16": 16, "u32": 32, "i32": 32,
+             "f32": 32, "u64": 64, "i64": 64, "f64": 64}
+
+# A `loop not vectorized: <reason>` whose reason is one of these is a
+# legality failure: a `vectorize.width` hint does not override it. Anything
+# else after `loop not vectorized:` (a cost-model remark, `runtime pointer
+# checks needed`) is not a legality failure and is reported separately.
+LEGALITY_REASONS = (
+    "early exit", "unsupported switch", "incorrect number of successors",
+    "induction variable could not be identified",
+    "could not determine number of loop iterations",
+    "could not be identified as reduction",
+)
+
+
+def _classify(value, table):
+    for bound, name in table:
+        if bound is None or value < bound:
+            return name
+    return table[-1][1]
+
+
+def _elem_type(chain):
+    """The element type of the loop's iterator, read off the inline chain.
+
+    Mechanical: the innermost `Iter<...>` of the chain string. `..` (L5, whose
+    chain was recorded without the parameter) and a chain with no `Iter<>` at
+    all (L2, which walks format pieces, not a slice) give `None`, and the
+    verdict block then says the element type is unknown rather than guessing
+    one.
+    """
+    if not chain:
+        return None
+    hits = re.findall(r"Iter<([^>]*(?:\[[^\]]*\])?[^>]*)>", chain)
+    if not hits:
+        return None
+    t = hits[-1].strip()
+    if t in ("..", "", "_"):
+        return None
+    return t
+
+
+def _elem_bits(t):
+    if t is None:
+        return None
+    if t in ELEM_BITS:
+        return ELEM_BITS[t]
+    m = re.match(r"\[(\w+);\s*(\d+)\]$", t)          # e.g. [u8;4]
+    if m and m.group(1) in ELEM_BITS:
+        return ELEM_BITS[m.group(1)] * int(m.group(2))
+    return None
+
+
+def _remarks_of(section):
+    """The `what LLVM said` lines of a section, or [] when none were recorded."""
+    m = ANCHOR_RE_REMARKS.search(section)
+    if not m:
+        return []
+    body = m.group(0)
+    if "not recorded" in body:
+        return []
+    return [l.strip() for l in body.split("\n")
+            if re.match(r"^\s+\S+\.rs:\d+: ", l)]
+
+
+def _num(pattern, text, cast=int):
+    m = re.search(pattern, text)
+    return cast(m.group(1).replace(",", "")) if m else None
+
+
+def best_width_for(bits):
+    """The widest `vectorize.width` in the frozen vocabulary that one 256-bit
+    register holds for an element of `bits` bits; 4 when the element type is
+    unknown (4 is what LLVM itself picks by default on this target for the
+    64-bit case, and it is the middle of the list). Pre-registered here, used
+    by both the verdict block and W5's pairing."""
+    if not bits:
+        return 4
+    lanes = VECTOR_REGISTER_BITS // bits
+    for w in (16, 8, 4, 2):
+        if w <= min(lanes, MAX_WIDTH_IN_VOCAB):
+            return w
+    return 2
+
+
+def unroll_pick_for(trip, insts):
+    """Pre-registered: which unroll count W5 puts up against KEEP_DEFAULT.
+    A short body with a long trip can afford the widest, a degenerate or fat
+    body only the mildest."""
+    if trip is not None and insts is not None and trip >= 100 and insts <= 50:
+        return "unroll_count_8"
+    if trip is not None and trip >= 16:
+        return "unroll_count_4"
+    return "unroll_count_2"
+
+
+def mech_facts(site, material):
+    """Every mechanical reading for one site, as a dict. Pure derivation."""
+    p = PROFILE[site["id"]]
+    sec = section_for(site, material)
+    rem = _remarks_of(sec)
+    f = dict(kind=site["kind"])
+
+    if site["kind"] == "fn":
+        insts = _num(r"size after LTO\s+(\d[\d,]*) LLVM instructions", sec)
+        f["insts"] = insts
+        f["size_class"] = _classify(insts, SIZE_CLASSES)
+        f["copies"] = _num(r"(\d+) monomorphization", p["shape"])
+        f["copy_class"] = _classify(f["copies"] or 1, COPY_CLASSES)
+        f["loops_inside"] = _num(r"(\d+) loop sites inside it", p["shape"])
+        m = re.search(r"(?m)^attributes now (.*?)\s*(?:\(|$)", sec)
+        f["attrs"] = m.group(1).strip() if m else "none"
+        f["has_inlinehint"] = "inlinehint" in f["attrs"]
+        f["all_copies_hinted"] = f["has_inlinehint"] and "|" not in f["attrs"]
+        f["has_cold"] = "cold" in f["attrs"]
+        share = float(p["self_share"].rstrip("%"))
+        f["share"] = p["self_share"]
+        f["hot_class"] = _classify(share, HOT_CLASSES)
+        f["budget_ratio"] = (insts / float(
+            INLINEHINT_THRESHOLD if f["has_inlinehint"] else INLINE_THRESHOLD)
+            if insts else None)
+        f["budget_name"] = ("-inlinehint-threshold=%d" % INLINEHINT_THRESHOLD
+                            if f["has_inlinehint"]
+                            else "-inline-threshold=%d" % INLINE_THRESHOLD)
+        return f
+
+    f["trip"] = float(p["trip"])
+    f["trip_class"] = _classify(f["trip"], TRIP_CLASSES)
+    f["insts"] = int(p["insts"])
+    f["size_class"] = _classify(f["insts"], SIZE_CLASSES)
+    f["calls"] = p["calls"]
+    f["depth"] = p["depth"]
+    f["copies"] = p["copies"]
+    f["elem"] = _elem_type(p.get("chain"))
+    f["elem_bits"] = _elem_bits(f["elem"])
+    f["lanes"] = (VECTOR_REGISTER_BITS // f["elem_bits"]
+                  if f["elem_bits"] else None)
+    f["best_width"] = best_width_for(f["elem_bits"])
+    f["unroll_pick"] = unroll_pick_for(f["trip"], f["insts"])
+
+    if not rem:
+        f["legality"] = "unknown"
+        f["legality_reasons"] = []
+        f["current_vf"] = None
+        f["unroll_advice"] = None
+        f["costmodel"] = None
+        return f
+
+    reasons = []
+    for l in rem:
+        m = re.search(r"loop not vectorized:\s*(.+)$", l)
+        if m and any(k in m.group(1).lower() for k in LEGALITY_REASONS):
+            r = m.group(1).strip()
+            if r not in reasons:
+                reasons.append(r)
+    vf = [int(x) for x in re.findall(r"vectorization width: (\d+)",
+                                     "\n".join(rem))]
+    f["legality_reasons"] = reasons
+    f["current_vf"] = max(vf) if vf else None
+    if reasons:
+        f["legality"] = "not vectorizable"
+    elif vf:
+        f["legality"] = "already vectorized"
+    else:
+        f["legality"] = "no legality failure reported"
+    adv = [l.split(": ", 1)[1] for l in rem
+           if "advising against unrolling" in l]
+    f["unroll_advice"] = adv[0] if adv else None
+    f["costmodel"] = ("vectorization not beneficial"
+                      if any("cost-model indicates that vectorization" in l
+                             for l in rem) else None)
+    return f
+
+
+VERDICT_PREAMBLE = (
+    "Mechanical readings for this site. Each line is produced by a tool from "
+    "the numbers and the compiler remarks already in the state, by the same "
+    "rule at every site in this request; none of them is an opinion about "
+    "which hint to choose."
+)
+
+
+def verdict_lines(site, material):
+    """The verdict block W1/W3..W6 put next to the question."""
+    f = mech_facts(site, material)
+    L = []
+    if f["kind"] == "fn":
+        L.append("body size: %d LLVM instructions after LTO" % f["insts"])
+        L.append("size class: %s (rule: %s)" % (f["size_class"], SIZE_RULE))
+        L.append("distinct copies in the binary: %d monomorphization(s); "
+                 "copy class %s (rule: %s)"
+                 % (f["copies"], f["copy_class"], COPY_RULE))
+        r = f["budget_ratio"]
+        L.append("inline budget: LLVM's defaults are -inline-threshold=%d "
+                 "and -inlinehint-threshold=%d cost units; body instructions "
+                 "/ %s = %s (an order-of-magnitude comparison, not an "
+                 "InlineCost computation --- the cost=/threshold= pairs in "
+                 "the remarks above are the real ones, and they are about "
+                 "this function's callees)"
+                 % (INLINE_THRESHOLD, INLINEHINT_THRESHOLD, f["budget_name"],
+                    ("%.1fx, i.e. the body fits inside that budget" % r)
+                    if r < 1 else "%.0fx over" % r))
+        L.append("attributes already on it: %s" % f["attrs"])
+        if f["all_copies_hinted"]:
+            L.append("no-op check: every copy already carries `inlinehint`, "
+                     "so the candidate `inline` reproduces the state this "
+                     "site is already in")
+        elif f["has_inlinehint"]:
+            L.append("no-op check: some copies already carry `inlinehint`, "
+                     "so the candidate `inline` reproduces, on those copies, "
+                     "the state this site is already in")
+        if f["has_cold"]:
+            L.append("no-op check: `cold` already appears among the attribute "
+                     "sets this site carries")
+        L.append("share of the program's user cycles: %s; hotness class %s "
+                 "(rule: %s)" % (f["share"], f["hot_class"], HOT_RULE))
+        if f["loops_inside"] is not None:
+            L.append("loop sites inside it: %d" % f["loops_inside"])
+        return L
+
+    L.append("average trip count: %g; trip class %s (rule: %s)"
+             % (f["trip"], f["trip_class"], TRIP_RULE))
+    L.append("body size: %d LLVM instructions; size class %s (rule: %s)"
+             % (f["insts"], f["size_class"], SIZE_RULE))
+    L.append("calls inside the body: %s; loop nesting depth %s; loops this "
+             "site key names: %s" % (f["calls"], f["depth"], f["copies"]))
+    if f["elem"]:
+        L.append("element type at the loop's iterator: %s (read off the "
+                 "inline chain); one %d-bit vector register holds %d of them, "
+                 "so the widest `vectorize.width` in this list that fits one "
+                 "register is %d (the list stops at %d)"
+                 % (f["elem"], VECTOR_REGISTER_BITS, f["lanes"],
+                    f["best_width"], MAX_WIDTH_IN_VOCAB))
+    else:
+        L.append("element type at the loop's iterator: not derivable from the "
+                 "recorded inline chain, so the lane count for this loop is "
+                 "unknown")
+    if f["legality"] == "not vectorizable":
+        L.append("vectorisation legality, from the baseline remarks at this "
+                 "line: NOT VECTORIZABLE --- %s. A `vectorize.width` hint is "
+                 "not a permission slip: LLVM drops it when vectorisation is "
+                 "illegal." % "; ".join(f["legality_reasons"]))
+    elif f["legality"] == "already vectorized":
+        L.append("vectorisation legality, from the baseline remarks at this "
+                 "line: LEGAL --- the remarks include `vectorized loop "
+                 "(vectorization width: %d)`, i.e. LLVM already vectorises "
+                 "this line without any hint" % f["current_vf"])
+        L.append("no-op check: the width already in effect is %d, so the "
+                 "candidate `vectorize_width_%d` reproduces the state this "
+                 "site is already in" % (f["current_vf"], f["current_vf"]))
+    elif f["legality"] == "unknown":
+        L.append("vectorisation legality: UNKNOWN --- no remarks were "
+                 "recorded for this site, so nothing here says whether "
+                 "vectorisation is legal")
+    else:
+        L.append("vectorisation legality, from the baseline remarks at this "
+                 "line: no legality failure is reported and no vectorized "
+                 "loop is reported")
+    if f["unroll_advice"]:
+        L.append("unroller, from the baseline remarks at this line: %s"
+                 % f["unroll_advice"])
+    if f["costmodel"]:
+        L.append("cost model, from the baseline remarks at this line: %s"
+                 % f["costmodel"])
+    L.append("caveat that applies to every loop here: remarks are attributed "
+             "by source location only, so several loops can share one line")
+    return L
+
+
+def verdict_block(site, material):
+    lines = verdict_lines(site, material)
+    return ("\n\n" + VERDICT_PREAMBLE + "\n"
+            + "\n".join("  - " + l for l in lines))
+
+
+# --- Idea B: applicability conditions inside the option descriptions -------
+#
+# Same vocabulary as the verdict block above on purpose (size class,
+# instructions, monomorphized copies, element type, lanes, 256-bit register,
+# trip count, early exit, legality failure, no-op), so that W3 can join the
+# two. Generic: no line names a function, a loop, a file or a site of this
+# program, and none of them says what to pick.
+
+ENRICHED_FN = {
+    "inline": (
+        "Add the `inlinehint` attribute (the SPEC vocabulary's `inline`). It "
+        "raises the inliner's threshold for this function, so callers that "
+        "were just over the limit paste its body in. It tends to help a "
+        "small hot leaf (roughly under 300 instructions) called from few hot "
+        "sites, where the caller then specialises on what it passes. It "
+        "tends to hurt a large body (a thousand instructions and up) and a "
+        "function with many monomorphized copies, because every pasted copy "
+        "costs instruction cache. It is a no-op where the function already "
+        "carries the attribute."),
+    "inline_never": (
+        "Add the `noinline` attribute (the SPEC vocabulary's "
+        "`inline(never)`). The function stays one out-of-line copy: call "
+        "overhead is paid at every call site and the callers stay small. It "
+        "tends to help a very large body (thousands of instructions) or a "
+        "function with many monomorphized copies, by stopping code growth "
+        "and instruction-cache pressure --- especially where an `inlinehint` "
+        "is already asking the inliner to paste that body in. It tends to "
+        "hurt a small hot leaf, where the call overhead is the bulk of the "
+        "cost. It is a no-op where the body is already too large for any "
+        "caller's threshold."),
+    "cold": (
+        "Add the `cold` attribute. Callers place calls to it out of line, it "
+        "is optimised for size rather than speed, and it is never inlined. "
+        "It tends to help a function that is genuinely off the hot path, by "
+        "moving its code away from the hot path's cache lines. It is a "
+        "pessimisation by definition on a function that carries a "
+        "significant share of the cycles, whatever its size."),
+    "align_16": (
+        "Set the function's alignment to 16 bytes (`align=16`). 16 bytes is "
+        "already the default on x86-64, so this mostly pins the current "
+        "alignment and changes nothing. It helps and hurts nowhere in "
+        "particular."),
+    "align_32": (
+        "Set the function's alignment to 32 bytes (`align=32`). The entry "
+        "point starts on a 32-byte boundary, which changes how the first "
+        "instructions and the first loop fall into the 32-byte "
+        "instruction-fetch windows and the uop cache. It tends to help where "
+        "a hot loop sits at or very near the function's entry; it does "
+        "nothing for a hot loop deep inside a large body, and it is a "
+        "lottery rather than a mechanism wherever the layout is not known."),
+    "align_64": (
+        "Set the function's alignment to 64 bytes (`align=64`). Same "
+        "mechanism as `align=32`, one step coarser: the function starts on a "
+        "cache line, and up to 63 bytes of padding are wasted per function. "
+        "Same applicability as `align=32`, with more padding to pay for it."),
+}
+
+ENRICHED_LOOP = {
+    "unroll_count_2": (
+        "Attach `llvm.loop.unroll.count = 2`: two copies of the body per "
+        "iteration. Halves the loop-control overhead and gives the scheduler "
+        "two iterations to interleave. It tends to help a short body whose "
+        "trip count is well above the unroll factor; it tends to do nothing "
+        "where the body already contains a call, because the loop control is "
+        "invisible next to the call. It runs after vectorisation, so on a "
+        "loop LLVM vectorises it unrolls the *vector* loop."),
+    "unroll_count_4": (
+        "Attach `llvm.loop.unroll.count = 4`: four copies of the body per "
+        "iteration. More scheduling freedom and fewer branches than count=2 "
+        "at four times the code size and a longer remainder. It tends to "
+        "help a short body (tens of instructions) with a trip count in the "
+        "hundreds; it tends to hurt where the trip count is near or below 4, "
+        "because the remainder then does most of the work."),
+    "unroll_count_8": (
+        "Attach `llvm.loop.unroll.count = 8`: eight copies of the body per "
+        "iteration. It tends to help only a very short body (tens of "
+        "instructions) with a high trip count; on anything larger the code "
+        "growth costs more instruction cache than the saved branches are "
+        "worth, and on a low trip count the remainder loop eats the gain."),
+    "unroll_disable": (
+        "Attach `llvm.loop.unroll.disable`: forbid unrolling this loop. It "
+        "tends to help where the caller's instruction footprint is the "
+        "problem, or where the unroller has already unrolled a body that is "
+        "too large to benefit; capping unrolling has been measured to help "
+        "in exactly that shape. It does nothing where the unroller has "
+        "already declined to unroll --- for instance where a remark says it "
+        "is advising against unrolling because the body contains a call."),
+    "vectorize_width_2": (
+        "Attach `llvm.loop.vectorize.width = 2` (and `vectorize.enable`): two "
+        "lanes per vector iteration. A narrow forced width keeps "
+        "vectorisation while cutting the cost of the scalar remainder, so it "
+        "tends to help only where the trip count is low but countable. "
+        "Reassociation of floating-point reductions stays forbidden (the "
+        "build pins -hints-allow-reordering=false)."),
+    "vectorize_width_4": (
+        "Attach `llvm.loop.vectorize.width = 4` (and `vectorize.enable`): "
+        "four lanes per vector iteration. Four lanes fill one 256-bit "
+        "register for a 64-bit element type, and leave three quarters of the "
+        "register idle for a 32-bit element and seven eighths idle for an "
+        "8-bit element."),
+    "vectorize_width_8": (
+        "Attach `llvm.loop.vectorize.width = 8` (and `vectorize.enable`): "
+        "eight lanes per vector iteration. Eight lanes fill one 256-bit "
+        "register for a 32-bit element type; for a 64-bit element they take "
+        "two registers, which LLVM splits; for an 8-bit element they still "
+        "leave three quarters of the register idle."),
+    "vectorize_width_16": (
+        "Attach `llvm.loop.vectorize.width = 16` (and `vectorize.enable`): "
+        "sixteen lanes per vector iteration. Sixteen lanes fill one 256-bit "
+        "register for a 16-bit element type and half of one for an 8-bit "
+        "element; for anything wider LLVM emits several registers per "
+        "iteration, which can pay on a very long loop and hurts on a short "
+        "one. A width beyond what one register holds has been measured "
+        "running more than twice as slow as the default on a byte loop, so "
+        "matching the element width to the register is the useful move and "
+        "overshooting it is not."),
+    "interleave_count_1": (
+        "Attach `llvm.loop.interleave.count = 1`: vectorise without "
+        "interleaving --- one vector body per iteration and a single "
+        "accumulator chain. It tends to help where LLVM's default "
+        "interleaving made the loop and its remainder longer than a modest "
+        "trip count can repay."),
+    "interleave_count_2": (
+        "Attach `llvm.loop.interleave.count = 2`: two independent vector "
+        "chains per iteration. It tends to help where a dependent reduction's "
+        "latency, not the memory traffic, is the limit, at the cost of more "
+        "registers."),
+    "interleave_count_4": (
+        "Attach `llvm.loop.interleave.count = 4`: four independent vector "
+        "chains per iteration --- the most latency hiding of the three and "
+        "the most register pressure. On a short trip count the remainder "
+        "loop eats the gain."),
+}
+
+# Every applicability sentence above is about a shape, and a hint that cannot
+# be applied at all is worth saying once rather than in each description.
+ENRICHED_NOTE_LOOP = (
+    " Where the compiler has reported a legality failure for this loop, no "
+    "`vectorize.width` value can be applied: the hint is dropped."
+)
+
+
+def enriched_candidates(kind):
+    """The frozen vocabulary with the applicability conditions written in.
+
+    The candidate ids, the plan fragments and the SPEC spellings are
+    untouched --- `jev_vocab.py` stays frozen and this is a *description*
+    variant of it, which is exactly what decision 19 says is part of the
+    measurement conditions.
+    """
+    base = dict(jev_vocab.candidates_for(kind))
+    table = ENRICHED_FN if kind == "fn" else ENRICHED_LOOP
+    out = {}
+    for cid in base:
+        if cid == jev_vocab.KEEP_DEFAULT:
+            out[cid] = (NEUTRAL_KEEP_FN if kind == "fn"
+                        else NEUTRAL_KEEP_LOOP)
+        else:
+            d = table[cid]
+            if kind == "loop" and cid.startswith("vectorize"):
+                d += ENRICHED_NOTE_LOOP
+            out[cid] = d
+    return out
+
+
+# --- Idea C: W5's pairwise questions ---------------------------------------
+
+Q_W5_FN = (
+    "Section `{qname}` of the state describes one marked function of this "
+    "program. Exactly two options are on the table in this question, and "
+    "only these two. Which of the two is more likely to make this function "
+    "faster on this workload?"
+)
+Q_W5_LOOP = (
+    "Section `{qname}` of the state describes one loop inside a marked "
+    "function of this program. Exactly two options are on the table in this "
+    "question, and only these two. Which of the two is more likely to make "
+    "this loop faster on this workload?"
+)
+
+
+def pairs_for(site, material):
+    """The 2-way questions W5 asks at one site. Pre-registered here.
+
+    Functions: the round-robin of `inline`, `inline_never` and KEEP_DEFAULT.
+    Loops: the same shape with the mechanically chosen width and unroll count
+    of `best_width_for` / `unroll_pick_for` in place of the two hints, so
+    that the three pairs are again a round-robin of three options.
+    """
+    if site["kind"] == "fn":
+        a, b = "inline", "inline_never"
+    else:
+        f = mech_facts(site, material)
+        a = "vectorize_width_%d" % f["best_width"]
+        b = f["unroll_pick"]
+    k = jev_vocab.KEEP_DEFAULT
+    return [(a, k), (b, k), (a, b)]
+
+
 # ---------------------------------------------------------------------------
 # building a request
 # ---------------------------------------------------------------------------
@@ -856,9 +1376,75 @@ BASE_VARIANTS = {
     "V16": dict(pre=V1_PREAMBLE_REPLACEMENT, keep=False, neutral=False,
                 q="v1", anchors=True, excerpt=None, platform=True,
                 profile=True, extra=["guide"], per_site=False),
+
+    # --- round 2 ----------------------------------------------------------
+    # W1  idea A alone: V2's wording + the mechanical verdict block next to
+    #     the question + the platform block.
+    # W2  idea B alone: V2's wording + the applicability conditions written
+    #     into the option descriptions.
+    # W3  W1 + W2.
+    # W4  W3 with KEEP_DEFAULT removed. The V2 preamble says "one of the
+    #     options at every site is 'no change'", which is false once it is
+    #     removed, so W4 takes V1's preamble --- the same substitution V1 and
+    #     V15 make.
+    # W5  W3 asked as independent 2-way questions; the winner is derived by
+    #     round-robin (the rule is in the report, fixed before sending).
+    # W6  request-identical to W3. It exists as its own variant so that the
+    #     `1 - P(KEEP_DEFAULT)` readout of decision 71 is reported on rows
+    #     that were not also used to choose the readout, and so that W3/W6
+    #     together are six repeats of one framing --- a repeatability check
+    #     that round 1 never had.
+    "W1":  dict(pre=V2_PREAMBLE_REPLACEMENT, keep=True, neutral=True,
+                q="v2", anchors=True, excerpt=None, platform=True,
+                profile=False, extra=[], per_site=False,
+                verdicts=True, vocab="frozen"),
+    "W2":  dict(pre=V2_PREAMBLE_REPLACEMENT, keep=True, neutral=True,
+                q="v2", anchors=True, excerpt=None, platform=False,
+                profile=False, extra=[], per_site=False,
+                verdicts=False, vocab="enriched"),
+    "W3":  dict(pre=V2_PREAMBLE_REPLACEMENT, keep=True, neutral=True,
+                q="v2", anchors=True, excerpt=None, platform=True,
+                profile=False, extra=[], per_site=False,
+                verdicts=True, vocab="enriched"),
+    "W4":  dict(pre=V1_PREAMBLE_REPLACEMENT, keep=False, neutral=False,
+                q="v1", anchors=True, excerpt=None, platform=True,
+                profile=False, extra=[], per_site=False,
+                verdicts=True, vocab="enriched"),
+    "W5":  dict(pre=V2_PREAMBLE_REPLACEMENT, keep=True, neutral=True,
+                q="pairwise", anchors=True, excerpt=None, platform=True,
+                profile=False, extra=[], per_site=False,
+                verdicts=True, vocab="enriched"),
+    "W6":  dict(pre=V2_PREAMBLE_REPLACEMENT, keep=True, neutral=True,
+                q="v2", anchors=True, excerpt=None, platform=True,
+                profile=False, extra=[], per_site=False,
+                verdicts=True, vocab="enriched"),
+    # W7 is the confirmation run. W1 and W3 disagree about which phase wants
+    # the enriched descriptions --- W3 wins the function phase, W1 wins the
+    # loop phase --- and functions and loops are separate requests anyway, so
+    # the combination is a framing in its own right. It was added *after* W1
+    # and W3 were read, which is why it is labelled a confirmation and not a
+    # discovery: its own six requests were sent only after this entry and the
+    # analysis rules were committed.
+    "W7":  dict(pre=V2_PREAMBLE_REPLACEMENT, keep=True, neutral=True,
+                q="v2", anchors=True, excerpt=None, platform=True,
+                profile=False, extra=[], per_site=False,
+                verdicts=True, vocab="enriched",
+                delegate={"fn": "W3", "loop": "W1"}),
 }
 
+
+def cfg_for(variant, kind):
+    """The config one *phase* of a variant uses.
+
+    Every variant but W7 answers with one config for both phases; W7 delegates
+    the function phase and the loop phase to two different ones.
+    """
+    cfg = BASE_VARIANTS[variant]
+    d = cfg.get("delegate")
+    return BASE_VARIANTS[d[kind]] if d else cfg
+
 VARIANTS = list(BASE_VARIANTS)
+ROUND2_VARIANTS = [v for v in VARIANTS if v.startswith("W")]
 
 EXTRA_BLOCKS = {
     "search": SEARCH_FRAMING,
@@ -882,7 +1468,10 @@ def section_for(site, material):
 
 
 def criteria_for(site, cfg):
-    cands = dict(jev_vocab.candidates_for(site["kind"]))
+    if cfg.get("vocab") == "enriched":
+        cands = dict(enriched_candidates(site["kind"]))
+    else:
+        cands = dict(jev_vocab.candidates_for(site["kind"]))
     if not cfg["keep"]:
         cands.pop(jev_vocab.KEEP_DEFAULT)
     elif cfg["neutral"]:
@@ -892,7 +1481,18 @@ def criteria_for(site, cfg):
 
 
 def instructions_for(site, cfg, qname, **kw):
+    base = _instructions_body(site, cfg, qname, **kw)
+    material = kw.get("material")
+    if cfg.get("verdicts") and material is not None:
+        return base + verdict_block(site, material)
+    return base
+
+
+def _instructions_body(site, cfg, qname, **kw):
     style = cfg["q"]
+    if style == "pairwise":
+        t = Q_W5_FN if site["kind"] == "fn" else Q_W5_LOOP
+        return t.format(qname=qname)
     if style == "frozen":
         return jev_vocab.instructions_for(site["kind"], qname)
     if style == "v1":
@@ -911,12 +1511,13 @@ def instructions_for(site, cfg, qname, **kw):
 
 def build_state(variant, sites, material, stage=None, families=None):
     """The `state` string for one request of `variant` covering `sites`."""
-    cfg = BASE_VARIANTS[variant]
+    cfg = cfg_for(variant, sites[0]["kind"])
     phase = "A" if sites[0]["kind"] == "fn" else "B"
     head = material[phase]["head"]
 
+    study = STUDY_VERSION_R2 if variant.startswith("W") else STUDY_VERSION
     header = ("# jev-opt prompt study --- %s, variant %s, vocabulary %s\n"
-              % (STUDY_VERSION, variant, jev_vocab.VOCAB_VERSION))
+              % (study, variant, jev_vocab.VOCAB_VERSION))
     if variant == "V0":
         header = head.split("\n")[0] + "\n"
         body = head[len(head.split("\n")[0]) + 1:]
@@ -956,14 +1557,24 @@ def build_state(variant, sites, material, stage=None, families=None):
     return "\n".join(out)
 
 
-def build_questions(variant, sites, stage=None, families=None):
-    cfg = BASE_VARIANTS[variant]
+def build_questions(variant, sites, stage=None, families=None, material=None):
+    cfg = cfg_for(variant, sites[0]["kind"])
     qs = {}
     meta = {}
     for i, site in enumerate(sites):
         qname = "q%d" % i
         meta[qname] = site["id"]
-        if cfg["q"] == "score":
+        if cfg["q"] == "pairwise":
+            allc = criteria_for(site, cfg)
+            for a, b in pairs_for(site, material):
+                sub = "%s_%s__%s" % (qname, a, b)
+                qs[sub] = dict(
+                    type="choice",
+                    instructions=instructions_for(site, cfg, qname,
+                                                  material=material),
+                    criteria={a: allc[a], b: allc[b]})
+                meta[sub] = "%s/%s|%s" % (site["id"], a, b)
+        elif cfg["q"] == "score":
             cands = criteria_for(site, cfg)
             for j, (cid, desc) in enumerate(cands.items()):
                 if cid == jev_vocab.KEEP_DEFAULT:
@@ -997,7 +1608,8 @@ def build_questions(variant, sites, stage=None, families=None):
                 criteria=crit)
         else:
             qs[qname] = dict(type="choice",
-                             instructions=instructions_for(site, cfg, qname),
+                             instructions=instructions_for(
+                                 site, cfg, qname, material=material),
                              criteria=criteria_for(site, cfg))
     return qs, meta
 
@@ -1036,7 +1648,8 @@ def requests_for(variant, material, stage=None, families=None):
                 continue
         state = build_state(variant, g, material, stage=stage,
                             families=families)
-        qs, meta = build_questions(variant, g, stage=stage, families=families)
+        qs, meta = build_questions(variant, g, stage=stage, families=families,
+                                   material=material)
         tag = "%s-%s" % (variant, "-".join(s["id"] for s in g))
         if stage:
             tag += "-stage%d" % stage

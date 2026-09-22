@@ -1,7 +1,10 @@
 # Jev prompt/state study --- does the way we ask change what Jev answers?
 
 Status: **complete.** 153 requests, 800 answered questions, 18 framings x 9
-sites x 3 repeats, no request lost. The section above the horizontal rule is
+sites x 3 repeats, no request lost. **Round 2 is at the bottom of this file**
+(`# Round 2`): seven more framings that ask whether the structural facts can
+be made to count, and the first framing in the study to beat "answer
+`KEEP_DEFAULT` everywhere". The section above the horizontal rule is
 the pre-registered half --- the nine sites and the hint Claude would choose at
 each, committed before a single request was sent; the section below is what
 came back.
@@ -1161,3 +1164,749 @@ loop, and Jev was closer.
 * Remarks are attributed by source location only (SPEC.ja.md 3), so which
   `vectorized loop (width 4)` line at `macros.rs:279` belongs to L3 is not
   certain. The reference pick at L3 rests on that line.
+
+
+---
+
+# Round 2 --- can the structural facts be made to count?
+
+Status: **complete.** 43 requests attempted and 42 answered (one lost to a
+burst of HTTP 503), 243 answered questions, 7 framings x 9 sites x 3 repeats,
+Jev API only, same nine sites and the same reference
+picks as above (they were not touched). Round 2's log is
+`round2/log.jsonl` and `round2/requests.jsonl`, kept separate from round 1's
+so that round 1's tables still reproduce from round 1's log alone.
+
+## The question this round asks
+
+The user's question was: *"Jev can't decide whether to optimize; can we force
+'optimize' and still get the right hint?"* Round 1's answer was no --- forcing
+gives a constant (`inline` at every function, `unroll_disable` at four of five
+loops).
+
+Round 1 also found the thing this round is built on: **Jev reads verdicts and
+does not infer from structural facts.** A remark saying `loop not vectorized:
+Loop contains an unsupported switch` was obeyed in 54 cells out of 54; a
+section header saying `10496 LLVM instructions` was read past on the way to
+choosing `inline`. Round 2 turns that observation into two interventions and
+tests them separately and together.
+
+* **Idea A --- make the structural facts into verdicts.** A tool computes a
+  block of verdict-shaped lines per site and puts it *next to the question*,
+  where round 1 showed the wording has its effect. Every line comes from one
+  rule applied to all nine sites.
+* **Idea B --- put the applicability conditions into the option
+  descriptions.** Each candidate says, generically, when it tends to help and
+  when it hurts. No line names a site of this program.
+* **Idea C --- forcing (`W4`), pairwise questions (`W5`) and the
+  decision-71 readout (`W6`) on top of A+B.**
+
+| variant | what it is |
+|---|---|
+| **W1** | V2's wording + the mechanical verdict block + the platform block. Idea A alone. |
+| **W2** | V2's wording + the enriched option descriptions. Idea B alone. |
+| **W3** | W1 + W2. |
+| **W4** | W3 with `KEEP_DEFAULT` removed (forced). It takes V1's preamble, because V2's says "one of the options at every site is 'no change'", which is false once the option is gone. |
+| **W5** | W3 asked as independent 2-way Choices; the winner is derived by round-robin. |
+| **W6** | request-identical to W3, read out by `1 - P(KEEP_DEFAULT)` (decision 71). Because the request is identical, W3 and W6 together are also six repeats of one framing --- the repeatability check round 1 never had. |
+| **W7** | the confirmation run: W3's config for the function phase, W1's for the loop phase. See the note below --- it was added after W1 and W3 were read. |
+
+**W7 is a confirmation, not a discovery, and the file says so.** W1 and W3
+disagree about which phase wants the enriched descriptions, and functions and
+loops ride in separate requests anyway, so their combination is a framing in
+its own right. But it was chosen *after* five loop-phase results had been
+looked at, which is exactly the post-hoc selection round 1's V5 rule was
+written to avoid. The repair is the cheap one: the combination was entered in
+`BASE_VARIANTS` as `W7`, committed, and only then sent its own six requests,
+so the row below is a prediction that was tested rather than a subset that
+was picked. Six of the nine reference picks are still `KEEP_DEFAULT`, so a
+single 8/9 row is not proof of much on its own; what it rules out is that the
+combination was an artefact of reading two tables side by side.
+
+`V7` from round 1 (V2 + the platform block, and nothing else) is the control
+that separates W1's verdict block from W1's platform block: V7 reproduced
+V2's modal choice at all nine sites, so everything W1 moves is the verdicts.
+
+## The rules the verdict block applies, in full
+
+No site is special-cased; these are the module constants of
+`scripts/jev_state_variants.py` and they run over all nine sites.
+
+| reading | rule |
+|---|---|
+| size class | `<50` tiny, `<300` small, `<1000` medium, `<2000` large, `>=2000` very large |
+| copy class | 1 single, 2--8 few, `>=9` many |
+| trip class | `<2` degenerate, `<16` short, `<100` medium, `>=100` long |
+| hotness class | `<1%` not hot, 1--5% hot, `>=5%` very hot |
+| inline budget | LLVM's own `-inline-threshold=225` / `-inlinehint-threshold=325`; the line prints body instructions over whichever applies to the attributes the function carries, and says in the same breath that it is an order-of-magnitude comparison and not an InlineCost computation |
+| lanes | `256 / element bit width`; the element type is read off the recorded inline chain and reported as *unknown* where the chain does not carry one (L2, L5) |
+| legality | `loop not vectorized: <reason>` whose reason is an early exit / unsupported switch / bad successor count / unidentifiable induction variable / undeterminable trip count / non-reduction used outside the loop. `runtime pointer checks needed` is **not** counted as a legality failure. No remarks recorded (L5) prints `UNKNOWN`, not "legal" |
+| no-op check | a candidate that reproduces what the site already carries: `inline` where the attributes already include `inlinehint`, `vectorize_width_N` where a remark already reports `vectorized loop (vectorization width: N)` |
+
+The honesty constraint that shaped the inline-budget line: the state's own
+remarks carry real `cost=45 vs threshold=45` and `threshold=250` pairs (for
+these functions' *callees*), so a flat "over threshold 225" line would have
+contradicted text Jev can see. The line names both LLVM defaults and says
+which comparison it is making.
+
+## The numbers
+
+## Per-variant summary
+
+(`V0b`, `V2`, `V11` and `V15` are round 1's rows, recomputed from round 1's log, as comparators. `V11` is there for finding 2b.)
+
+| variant | answers | KEEP_DEFAULT rate | mean confidence | stable sites (3/3 identical) | exact | same family | different |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| V0b | 27 | 100% | 0.93 | 9/9 | 18 | 0 | 9 |
+| V2 | 27 | 78% | 0.59 | 9/9 | 18 | 6 | 3 |
+| V11 | 27 | 100% | 0.63 | 9/9 | 18 | 0 | 9 |
+| V15 | 27 | 0% | 0.44 | 8/9 | 0 | 8 | 19 |
+| W1 | 27 | 67% | 0.63 | 9/9 | 18 | 3 | 6 |
+| W2 | 27 | 67% | 0.63 | 9/9 | 18 | 0 | 9 |
+| W3 | 27 | 52% | 0.66 | 8/9 | 20 | 0 | 7 |
+| W4 | 27 | 0% | 0.63 | 9/9 | 6 | 0 | 21 |
+| W5 | 27 | 56% | 0.71 | 9/9 | 18 | 0 | 9 |
+| W6 | 27 | 48% | 0.65 | 8/9 | 19 | 0 | 8 |
+| W7 | 27 | 56% | 0.66 | 9/9 | 24 | 0 | 3 |
+
+## Choice per site, per variant (modal answer of the repeats; `!` when the three repeats did not agree)
+
+| variant | F1 | F2 | F3 | F4 | L1 | L2 | L3 | L4 | L5 |
+|---|---|---|---|---|---|---|---|---|---|
+| **reference** | KEEP_DEFAULT | inline_never | inline_never | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | vectorize_width_16 | KEEP_DEFAULT | KEEP_DEFAULT |
+| V0b | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT |
+| V2 | KEEP_DEFAULT | inline | inline | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT |
+| V11 | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT |
+| V15 | inline | inline | inline | inline | unroll_disable | unroll_disable | vectorize_width_4 ! | unroll_disable | unroll_disable |
+| W1 | inline | inline | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | vectorize_width_16 | KEEP_DEFAULT | KEEP_DEFAULT |
+| W2 | inline_never | inline_never | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | unroll_count_4 | KEEP_DEFAULT | KEEP_DEFAULT |
+| W3 | inline_never | inline_never | inline_never | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | unroll_count_4 | KEEP_DEFAULT ! | KEEP_DEFAULT |
+| W4 | inline_never | inline_never | inline_never | inline | unroll_count_2 | unroll_disable | unroll_count_4 | unroll_count_2 | unroll_disable |
+| W5 | inline_never | inline_never | inline_never | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | unroll_count_2 | KEEP_DEFAULT |
+| W6 | inline_never | inline_never | inline_never | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | unroll_count_4 | unroll_count_2 ! | KEEP_DEFAULT |
+| W7 | inline_never | inline_never | inline_never | KEEP_DEFAULT | KEEP_DEFAULT | KEEP_DEFAULT | vectorize_width_16 | KEEP_DEFAULT | KEEP_DEFAULT |
+
+## Does the choice track the site information?
+
+| variant | L3 trip 222, vectorizable | L5 trip 1 | L1/L2/L4 reported illegal to vectorize | F2 10496 insts |
+|---|---|---|---|---|
+| V0b | KEEP_DEFAULT | KEEP_DEFAULT | 0/9 vector-family answers | KEEP_DEFAULT |
+| V2 | KEEP_DEFAULT | KEEP_DEFAULT | 0/9 vector-family answers | inline |
+| V11 | KEEP_DEFAULT | KEEP_DEFAULT | 0/9 vector-family answers | KEEP_DEFAULT |
+| V15 | vectorize_width_4 | unroll_disable | 0/9 vector-family answers | inline |
+| W1 | vectorize_width_16 | KEEP_DEFAULT | 0/9 vector-family answers | inline |
+| W2 | unroll_count_4 | KEEP_DEFAULT | 0/9 vector-family answers | inline_never |
+| W3 | unroll_count_4 | KEEP_DEFAULT | 0/9 vector-family answers | inline_never |
+| W4 | unroll_count_4 | unroll_disable | 0/9 vector-family answers | inline_never |
+| W5 | KEEP_DEFAULT | KEEP_DEFAULT | 0/9 vector-family answers | inline_never |
+| W6 | unroll_count_4 | KEEP_DEFAULT | 0/9 vector-family answers | inline_never |
+| W7 | vectorize_width_16 | KEEP_DEFAULT | 0/9 vector-family answers | inline_never |
+
+## Where the probability mass sat, not just the argmax
+
+A Choice answer carries a probability for every candidate. The argmax can stay on KEEP_DEFAULT while the mass behind it moves, and that is the sensitive measure of whether a section of the state was read at all. Each cell is the mean probability the repeats put on **anything other than KEEP_DEFAULT**, and, for the loop sites, the mean mass on the vectorize family in parentheses. `W5` has no single
+distribution per site, so its row is the mean of the two-candidate
+distributions over the pairs that contain `KEEP_DEFAULT`; it is comparable
+with the other rows as an ordering and not as a number.
+
+| variant | F1 | F2 | F3 | F4 | L1 | L2 | L3 | L4 | L5 |
+|---|---|---|---|---|---|---|---|---|---|
+| V0b | 0.03 | 0.08 | 0.16 | 0.13 | 0.00 (0.00) | 0.00 (0.00) | 0.05 (0.01) | 0.01 (0.00) | 0.02 (0.00) |
+| V2 | 0.45 | 0.58 | 0.58 | 0.47 | 0.18 (0.03) | 0.18 (0.02) | 0.45 (0.15) | 0.30 (0.11) | 0.29 (0.05) |
+| V11 | 0.53 | 0.54 | 0.52 | 0.29 | 0.07 (0.00) | 0.05 (0.00) | 0.51 (0.09) | 0.18 (0.05) | 0.12 (0.03) |
+| V15 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 (0.17) | 1.00 (0.21) | 1.00 (0.31) | 1.00 (0.38) | 1.00 (0.29) |
+| W1 | 0.75 | 0.74 | 0.49 | 0.28 | 0.20 (0.00) | 0.17 (0.00) | 0.77 (0.51) | 0.36 (0.01) | 0.18 (0.02) |
+| W2 | 0.60 | 0.71 | 0.40 | 0.32 | 0.10 (0.01) | 0.10 (0.01) | 0.71 (0.05) | 0.29 (0.05) | 0.22 (0.02) |
+| W3 | 0.81 | 0.85 | 0.57 | 0.21 | 0.14 (0.00) | 0.07 (0.00) | 0.86 (0.21) | 0.56 (0.01) | 0.21 (0.02) |
+| W4 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 (0.04) | 1.00 (0.02) | 1.00 (0.22) | 1.00 (0.04) | 1.00 (0.24) |
+| W5 | 0.41 | 0.42 | 0.32 | 0.09 | 0.04 (0.01) | 0.01 (0.00) | 0.35 (0.14) | 0.28 (0.01) | 0.04 (0.01) |
+| W6 | 0.81 | 0.83 | 0.62 | 0.21 | 0.20 (0.00) | 0.06 (0.00) | 0.86 (0.24) | 0.55 (0.01) | 0.20 (0.02) |
+| W7 | 0.82 | 0.83 | 0.60 | 0.21 | 0.20 (0.00) | 0.20 (0.00) | 0.77 (0.51) | 0.39 (0.01) | 0.19 (0.02) |
+
+## The four sites the round-2 question is about
+
+| variant | F2 -> inline_never? | F3 -> inline_never? | L3 -> vectorize_width_16/8? | F4 avoids inline? | the six KEEP sites still KEEP |
+|---|---|---|---|---|---|
+| V0b | no (KEEP_DEFAULT) | no (KEEP_DEFAULT) | no (KEEP_DEFAULT) | **yes** (KEEP_DEFAULT) | 6/6 |
+| V2 | no (inline) | no (inline) | no (KEEP_DEFAULT) | **yes** (KEEP_DEFAULT) | 6/6 |
+| V11 | no (KEEP_DEFAULT) | no (KEEP_DEFAULT) | no (KEEP_DEFAULT) | **yes** (KEEP_DEFAULT) | 6/6 |
+| V15 | no (inline) | no (inline) | no (vectorize_width_4) | no (inline) | 0/6 |
+| W1 | no (inline) | no (KEEP_DEFAULT) | **yes** (vectorize_width_16) | **yes** (KEEP_DEFAULT) | 5/6 |
+| W2 | **yes** (inline_never) | no (KEEP_DEFAULT) | no (unroll_count_4) | **yes** (KEEP_DEFAULT) | 5/6 |
+| W3 | **yes** (inline_never) | **yes** (inline_never) | no (unroll_count_4) | **yes** (KEEP_DEFAULT) | 5/6 |
+| W4 | **yes** (inline_never) | **yes** (inline_never) | no (unroll_count_4) | no (inline) | 0/6 |
+| W5 | **yes** (inline_never) | **yes** (inline_never) | no (KEEP_DEFAULT) | **yes** (KEEP_DEFAULT) | 4/6 |
+| W6 | **yes** (inline_never) | **yes** (inline_never) | no (unroll_count_4) | **yes** (KEEP_DEFAULT) | 4/6 |
+| W7 | **yes** (inline_never) | **yes** (inline_never) | **yes** (vectorize_width_16) | **yes** (KEEP_DEFAULT) | 5/6 |
+
+## The decision-71 readout: which site would be tried first, and with which hint
+
+Sites ranked by `1 - P(KEEP_DEFAULT)` averaged over the repeats; the hint is that site's own highest-probability non-`KEEP` candidate, also averaged over the repeats.
+
+| variant | first site | its best non-KEEP hint | 1-P(KEEP) | second site | reference pick at the first site |
+|---|---|---|--:|---|---|
+| V0b | F3 | `inline` | 0.16 | F4 | `inline_never` |
+| V2 | F3 | `inline` | 0.58 | F2 | `inline_never` |
+| V11 | F2 | `inline` | 0.54 | F1 | `inline_never` |
+| V15 | n/a --- no KEEP_DEFAULT candidate in this variant | | | | |
+| W1 | L3 | `vectorize_width_16` | 0.77 | F1 | `vectorize_width_16` |
+| W2 | L3 | `unroll_count_4` | 0.71 | F2 | `vectorize_width_16` |
+| W3 | L3 | `unroll_count_4` | 0.86 | F2 | `vectorize_width_16` |
+| W4 | n/a --- no KEEP_DEFAULT candidate in this variant | | | | |
+| W5 | F2 | `inline_never` | 0.42 | F1 | `inline_never` |
+| W6 | L3 | `unroll_count_4` | 0.86 | F2 | `vectorize_width_16` |
+| W7 | F2 | `inline_never` | 0.83 | F1 | `inline_never` |
+
+## W5: every pairwise answer
+
+| site | pair | winner (3 repeats) |
+|---|---|---|
+| F1 | `inline` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| F1 | `inline` vs `inline_never` | `inline_never`, `inline_never`, `inline_never` |
+| F1 | `inline_never` vs `KEEP_DEFAULT` | `inline_never`, `inline_never`, `inline_never` |
+| F2 | `inline` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| F2 | `inline` vs `inline_never` | `inline_never`, `inline_never`, `inline_never` |
+| F2 | `inline_never` vs `KEEP_DEFAULT` | `inline_never`, `inline_never`, `inline_never` |
+| F3 | `inline` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| F3 | `inline` vs `inline_never` | `inline_never`, `inline_never`, `inline_never` |
+| F3 | `inline_never` vs `KEEP_DEFAULT` | `inline_never`, `inline_never`, `inline_never` |
+| F4 | `inline` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| F4 | `inline` vs `inline_never` | `inline`, `inline`, `inline` |
+| F4 | `inline_never` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L1 | `unroll_count_4` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L1 | `vectorize_width_8` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L1 | `vectorize_width_8` vs `unroll_count_4` | `unroll_count_4`, `unroll_count_4`, `unroll_count_4` |
+| L2 | `unroll_count_4` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L2 | `vectorize_width_4` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L2 | `vectorize_width_4` vs `unroll_count_4` | `unroll_count_4`, `unroll_count_4`, `unroll_count_4` |
+| L3 | `unroll_count_8` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L3 | `vectorize_width_16` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L3 | `vectorize_width_16` vs `unroll_count_8` | `vectorize_width_16`, `vectorize_width_16`, `vectorize_width_16` |
+| L4 | `unroll_count_2` vs `KEEP_DEFAULT` | `unroll_count_2`, `unroll_count_2`, `unroll_count_2` |
+| L4 | `vectorize_width_16` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L4 | `vectorize_width_16` vs `unroll_count_2` | `unroll_count_2`, `unroll_count_2`, `unroll_count_2` |
+| L5 | `unroll_count_2` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L5 | `vectorize_width_4` vs `KEEP_DEFAULT` | `KEEP_DEFAULT`, `KEEP_DEFAULT`, `KEEP_DEFAULT` |
+| L5 | `vectorize_width_4` vs `unroll_count_2` | `unroll_count_2`, `unroll_count_2`, `unroll_count_2` |
+
+## API reliability (round 2 only)
+
+- requests attempted 43, answered 42, never answered 1
+- HTTP attempts 104 for 43 requests (2.42 per request); 61 were retries after a retryable status
+- questions answered 243
+- latency ms: total 39822, mean 948, median 930, max 1540
+- tokens in/out 631380 / 22692
+- cost billed $0.00000000, list price $0.02651796
+- requests that never answered, by status: 503 x1
+
+## One request and response per variant
+
+Each block is repeat 1 of that variant at the site where the variant's story is --- `L3` for the loop-side variants, `F2` for `W2` and `W5`. The full request bodies are in `round2/requests.jsonl`, keyed by the `request_sha` of each log line.
+
+### W1
+
+request `W1-L1-L2-L3-L4-L5`: state 22671 chars, 5 question(s); question `q2` (L3):
+
+```
+Section `q2` of the state describes one loop inside a marked function of this program. Which single hint from the list is most likely to make this loop faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the numbers and the compiler remarks already in the state, by the same rule at every site in this request; none of them is an opinion about which hint to choose.
+  - average trip count: 221.7; trip class long (rule: <2 degenerate, <16 short, <100 medium, >=100 long)
+  - body size: 13 LLVM instructions; size class tiny (rule: <50 tiny, <300 small, <1000 medium, <2000 large, >=2000 very large)
+  - calls inside the body: no; loop nesting depth 1; loops this site key names: 1
+  - element type at the loop's iterator: u8 (read off the inline chain); one 256-bit vector register holds 32 of them, so the widest `vectorize.width` in this list that fits one register is 16 (the list stops at 16)
+  - vectorisation legality, from the baseline remarks at this line: LEGAL --- the remarks include `vectorized loop (vectorization width: 4)`, i.e. LLVM already vectorises this line without any hint
+  - no-op check: the width already in effect is 4, so the candidate `vectorize_width_4` reproduces the state this site is already in
+  - cost model, from the baseline remarks at this line: vectorization not beneficial
+  - caveat that applies to every loop here: remarks are attributed by source location only, so several loops can share one line
+criteria: KEEP_DEFAULT, interleave_count_1, interleave_count_2, interleave_count_4, unroll_count_2, unroll_count_4, unroll_count_8, unroll_disable, vectorize_width_16, vectorize_width_2, vectorize_width_4, vectorize_width_8
+```
+
+response:
+
+```json
+{
+ "choice": "vectorize_width_16",
+ "confidence": 0.47,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.21,
+  "interleave_count_1": 0.02,
+  "interleave_count_2": 0.01,
+  "interleave_count_4": 0.01,
+  "unroll_count_2": 0.05,
+  "unroll_count_4": 0.04,
+  "unroll_count_8": 0.13,
+  "unroll_disable": 0.01,
+  "vectorize_width_16": 0.5,
+  "vectorize_width_2": 0,
+  "vectorize_width_4": 0.01,
+  "vectorize_width_8": 0.01
+ },
+ "type": "choice"
+}
+```
+
+### W2
+
+request `W2-F1-F2-F3-F4`: state 25623 chars, 4 question(s); question `q1` (F2):
+
+```
+Section `q1` of the state describes one marked function of this program. Which single hint from the list is most likely to make this function faster on this workload?
+criteria: KEEP_DEFAULT, align_16, align_32, align_64, cold, inline, inline_never
+```
+
+response:
+
+```json
+{
+ "choice": "inline_never",
+ "confidence": 0.63,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.27,
+  "align_16": 0,
+  "align_32": 0,
+  "align_64": 0,
+  "cold": 0,
+  "inline": 0.04,
+  "inline_never": 0.68
+ },
+ "type": "choice"
+}
+```
+
+### W3
+
+request `W3-L1-L2-L3-L4-L5`: state 22671 chars, 5 question(s); question `q2` (L3):
+
+```
+Section `q2` of the state describes one loop inside a marked function of this program. Which single hint from the list is most likely to make this loop faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the numbers and the compiler remarks already in the state, by the same rule at every site in this request; none of them is an opinion about which hint to choose.
+  - average trip count: 221.7; trip class long (rule: <2 degenerate, <16 short, <100 medium, >=100 long)
+  - body size: 13 LLVM instructions; size class tiny (rule: <50 tiny, <300 small, <1000 medium, <2000 large, >=2000 very large)
+  - calls inside the body: no; loop nesting depth 1; loops this site key names: 1
+  - element type at the loop's iterator: u8 (read off the inline chain); one 256-bit vector register holds 32 of them, so the widest `vectorize.width` in this list that fits one register is 16 (the list stops at 16)
+  - vectorisation legality, from the baseline remarks at this line: LEGAL --- the remarks include `vectorized loop (vectorization width: 4)`, i.e. LLVM already vectorises this line without any hint
+  - no-op check: the width already in effect is 4, so the candidate `vectorize_width_4` reproduces the state this site is already in
+  - cost model, from the baseline remarks at this line: vectorization not beneficial
+  - caveat that applies to every loop here: remarks are attributed by source location only, so several loops can share one line
+criteria: KEEP_DEFAULT, interleave_count_1, interleave_count_2, interleave_count_4, unroll_count_2, unroll_count_4, unroll_count_8, unroll_disable, vectorize_width_16, vectorize_width_2, vectorize_width_4, vectorize_width_8
+```
+
+response:
+
+```json
+{
+ "choice": "unroll_count_4",
+ "confidence": 0.33,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.12,
+  "interleave_count_1": 0.01,
+  "interleave_count_2": 0,
+  "interleave_count_4": 0.02,
+  "unroll_count_2": 0.12,
+  "unroll_count_4": 0.39,
+  "unroll_count_8": 0.1,
+  "unroll_disable": 0.01,
+  "vectorize_width_16": 0.21,
+  "vectorize_width_2": 0,
+  "vectorize_width_4": 0,
+  "vectorize_width_8": 0.02
+ },
+ "type": "choice"
+}
+```
+
+### W4
+
+request `W4-L1-L2-L3-L4-L5`: state 22614 chars, 5 question(s); question `q2` (L3):
+
+```
+Section `q2` of the state describes one loop inside a marked function of this program. We are going to try exactly one hint on it in the next build. Which of these is the most promising for making this loop faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the numbers and the compiler remarks already in the state, by the same rule at every site in this request; none of them is an opinion about which hint to choose.
+  - average trip count: 221.7; trip class long (rule: <2 degenerate, <16 short, <100 medium, >=100 long)
+  - body size: 13 LLVM instructions; size class tiny (rule: <50 tiny, <300 small, <1000 medium, <2000 large, >=2000 very large)
+  - calls inside the body: no; loop nesting depth 1; loops this site key names: 1
+  - element type at the loop's iterator: u8 (read off the inline chain); one 256-bit vector register holds 32 of them, so the widest `vectorize.width` in this list that fits one register is 16 (the list stops at 16)
+  - vectorisation legality, from the baseline remarks at this line: LEGAL --- the remarks include `vectorized loop (vectorization width: 4)`, i.e. LLVM already vectorises this line without any hint
+  - no-op check: the width already in effect is 4, so the candidate `vectorize_width_4` reproduces the state this site is already in
+  - cost model, from the baseline remarks at this line: vectorization not beneficial
+  - caveat that applies to every loop here: remarks are attributed by source location only, so several loops can share one line
+criteria: interleave_count_1, interleave_count_2, interleave_count_4, unroll_count_2, unroll_count_4, unroll_count_8, unroll_disable, vectorize_width_16, vectorize_width_2, vectorize_width_4, vectorize_width_8
+```
+
+response:
+
+```json
+{
+ "choice": "unroll_count_4",
+ "confidence": 0.44,
+ "probabilities": {
+  "interleave_count_1": 0.02,
+  "interleave_count_2": 0.01,
+  "interleave_count_4": 0.01,
+  "unroll_count_2": 0.11,
+  "unroll_count_4": 0.49,
+  "unroll_count_8": 0.15,
+  "unroll_disable": 0.01,
+  "vectorize_width_16": 0.16,
+  "vectorize_width_2": 0,
+  "vectorize_width_4": 0.02,
+  "vectorize_width_8": 0.02
+ },
+ "type": "choice"
+}
+```
+
+### W5
+
+request `W5-F1-F2-F3-F4`: state 27439 chars, 12 question(s); question `q1_inline__KEEP_DEFAULT` (F2):
+
+```
+Section `q1` of the state describes one marked function of this program. Exactly two options are on the table in this question, and only these two. Which of the two is more likely to make this function faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the numbers and the compiler remarks already in the state, by the same rule at every site in this request; none of them is an opinion about which hint to choose.
+  - body size: 10496 LLVM instructions after LTO
+  - size class: very large (rule: <50 tiny, <300 small, <1000 medium, <2000 large, >=2000 very large)
+  - distinct copies in the binary: 62 monomorphization(s); copy class many (rule: 1 single, 2-8 few, >=9 many)
+  - inline budget: LLVM's defaults are -inline-threshold=225 and -inlinehint-threshold=325 cost units; body instructions / -inlinehint-threshold=325 = 32x over (an order-of-magnitude comparison, not an InlineCost computation --- the cost=/threshold= pairs in the remarks above are the real ones, and they are about this function's callees)
+  - attributes already on it: cold | inlinehint | inlinehint,cold
+  - no-op check: some copies already carry `inlinehint`, so the candidate `inline` reproduces, on those copies, the state this site is already in
+  - no-op check: `cold` already appears among the attribute sets this site carries
+  - share of the program's user cycles: 8.32%; hotness class very hot (rule: <1% not hot, 1-5% hot, >=5% very hot)
+  - loop sites inside it: 15
+criteria: KEEP_DEFAULT, inline
+```
+
+response:
+
+```json
+{
+ "choice": "KEEP_DEFAULT",
+ "confidence": 0.85,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.92,
+  "inline": 0.08
+ },
+ "type": "choice"
+}
+```
+
+### W6
+
+request `W6-L1-L2-L3-L4-L5`: state 22671 chars, 5 question(s); question `q2` (L3):
+
+```
+Section `q2` of the state describes one loop inside a marked function of this program. Which single hint from the list is most likely to make this loop faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the numbers and the compiler remarks already in the state, by the same rule at every site in this request; none of them is an opinion about which hint to choose.
+  - average trip count: 221.7; trip class long (rule: <2 degenerate, <16 short, <100 medium, >=100 long)
+  - body size: 13 LLVM instructions; size class tiny (rule: <50 tiny, <300 small, <1000 medium, <2000 large, >=2000 very large)
+  - calls inside the body: no; loop nesting depth 1; loops this site key names: 1
+  - element type at the loop's iterator: u8 (read off the inline chain); one 256-bit vector register holds 32 of them, so the widest `vectorize.width` in this list that fits one register is 16 (the list stops at 16)
+  - vectorisation legality, from the baseline remarks at this line: LEGAL --- the remarks include `vectorized loop (vectorization width: 4)`, i.e. LLVM already vectorises this line without any hint
+  - no-op check: the width already in effect is 4, so the candidate `vectorize_width_4` reproduces the state this site is already in
+  - cost model, from the baseline remarks at this line: vectorization not beneficial
+  - caveat that applies to every loop here: remarks are attributed by source location only, so several loops can share one line
+criteria: KEEP_DEFAULT, interleave_count_1, interleave_count_2, interleave_count_4, unroll_count_2, unroll_count_4, unroll_count_8, unroll_disable, vectorize_width_16, vectorize_width_2, vectorize_width_4, vectorize_width_8
+```
+
+response:
+
+```json
+{
+ "choice": "unroll_count_4",
+ "confidence": 0.34,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.12,
+  "interleave_count_1": 0.01,
+  "interleave_count_2": 0,
+  "interleave_count_4": 0.02,
+  "unroll_count_2": 0.11,
+  "unroll_count_4": 0.4,
+  "unroll_count_8": 0.08,
+  "unroll_disable": 0.01,
+  "vectorize_width_16": 0.23,
+  "vectorize_width_2": 0,
+  "vectorize_width_4": 0,
+  "vectorize_width_8": 0.02
+ },
+ "type": "choice"
+}
+```
+
+### W7
+
+request `W7-L1-L2-L3-L4-L5`: state 22671 chars, 5 question(s); question `q2` (L3). Its loop phase is W1's, so the verdict block is there and the option descriptions are the frozen ones; its function phase is W3's.
+
+```
+Section `q2` of the state describes one loop inside a marked function of this program. Which single hint from the list is most likely to make this loop faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the number [...]
+criteria: KEEP_DEFAULT, interleave_count_1, interleave_count_2, interleave_count_4, unroll_count_2, unroll_count_4, unroll_count_8, unroll_disable, vectorize_width_16, vectorize_width_2, vectorize_width_4, vectorize_width_8
+```
+
+response:
+
+```json
+{
+ "choice": "vectorize_width_16",
+ "confidence": 0.44,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.25,
+  "interleave_count_1": 0.01,
+  "interleave_count_2": 0,
+  "interleave_count_4": 0.01,
+  "unroll_count_2": 0.06,
+  "unroll_count_4": 0.03,
+  "unroll_count_8": 0.12,
+  "unroll_disable": 0.01,
+  "vectorize_width_16": 0.49,
+  "vectorize_width_2": 0,
+  "vectorize_width_4": 0.01,
+  "vectorize_width_8": 0.01
+ },
+ "type": "choice"
+}
+```
+
+
+### W3, the function side --- where `inline(never)` comes from
+
+request `W3-F1-F2-F3-F4`: state 27439 chars, 4 question(s); question `q1` (F2):
+
+```
+Section `q1` of the state describes one marked function of this program. Which single hint from the list is most likely to make this function faster on this workload?
+
+Mechanical readings for this site. Each line is produced by a tool from the numbers and the compiler remarks already in the state, by the same rule at every site in this request; none of them is an opinion about which hint to choose.
+  - body size: 10496 LLVM instructions after LTO
+  - size class: very large (rule: <50 tiny, <300 small, <1000 medium, <2000 large, >=2000 very large)
+  - distinct copies in the binary: 62 monomorphization(s); copy class many (rule: 1 single, 2-8 few, >=9 many)
+  - inline budget: LLVM's defaults are -inline-threshold=225 and -inlinehint-threshold=325 cost units; body instructions / -inlinehint-threshold=325 = 32x over (an order-of-magnitude comparison, not an InlineCost computation --- the cost=/threshold= pairs in the remarks above are the real ones, and they are about this function's callees)
+  - attributes already on it: cold | inlinehint | inlinehint,cold
+  - no-op check: some copies already carry `inlinehint`, so the candidate `inline` reproduces, on those copies, the state this site is already in
+  - no-op check: `cold` already appears among the attribute sets this site carries
+  - share of the program's user cycles: 8.32%; hotness class very hot (rule: <1% not hot, 1-5% hot, >=5% very hot)
+  - loop sites inside it: 15
+
+criteria (the enriched descriptions of `inline` and `inline_never`; the other five are in `jev_state_variants.py`):
+  inline: Add the `inlinehint` attribute (the SPEC vocabulary's `inline`). It raises the inliner's threshold for this function, so callers that were just over the limit paste its body in. It tends to help a small hot leaf (roughly under 300 instructions) called from few hot sites, where the caller then specialises on what it passes. It tends to hurt a large body (a thousand instructions and up) and a function with many monomorphized copies, because every pasted copy costs instruction cache. It is a no-op where the function already carries the attribute.
+  inline_never: Add the `noinline` attribute (the SPEC vocabulary's `inline(never)`). The function stays one out-of-line copy: call overhead is paid at every call site and the callers stay small. It tends to help a very large body (thousands of instructions) or a function with many monomorphized copies, by stopping code growth and instruction-cache pressure --- especially where an `inlinehint` is already asking the inliner to paste that body in. It tends to hurt a small hot leaf, where the call overhead is the bulk of the cost. It is a no-op where the body is already too large for any caller's threshold.
+```
+
+response:
+
+```json
+{
+ "choice": "inline_never",
+ "confidence": 0.78,
+ "probabilities": {
+  "KEEP_DEFAULT": 0.14,
+  "align_16": 0,
+  "align_32": 0,
+  "align_64": 0,
+  "cold": 0,
+  "inline": 0.04,
+  "inline_never": 0.81
+ },
+ "type": "choice"
+}
+```
+
+## What moved, and which idea moved it
+
+**1. For the first time in the study, a framing beats "answer
+`KEEP_DEFAULT` everywhere".** Round 1's exact agreement peaked at 18/27,
+which is exactly the score of knowing nothing and answering `KEEP_DEFAULT`
+nine times. W3 scores **20/27** and W6, the identical request asked again,
+scores 19/27. On the modal answer W3 is **7/9**, and the two cells it misses
+are `F1` (it says `inline_never`, the reference says leave it alone) and
+`L3`.
+
+**2. Idea B --- the option descriptions --- is what produced
+`inline(never)`.** W2 is V2 plus nothing but rewritten `criteria` text, and
+it turns `TermId::run` from `inline` into `inline_never`; W3 adds the verdict
+block and `write::write` follows. Round 1 called Jev choosing `inline` at the
+two largest bodies in the set "the sharpest failure in the study". It is
+gone: every variant carrying the enriched descriptions (W2, W3, W4, W5, W6)
+answers `inline_never` at both `F2` and `F3`, in every repeat, at confidence
+up to 0.78 --- the reference pick at both sites, which round 1 hit twice in
+486 cells.
+
+**2b. The same words in a different place give the opposite answer, and this
+revises a round-1 rule.** Round 1's V11 put a hint guide in the state and got
+100% `KEEP_DEFAULT`; its paragraph on `inline` is very nearly word for word
+`ENRICHED_FN["inline"]`. W2 puts that content inside the `criteria`
+descriptions instead and gets `inline_never` at `F2`. Same knowledge, same
+vocabulary, two placements, opposite results --- and it is the sharpest thing
+this study has to say about *where* Jev reads: a prose block beside the state
+makes it cautious, the description attached to the option it is choosing
+between makes it discriminate. Round 1's standing rule was "do not put the
+hint guide into the shipped state (V11, V13, V14)". That rule survives for
+V13 and V14, which are measured results and Claude's reasoning; for V11's
+generic mechanism text it is **revised**: the content is fine, the placement
+was wrong. The `criteria` are where the vocabulary is defined anyway, which is
+also why this does not smuggle Claude back into the loop --- the text is the
+same at every site and names none of them.
+
+**3. Idea A --- the verdict block --- is what produced
+`vectorize.width=16`.** W1 answers `vectorize_width_16` at `L3` in **all
+three repeats** (P = 0.50, confidence 0.47). No framing in round 1 ever
+returned it, in any repeat, including the two that were given the ymm width
+and the trip count as a table (V7, V15). The difference is not the
+information --- V8 already carried `trip 221.7` and V7 already carried "one
+ymm holds 32 x u8" --- but that W1 states the join as a finished reading
+next to the question: *element type u8 -> one register holds 32 -> the widest
+width in this list that fits is 16*. Jev does not do that arithmetic; it does
+act on it once it is done.
+
+**4. The two ideas interfere at `L3`.** W1 (verdicts only) gets `L3` right;
+W3 and W6 (verdicts + enriched descriptions) move it to `unroll_count_4`, and
+W2 (descriptions only) does the same. The enriched `unroll.count=4` text
+--- "a short body (tens of instructions) with a trip count in the hundreds"
+--- describes `L3` exactly, and it wins against a width hint whose own text
+warns about overshooting the register. The intervention that fixed the
+function side broke the one loop the study cares about.
+
+**5. The two halves are separate HTTP requests, so the two ideas can be
+kept apart.** Functions and loops ride in one request
+each. Taking **W3's function request and W1's loop request** --- both sent,
+neither invented --- gives:
+
+| | F1 | F2 | F3 | F4 | L1 | L2 | L3 | L4 | L5 |
+|---|---|---|---|---|---|---|---|---|---|
+| reference | KEEP | `inline_never` | `inline_never` | KEEP | KEEP | KEEP | `vectorize_width_16` | KEEP | KEEP |
+| W3 fn + W1 loop | `inline_never` | `inline_never` | `inline_never` | KEEP | KEEP | KEEP | `vectorize_width_16` | KEEP | KEEP |
+
+**8/9 exact, identical in all three repeats.** `W7` then asked that exact
+combination as a variant of its own, entered in the code and committed before
+its six requests were sent, and reproduced it: **8/9 in every one of three
+repeats, 24/27**, the highest in the study by four cells. The only
+disagreement left in the whole set is `F1`, where Jev says `inline(never)` and the reference says
+leave it alone --- and the reference's own reasoning for `F1` ("it would
+fight the specialisation that makes this the inline host for `seq`,
+`str_fold` and `write_until`") is the one argument in the nine that rests on
+something no verdict line carries.
+
+**6. Forcing now lands on the right hints where a hint has a mechanism, and
+invents one everywhere else.** W4 is no longer a constant: round 1's forced
+variants answered `inline` at all four functions, and W4 answers
+`inline_never` at three of them and `inline` at exactly the one small hot
+leaf (`F4`, 251 instructions). That is the *shape* discrimination round 1
+could not get at any price. But forcing still scores 6/27, because six of the
+nine reference picks are "leave it alone" and W4 cannot say it. **The answer
+to the user's question is: forcing now gets the right hint, but only at the
+sites that deserve one, and forcing is still the wrong way to ask** --- W3
+gets those same two sites right *and* keeps the six KEEP sites.
+
+**7. Pairwise (W5) is the cleanest diagnostic and the worst proposer.** Every
+hint the round-robin put head to head against `KEEP_DEFAULT` lost, at all
+nine sites but one (`L4`, where `unroll.count=2` beat KEEP in all three
+repeats and the derived winner is therefore wrong). But the hint-against-hint
+pairs are decided sharply and correctly: `inline_never` beats `inline` at
+`F1`/`F2`/`F3` and loses to it at `F4`, and `vectorize_width_16` beats
+`unroll_count_8` at `L3` while losing to KEEP. So Jev **can** rank the hints
+by shape; what it will not do is prefer any of them to doing nothing. W5's
+mean confidence, 0.71, is the highest of the round, which is the signature of
+an easy question rather than a well-answered one.
+
+**8. Legality discrimination went from good to essentially perfect.** The
+mean vectorize-family probability mass at the three loops LLVM reports as
+impossible to vectorize: V2 0.056, W2 0.021, **W1 0.003, W3 0.003, W6
+0.004**. Restating the remark as a verdict line (`NOT VECTORIZABLE --- ... A
+vectorize.width hint is not a permission slip`) drains the mass that round 1
+still found there, and no W variant chose a vector-family hint at those three
+loops in any repeat (0/9 per variant, as in round 1).
+
+**9. The readout of decision 71 now proposes hints the reference agrees
+with.** Ranked by `1 - P(KEEP_DEFAULT)`, round 1's V2 would have tried
+`write::write` first with `inline` --- the opposite of the reference pick at
+that site. Under W1 the top of the list is `L3` at 0.77 with
+`vectorize_width_16`, which is the reference pick. Under W3 and W6 the top is
+a **tie and should be reported as one**: L3 0.86 against F2 0.85 in W3, L3
+0.86 against F2 0.83 in W6. Under the recommended `W7` the order is F2 0.83,
+F1 0.82, L3 0.77, so the first hint it would try is `inline_never` at
+`TermId::run` --- also a reference pick, and the second is the one cell
+where Jev and the reference still disagree. Either way the rule now produces
+a first move that is defensible, which round 1's did not.
+
+**10. Repeatability.** W3 and W6 are the same request sent three times each,
+six repeats in total. Their modal answers agree at 8 of 9 sites; the one
+disagreement is `L4`, which was unstable within both triples. Everything else
+in this round is stable 3/3.
+
+## Recommendation
+
+**Ship the verdict block and the enriched descriptions, and keep them apart
+at the loop sites.**
+
+1. **Adopt the verdict block (idea A) for both phases.** It is a tool, not a
+   judgement: the rules are eight lines of thresholds applied uniformly, and
+   they are auditable in a way a prose guide is not. It is what produces
+   `vectorize.width=16` at the one site with a mechanism, it sharpens legality
+   to 0.003, and it moves the decision-71 ranking onto sites whose reference
+   pick is a hint rather than "leave it alone".
+2. **Adopt the enriched descriptions (idea B) for the function phase.** They
+   are what ends round 1's sharpest failure --- `inline` on the two largest
+   bodies in the program --- and they cost nothing but `criteria` text.
+3. **Do not adopt them for the loop phase yet.** W1 against W3 is the
+   measurement: the loop descriptions cost the `L3` pick. The state to ship
+   is **`W7`** --- W3's function phase, W1's loop phase --- which scored 8/9
+   exact in all three repeats as a pre-committed variant. If the loop
+   descriptions are wanted later, the `unroll.count=4` text is the line to
+   rewrite, not the idea.
+   This revises round 1's "do not put the hint guide into the shipped state"
+   for the generic mechanism text only, and finding 2b is the reason: the
+   objection was never to the content but to a prose block that made Jev
+   uniformly cautious. Measured results (V13) and Claude's reasoning (V14)
+   stay out, as before.
+4. **Keep `KEEP_DEFAULT`, and keep reading the probabilities.** W4 is the
+   third forced variant in this study to score worst of its round. The
+   decision-71 readout does the job forcing was meant to do without deleting
+   the option: under `W7` it would try `inline(never)` at `TermId::run`
+   first (0.83) and `vectorize.width=16` at the byte loop third (0.77), both
+   of which are reference picks.
+5. **Do not use pairwise.** W5 needs three requests' worth of questions for a
+   result that is `KEEP_DEFAULT` wherever `KEEP_DEFAULT` is on the ballot.
+
+### What this does not settle
+
+The reference picks are still Claude's judgement, not measurements. Round 2
+moved Jev's answers onto them at `F2`, `F3` and `L3`; whether those three are
+*right* is the oracle sweep's question, not this study's. Note the direction
+of the risk: round 1 ended with Jev saying "leave everything alone" and the
+open possibility that Jev was closer than Claude. Round 2 has taught Jev to
+say what Claude says, which is worth exactly as much as Claude's picks turn
+out to be worth --- and `F1`, where Jev now proposes `inline(never)` on the
+function holding 29% of the cycles, is the cell to watch.
+
+### Limits
+
+* Idea A and idea B were each tested once, as a block. Which verdict line
+  carries W1's `L3` result, and which description carries W2's
+  `inline_never`, is not separated here.
+* W2 carries no platform block (W1 and W3 do), so W1-against-W2 is not a
+  clean A-against-B comparison. V7 from round 1 is the control that says the
+  platform block changes no modal answer, which is why the comparison is
+  still made.
+* The `L3` reference pick still rests on a remark attributed by source line
+  only, and `macros.rs:279` carries several. The verdict block repeats that
+  caveat at every loop rather than hiding it.
+* **The thresholds and the phrasings were written by someone who had already
+  seen these nine sites.** `<300` for a small function, `>=2000` for a very
+  large one, `>=100` for a long trip, 5% for very hot, and phrases such as "a
+  trip count in the hundreds" are round numbers, applied by one rule to all
+  nine sites and never per site --- but the person choosing the round numbers
+  knew what the nine sites look like. Finding 4 is the evidence that this
+  matters: the `unroll.count=4` text "describes `L3` exactly", and that is
+  not a coincidence to be proud of. This is the same criticism round 1
+  levelled at V11 and V14, and relocating the text into `criteria` does not
+  escape it. The only real validation is sites that were not in view when the
+  rules were written, and this study does not have any.
+* `scripts/jev_prompt_study.py` writes `"study": "prompt-study-v1-2026-09-22"`
+  into every log row, including round 2's, while the round-2 state header
+  says `prompt-study-r2-2026-09-22`. The variant name and the separate
+  `round2/` directory are what distinguish the rounds; the log field is
+  stale and was not worth a re-run.
+* 43 requests, one program, one day. Everything above is a count.

@@ -88,12 +88,66 @@ def derive_v5(rec_by_repeat):
     return out
 
 
+def derive_w5(pairs):
+    """W5: independent 2-way Choices -> one winner per site, by round-robin.
+
+    The rule, pre-registered in this file before the first W5 request was
+    sent: each pair that a candidate wins (it is that Choice's argmax) is one
+    win; the winner is the candidate with the most wins; a tie goes to the
+    candidate with the higher probability summed over the pairs it appears
+    in, and a tie that survives that goes to KEEP_DEFAULT if KEEP_DEFAULT is
+    among the tied and to the lexicographically first id otherwise.
+
+    `pairs` is {(a, b): (choice, probabilities)} for one site of one repeat.
+    Returns (winner, mean confidence of the pairs).
+    """
+    wins = collections.Counter()
+    mass = collections.Counter()
+    seen = set()
+    for (a, b), (choice, p) in pairs.items():
+        seen.update((a, b))
+        if choice:
+            wins[choice] += 1
+        tot = sum((p or {}).values()) or 1.0
+        for c in (a, b):
+            mass[c] += (p or {}).get(c, 0.0) / tot
+    if not seen:
+        return None
+    best = max(seen, key=lambda c: (wins[c], mass[c]))
+    tied = [c for c in seen
+            if (wins[c], round(mass[c], 6)) == (wins[best], round(mass[best], 6))]
+    if len(tied) > 1:
+        best = KEEP if KEEP in tied else sorted(tied)[0]
+    return best
+
+
+def w5_mass(pairs):
+    """The synthetic probability vector W5 contributes to the mass table: the
+    mean of the two-candidate distributions over the pairs that contain
+    KEEP_DEFAULT. It is comparable to the other variants' `1 - P(KEEP)` only
+    as an ordering, and the README says so."""
+    acc = collections.Counter()
+    n = 0
+    for (a, b), (_, p) in pairs.items():
+        if KEEP not in (a, b):
+            continue
+        tot = sum((p or {}).values()) or 1.0
+        n += 1
+        for c, v in (p or {}).items():
+            acc[c] += v / tot
+    if not n:
+        return {}
+    return {c: v / n for c, v in acc.items()}
+
+
 def collect(rows):
     """-> {variant: {repeat: {site_id: (choice, confidence)}}} plus extras."""
     picks = collections.defaultdict(lambda: collections.defaultdict(dict))
     probs = collections.defaultdict(lambda: collections.defaultdict(dict))
     v5raw = collections.defaultdict(lambda: collections.defaultdict(
         lambda: [None, {}]))
+    w5raw = collections.defaultdict(lambda: collections.defaultdict(dict))
+    w5conf = collections.defaultdict(dict)
     v12stage1 = collections.defaultdict(dict)
 
     for r in rows:
@@ -120,6 +174,17 @@ def collect(rows):
                                                 ans.get("confidence"))
                 continue
 
+            if var == "W5":
+                tag_ = smap.get(q) or ""
+                sid, _, pair = tag_.partition("/")
+                if not pair or sid not in REF or ans.get("type") != "choice":
+                    continue
+                a, _, b = pair.partition("|")
+                w5raw[rep][sid][(a, b)] = (ans.get("choice"),
+                                           ans.get("probabilities") or {})
+                w5conf[rep].setdefault(sid, []).append(ans.get("confidence"))
+                continue
+
             sid = smap.get(q)
             if not sid or sid not in REF:
                 continue
@@ -130,6 +195,15 @@ def collect(rows):
                 continue
             picks[var][rep][sid] = (ans.get("choice"), ans.get("confidence"))
             probs[var][rep][sid] = ans.get("probabilities") or {}
+
+    # W5: derive one winner per site from the pairwise answers
+    for rep, per in w5raw.items():
+        for sid, pairs in per.items():
+            w = derive_w5(pairs)
+            if w:
+                cs = [c for c in w5conf[rep].get(sid, []) if c is not None]
+                picks["W5"][rep][sid] = (w, (sum(cs) / len(cs)) if cs else None)
+                probs["W5"][rep][sid] = w5_mass(pairs)
 
     # V5: derive
     for rep, per in v5raw.items():
@@ -148,7 +222,7 @@ def collect(rows):
                 members = V.FAMILY_MEMBERS.get(fam, [])
                 if len(members) == 1:
                     picks["V12"][rep].setdefault(sid, (members[0], None))
-    return picks, probs, v5raw, v12stage1
+    return picks, probs, v5raw, v12stage1, w5raw
 
 
 def agreement(choice, sid):
@@ -161,15 +235,117 @@ def agreement(choice, sid):
     return "different"
 
 
+FOCUS = [
+    ("F2 -> inline_never?", "F2", lambda c: c == "inline_never"),
+    ("F3 -> inline_never?", "F3", lambda c: c == "inline_never"),
+    ("L3 -> vectorize_width_16/8?", "L3",
+     lambda c: c in ("vectorize_width_16", "vectorize_width_8")),
+    ("F4 avoids inline?", "F4", lambda c: c != "inline"),
+]
+KEEP_SITES = ["F1", "F4", "L1", "L2", "L4", "L5"]
+
+
+def _modal(reps, sid):
+    got = [reps[rep][sid][0] for rep in reps if sid in reps[rep]]
+    if not got:
+        return None
+    return collections.Counter(got).most_common(1)[0][0]
+
+
+def round2_sections(order, picks, probs, w5raw):
+    print("\n## The four sites the round-2 question is about\n")
+    print("| variant | " + " | ".join(t for t, _, _ in FOCUS)
+          + " | the six KEEP sites still KEEP |")
+    print("|---" * (len(FOCUS) + 2) + "|")
+    for var in order:
+        reps = picks[var]
+        cells = []
+        for _, sid, ok in FOCUS:
+            c = _modal(reps, sid)
+            cells.append("-" if c is None
+                         else ("**yes** (%s)" % c if ok(c) else "no (%s)" % c))
+        kept = [s for s in KEEP_SITES if _modal(reps, s) == KEEP]
+        cells.append("%d/6" % len(kept))
+        print("| %s | %s |" % (var, " | ".join(cells)))
+
+    print("\n## The decision-71 readout: which site would be tried first, "
+          "and with which hint\n")
+    print("Sites ranked by `1 - P(KEEP_DEFAULT)` averaged over the repeats; "
+          "the hint is that site's own highest-probability non-`KEEP` "
+          "candidate, also averaged over the repeats.\n")
+    print("| variant | first site | its best non-KEEP hint | 1-P(KEEP) | "
+          "second site | reference pick at the first site |")
+    print("|---|---|---|--:|---|---|")
+    for var in order:
+        rank = []
+        for sid in SITE_ORDER:
+            acc, n = collections.Counter(), 0
+            for rep in probs.get(var, {}):
+                p = probs[var][rep].get(sid)
+                if not p:
+                    continue
+                tot = sum(p.values()) or 1.0
+                n += 1
+                for k, v in p.items():
+                    acc[k] += v / tot
+            if not n:
+                continue
+            mean = {k: v / n for k, v in acc.items()}
+            rank.append((1.0 - mean.get(KEEP, 0.0), sid, mean))
+        if not rank:
+            print("| %s | - | - | - | - | - |" % var)
+            continue
+        if all(abs(r[0] - 1.0) < 1e-9 for r in rank):
+            print("| %s | n/a --- no KEEP_DEFAULT candidate in this variant "
+                  "| | | | |" % var)
+            continue
+        rank.sort(reverse=True)
+        top, sid, mean = rank[0]
+        rest = {k: v for k, v in mean.items() if k != KEEP}
+        hint = max(rest.items(), key=lambda kv: kv[1])[0] if rest else "-"
+        print("| %s | %s | `%s` | %.2f | %s | `%s` |"
+              % (var, sid, hint, top, rank[1][1] if len(rank) > 1 else "-",
+                 REF[sid]))
+
+    if not w5raw:
+        return
+    print("\n## W5: every pairwise answer\n")
+    print("| site | pair | winner (3 repeats) |")
+    print("|---|---|---|")
+    order_pairs = {}
+    for rep in w5raw:
+        for sid, pairs in w5raw[rep].items():
+            for pr, (c, _) in pairs.items():
+                order_pairs.setdefault(sid, {}).setdefault(pr, []).append(c)
+    for sid in SITE_ORDER:
+        for pr, cs in order_pairs.get(sid, {}).items():
+            print("| %s | `%s` vs `%s` | %s |"
+                  % (sid, pr[0], pr[1],
+                     ", ".join("`%s`" % c for c in cs)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", default=os.path.join(
-        REPO, "docs", "experiments", "jev-prompt-study", "log.jsonl"))
+        REPO, "docs", "experiments", "jev-prompt-study", "log.jsonl"),
+        help="one path, or several separated by commas")
+    ap.add_argument("--variants", default=None,
+                    help="comma-separated subset, in this order")
+    ap.add_argument("--round2", action="store_true",
+                    help="add the round-2 sections (readout ranking, the "
+                         "four focus sites, W5's pairwise detail)")
     a = ap.parse_args()
-    rows = load(a.log)
-    picks, probs, v5raw, v12s1 = collect(rows)
+    rows = []
+    for path in a.log.split(","):
+        rows += load(path.strip())
+    picks, probs, v5raw, v12s1, w5raw = collect(rows)
 
-    order = [v for v in V.VARIANTS if v in picks]
+    if a.variants:
+        want = [v.strip() for v in a.variants.split(",")]
+        order = [v for v in want if v in picks]
+    else:
+        order = [v for v in V.VARIANTS if v in picks]
+    rows = [r for r in rows if r["variant"] in order]
 
     print("## Per-variant summary\n")
     print("| variant | answers | KEEP_DEFAULT rate | mean confidence | "
@@ -280,6 +456,9 @@ def main():
             else:
                 row.append("%.2f" % (sum(vals) / len(vals)))
         print("| %s | %s |" % (var, " | ".join(row)))
+
+    if a.round2:
+        round2_sections(order, picks, probs, w5raw)
 
     print("\n## API reliability\n")
     att = sum(r["attempts"] for r in rows)
