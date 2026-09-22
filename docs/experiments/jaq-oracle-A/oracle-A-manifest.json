@@ -1,0 +1,44 @@
+{
+ "run_id": "oracle-A",
+ "target": "jaq",
+ "proposer": "oracle",
+ "oracle_phase": "A",
+ "ts": "2026-09-22T15:58:29.815260+09:00",
+ "smoke": false,
+ "vocab_version": "v1-2026-09-22",
+ "state_format": "state-v1-2026-09-22",
+ "config": "/home/hiro/prj/jev-optimize/jev-opt.toml",
+ "config_sha256": "a8029ac1b89345a4ed1e69110a8c3dd6adaad4306a0d0a9b203c00deafd4438e",
+ "marks": "/home/hiro/prj/jev-optimize/targets/jaq/jev-marks.txt",
+ "marks_sha256": "40ef24cc5b285d7e3c0be53f30cf5ca349ead5609c92b63dff515c43b39a6f56",
+ "sites": "/home/hiro/prj/jev-optimize/targets/jaq/sites.json",
+ "plugin_sha256": "be74c857579a1b2608b8ca109518b4d3dccf0c3daa2e4b8ff6f6e1621ac40d68",
+ "profdata_sha256": "4e879ce11687fa3c56c720c8b33dd7d0546e0d5c7d9b7c612fef903de9f3a4e5",
+ "baseline_bin_sha256": "e183c81d1d7e9177720b0ac03cb67095984e3fe168ecabd9a1959ccc9f1f4d02",
+ "case_set": "training",
+ "workloads": [
+  "objsearch='.[] | select(.k == \"v\") | .id' /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-objects.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-objects.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-objects.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-objects.json",
+  "strproc='[.[] | .name | ascii_downcase | length] | add' /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-strings.json",
+  "readwrite=-c '.' /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-ndjson.json /home/hiro/prj/jev-optimize/targets/jaq/workloads/train-ndjson.json"
+ ],
+ "taskset_cpu": "4",
+ "gap_ms": "250",
+ "repetitions": 15,
+ "warmup": 3,
+ "seed": 20260921,
+ "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)\nbinary: rustc\ncommit-hash: bba531001d4de6d7f49693e0836a2668ca063282\ncommit-date: 2026-09-20\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1\n",
+ "lscpu_e": "CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE\n  0    0      0    0 0:0:0:0          yes\n  1    0      0    0 0:0:0:0          yes\n  2    0      0    1 1:1:1:0          yes\n  3    0      0    1 1:1:1:0          yes\n  4    0      0    2 2:2:2:0          yes\n  5    0      0    2 2:2:2:0          yes\n  6    0      0    3 3:3:3:0          yes\n  7    0      0    3 3:3:3:0          yes\n  8    0      0    4 4:4:4:0          yes\n  9    0      0    4 4:4:4:0          yes\n 10    0      0    5 5:5:5:0          yes\n 11    0      0    5 5:5:5:0          yes\n 12    0      0    6 6:6:6:0          yes\n 13    0      0    6 6:6:6:0          yes\n 14    0      0    7 7:7:7:0          yes\n 15    0      0    7 7:7:7:0          yes\n 16    0      0    8 8:8:8:0          yes\n 17    0      0    8 8:8:8:0          yes\n 18    0      0    9 9:9:9:0          yes\n 19    0      0    9 9:9:9:0          yes\n 20    0      0   10 10:10:10:0       yes\n 21    0      0   10 10:10:10:0       yes\n 22    0      0   11 11:11:11:0       yes\n 23    0      0   11 11:11:11:0       yes\n 24    0      0   12 12:12:12:0       yes\n 25    0      0   12 12:12:12:0       yes\n 26    0      0   13 13:13:13:0       yes\n 27    0      0   13 13:13:13:0       yes\n 28    0      0   14 14:14:14:0       yes\n 29    0      0   14 14:14:14:0       yes\n 30    0      0   15 15:15:15:0       yes\n 31    0      0   15 15:15:15:0       yes\n",
+ "best": {
+  "round": 27,
+  "ratio": 1.0323091907142312,
+  "ci95": [
+   1.0249412504406281,
+   1.0401257771681804
+  ],
+  "plan": "/home/hiro/prj/jev-optimize/artifacts/jaq-search/oracle-A/round-27/plan-b.json",
+  "label": "round-27"
+ },
+ "holdout": null,
+ "jev_totals": null,
+ "wall_s": 26551.8
+}

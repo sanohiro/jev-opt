@@ -8510,3 +8510,335 @@ it has not been run.
   tuned and must be regenerated after any further edit; the recorded `.text`
   sha256 of the frozen baseline is
   `df5968bc018b17ad9a3d1f236e1ac8f6c9995d76bc296f0c8c67fda9c9f1fe7a`.
+
+## Oracle A (jaq): function attributes
+
+The first half of the oracle of SPEC.ja.md 2 and decision 65 (f): every
+function-attribute candidate, alone, at every marked function, with every
+other site at `KEEP_DEFAULT`. The loop half (176 arms) has **not** been run.
+This section is what the Jev and random arms of "Experiment 3 (jaq)" are to
+be divided by, and --- because 48 of its 90 arms turn out to be builds that
+changed nothing --- it is also the largest null panel this project has
+measured.
+
+### 110. What was run
+
+```
+scripts/bench_panel.sh artifacts/jaq-search/oracle-A-nullpanel 15 3 20260921 \
+    n0=<baseline> n1=<baseline> n2=<baseline> n3=<baseline>   # TARGET=jaq BENCH_SET=training
+
+scripts/jev_search.py --target jaq --marks targets/jaq/jev-marks.txt \
+    --sites targets/jaq/sites.json --site-set oracle.selected_keys_top3 \
+    --proposer oracle --oracle-phase A --keep-binaries all \
+    --baseline-dir artifacts/jaq-search/jev-r5/baseline \
+    --out artifacts/jaq-search/oracle-A/
+
+scripts/bench_panel.sh artifacts/jaq-search/oracle-A-holdout 15 3 20260921 \
+    base=<baseline> comb=round-91/bin best1f=round-27/bin aa=<baseline>
+```
+
+**15 marks x 6 candidates (`inline`, `inline_never`, `cold`, `align_16`,
+`align_32`, `align_64`) = 90 one-factor arms, then one combination arm.**
+Each arm is a full two-phase round: the attribute is applied at
+PipelineStartEP under `JEV_MODE=apply-dump`, the loops of the resulting IR
+are dumped, all 16 loop sites answer `KEEP_DEFAULT`, and the measured binary
+comes from the `JEV_MODE=apply` build --- the same round structure, the same
+frozen values and the same **baseline binary** (`e183c81d…`) as both
+Experiment 3 runs, so the three proposers remain comparable: `repetitions =
+15`, `warmup = 3`, shuffle from `seed = 20260921` + the round number,
+`--gap-ms 250`, `taskset -c 4`, bootstrap 10000, training cases, vocabulary
+`v1-2026-09-22`, `merged.profdata` `4e879ce1…`, plugin `be74c857…`,
+`jev-opt.toml` `a8029ac1…`, `jev-marks.txt` `40ef24cc…`.
+
+**Two changes to the driver and one new script, none of them touching the
+acceptance rule, the vocabulary, the state format or the site set**, all
+made before arm 1:
+
+1. `--oracle-phase A|B|all` restricts the oracle's *arm list* to one phase.
+   It changes nothing about an arm --- a phase-A round still builds both
+   phases --- and exists because the two halves are 90 and 176 builds and
+   this machine runs one of them at a time.
+2. The combination arm now takes a mark's best candidate only when **that
+   arm's own 95% CI lower bound is above 1**, not merely its point estimate.
+   The point-estimate rule the code carried before would have combined all
+   15 marks; the recorded arm says which (`point_rule_would_pick`).
+3. `scripts/bench_panel.sh` (new) times N already-built binaries in one
+   interleaved batch under the target's frozen conditions. It is how the
+   4-binary null panel and the single holdout batch below were measured;
+   `measure()` inside the driver takes exactly three labels and was left
+   alone so that every arm's batch is shaped exactly like Experiment 3's.
+
+**Which code ran.** The driver process loaded its modules at 08:36 and kept
+them for all 91 rounds, so this run executed `scripts/jev_search.py` and
+`scripts/jev_vocab.py` as of commit `346b605` plus the three changes above.
+The vocabulary v2 and v3 work landed on the same day at 10:12 (`ac94c8a`,
+which also carried the two driver changes above into git) and 11:01 (`7fe1a92`),
+while the sweep was in its 20th and 30th arm; both are opt-in behind
+`--vocab` and neither reached this process. The run's manifest records
+`v1-2026-09-22` for both the vocabulary and the state format, and the six
+candidates swept are v1's. **Nothing in this section is a measurement of
+vocabulary v2 or v3.**
+
+### 111. The null panel: four identical binaries, before the sweep
+
+Four stripped copies of the one baseline binary (`83f7eb23…` after
+stripping, all four the same file), one batch, training cases, n=15:
+
+| label | aggregate ratio | 95% CI | half-width |
+|---|--:|---|--:|
+| n0 (base) | 1.0000 | --- | --- |
+| n1 | 0.9923 | [0.9834, 1.0015] | 0.91% |
+| n2 | 0.9961 | [0.9874, 1.0045] | 0.85% |
+| n3 | 0.9998 | [0.9942, 1.0059] | 0.58% |
+
+**Spread max - min = 0.77 points** between byte-identical binaries; no
+interval excludes 1; worst per-workload half-width 1.60%, so `bench.py`'s
+MDE for that batch is 3.20% and the pre-registered MDE stays 3.00%. On the
+holdout set the same construction had spread 2.1 points ("Experiment 3
+(jaq)" 99). One batch of four is a weak estimate of the spread; the 90
+batches of the sweep below are a much better one, and they are worse.
+
+### 112. The 90 arms
+
+Full table: `docs/experiments/jaq-oracle-A/arms.md` (mark, candidate, apply
+outcome counts, correctness, ratio, CI, whether the CI excludes 1, changed
+symbols, profile share held by them, and what the build actually differs in).
+
+* **Correctness held in 90 of 90** (and in the combination arm): every
+  build's `run_correctness` output matched the baseline's line for line.
+* **Every plan entry took effect in 90 of 90**: all `consumed`, no
+  `unmatched`, `vanished` or `skipped_empty`, no `ambiguous` (an ambiguous
+  key is a loop phenomenon and this half hinted no loops). The outcome is
+  `consumed` for every entry of every arm, including the 48 arms whose build
+  changed nothing: the plugin has no `skipped_idempotent` verdict for a
+  function attribute --- it sets the attribute and says so, and whether LLVM
+  then did anything with it is not visible in the apply report. **The no-op
+  count of 113 comes from the binaries, not from the report.**
+* **Fan-out**: one Choice becomes 1 to 62 plan entries. The 138 entries a
+  full phase-A plan carries are spread very unevenly --- `TermId::run` alone
+  fans out to 62 --- and **103 of those 138 are closures of a generic mark**
+  (`read::parse::<SliceLexer>::{closure#0}` and friends). The driver's rule
+  "the attribute goes on the mark, not on the items defined inside it"
+  (decision 65 b) looks only at the character after the mark, so it excludes
+  `write::write::{closure#0}` but *not* `read::parse::<T>::{closure#0}`:
+  for a **generic** mark the closures are treated as monomorphizations and
+  get the attribute. This is pre-existing behaviour, identical in the Jev and
+  random runs (both fanned out to the same 138 entries), so it was left
+  alone; it is a limit on what "`inline(never)` on `TermId::run`" means, not
+  a difference between the arms.
+* Distribution: `cold` has the best mean of the six candidates (1.0045) and
+  `inline_never` the worst (0.9932), but see 113 before reading anything
+  into that.
+
+| candidate | n | mean ratio | min | max |
+|---|--:|--:|--:|--:|
+| inline | 15 | 0.9975 | 0.9834 | 1.0074 |
+| inline_never | 15 | 0.9932 | 0.9482 | 1.0134 |
+| cold | 15 | 1.0045 | 0.9698 | 1.0323 |
+| align_16 | 15 | 0.9977 | 0.9834 | 1.0140 |
+| align_32 | 15 | 1.0020 | 0.9873 | 1.0229 |
+| align_64 | 15 | 1.0027 | 0.9741 | 1.0154 |
+
+**Only one arm of 90 exceeds +3%** --- `TermId::run cold`, 1.0323
+[1.0249, 1.0401] --- and **three fall below -3%**: `Lex::seq inline_never`
+0.9482, `write_until inline_never` 0.9575, `write::write cold` 0.9698. Those
+three are the only arms whose sign is also supported by the code: all three
+are among the 23 arms that changed instructions, and what they changed is
+hot --- `Lex::seq inline_never` 14 symbols holding 28.77% of the profile,
+`write_until inline_never` 4 symbols holding 37.71%, `write::write cold` 12
+symbols holding 8.55%.
+
+Per mark, the best of its six candidates:
+
+| mark | best candidate | ratio | 95% CI | CI excludes 1 | worst candidate | ratio |
+|---|---|--:|---|---|---|--:|
+| read::parse | align_64 | 1.0154 | [1.0066, 1.0235] | yes (+) | align_16 | 0.9902 |
+| Lex::seq | inline | 1.0002 | [0.9935, 1.0067] | no | inline_never | 0.9482 |
+| str_fold | cold | 1.0155 | [1.0058, 1.0259] | yes (+) | align_64 | 0.9852 |
+| write_until | cold | 1.0198 | [1.0135, 1.0256] | yes (+) | inline_never | 0.9575 |
+| TermId::run | cold | 1.0323 | [1.0249, 1.0401] | yes (+) | align_16 | 0.9933 |
+| write::write | align_16 | 1.0130 | [1.0059, 1.0197] | yes (+) | cold | 0.9698 |
+| funs::base{closure#3} | align_32 | 1.0130 | [1.0056, 1.0210] | yes (+) | inline | 0.9861 |
+| Path::run{closure#0} | align_64 | 1.0139 | [1.0070, 1.0211] | yes (+) | align_16 | 0.9834 |
+| Adapter::write_str | cold | 1.0099 | [1.0052, 1.0144] | yes (+) | align_32 | 0.9873 |
+| reserve_rehash | cold | 1.0209 | [1.0137, 1.0281] | yes (+) | align_16 | 0.9899 |
+| Rc<IndexMap>::drop_slow | cold | 1.0138 | [1.0086, 1.0189] | yes (+) | inline | 0.9920 |
+| base_run{closure#7} | align_32 | 1.0229 | [1.0173, 1.0286] | yes (+) | inline | 0.9834 |
+| path::run | inline | 1.0070 | [0.9996, 1.0146] | no | inline_never | 0.9826 |
+| Val::hash | inline_never | 1.0072 | [0.9997, 1.0148] | no | align_16 | 0.9903 |
+| String::fmt | align_16 | 1.0140 | [1.0067, 1.0241] | yes (+) | inline | 0.9898 |
+
+`cold` --- the attribute whose own description in the vocabulary says it is
+"a pessimisation on a hot function" --- is the best candidate for six of the
+fifteen hottest functions in the program. That is the first sign that this
+table is mostly not about code.
+
+### 113. 48 of the 90 arms are builds that changed nothing
+
+`scripts/norm_code_diff.py` normalises addresses away, so it answers "did any
+instruction change" and is blind to an alignment that only moves code. Adding
+a symbol-table comparison (`nm -S`, addresses **and** sizes, against the
+baseline's) splits the 90 arms three ways:
+
+| what the build differs in | arms | ratio range |
+|---|--:|---|
+| nothing: same instructions, same symbol table | **48** | 0.9741 -- 1.0209 |
+| only where the code sits (alignment moved symbols) | 19 | 0.9873 -- 1.0229 |
+| instructions changed | 23 | 0.9482 -- 1.0323 |
+
+By candidate: **all 15 `align_16` arms are no-ops** (x86-64 already aligns
+functions to 16, which is what the vocabulary's description of `align_16`
+says), and so are 10 of 15 `inline`, 9 of 15 `cold` and 6 of 15
+`inline_never` arms --- LLVM had already decided, and saying it again changed
+no code.
+
+This is the prediction of section 106 and
+`docs/experiments/hintbench/inline-attrs-under-pgo.md`, measured on a real
+program. That work found on a purpose-built benchmark that `inlinehint` and
+`cold` are consumed and change nothing under `-O3` + PGO + fat LTO, while
+`noinline` and `align 64` are honoured, and predicted that such arms
+"should come out code-identical to the baseline and land in the in-sweep
+null panel". On jaq, 19 of the 30 `inline`/`cold` arms did exactly that.
+The 11 that did change code are not all explained away by the fan-out to
+closures and to monomorphizations the profile never entered: **`cold` on
+`write::write` is a clean counterexample.** That mark resolves to exactly
+one linkage name and no fan-out at all, and the arm changed 12 symbols
+holding 8.55% of the profile and lost 3.0% (0.9698 [0.9624, 0.9771]). On a
+single hot profiled function with no closures, `cold` is not inert on jaq.
+
+**Those 48 no-op builds are an in-sweep null panel of 48 measurements, and
+20 of them have a 95% CI that excludes 1.0.** Their ratios run from 0.9741 to
+1.0209, a spread of 4.67 points. The two highest are
+`reserve_rehash cold` 1.0209 [1.0137, 1.0281] and `write_until cold` 1.0198
+[1.0135, 1.0256]: a 2% "speedup", with an interval that excludes 1, from a
+binary whose every instruction and every symbol address is the baseline's.
+
+The in-run A/A says the same thing from the other side. Over the 90 rounds
+the A/A label --- a second copy of the baseline, timed in the same batch as
+the candidate --- ran from **0.9721 to 1.0256 (5.35 points), sd 1.09%, and
+41 of the 90 A/A intervals exclude 1.0**, against 42 of 90 for the
+candidates (22 up, 20 down). There is no drift: the mean A/A of arms 1--45
+and of arms 46--90 are 1.0010 and 1.0009. The median in-batch A/A half-width
+is 0.73%, so **the within-batch interval is roughly three times too narrow
+for the between-batch scatter it is embedded in.**
+
+### 114. The combination arm, on training and on holdout
+
+Twelve of the fifteen marks had a best arm whose CI lower bound was above 1,
+so the combination arm is those twelve attributes at once (`read::parse`
+align_64, `str_fold` cold, `write_until` cold, `TermId::run` cold,
+`write::write` align_16, `funs::base{closure#3}` align_32,
+`Path::run{closure#0}` align_64, `Adapter::write_str` cold,
+`reserve_rehash` cold, `Rc<IndexMap>::drop_slow` cold, `base_run{closure#7}`
+align_32, `String::fmt` align_16). The point-estimate rule would have added
+`Lex::seq`, `path::run` and `Val::hash`. The plan is
+`docs/experiments/jaq-oracle-A/combination-plan.json`; it applied cleanly
+(106 entries --- the twelve marks' fan-out --- all `consumed`) and its output
+matched the baseline's.
+
+**Training: 1.0215 [1.0128, 1.0300] --- with an in-run A/A of 1.0226
+[1.0135, 1.0309] in the same batch.** The identical-binary control moved
+further than the candidate.
+
+If the twelve chosen effects were real and independent, their product would
+be **+22.4%**. The combination delivered +2.15%, which is what one expects
+when the twelve numbers are draws from the noise of 113 rather than effects.
+
+Holdout, one batch, four labels (SPEC.ja.md 7: measured once, after the arms
+were frozen), n=15, warmup 3, `taskset -c 4`, gap 250 ms:
+
+| label | aggregate ratio | 95% CI | half-width |
+|---|--:|---|--:|
+| base | 1.0000 | --- | --- |
+| comb (the combination arm) | **1.0036** | [0.9968, 1.0107] | 0.70% |
+| best1f (`TermId::run cold`, the best of the 90) | **0.9909** | [0.9584, 1.0119] | 2.67% |
+| aa (a second copy of the baseline) | 0.9979 | [0.9734, 1.0143] | 2.04% |
+
+The pre-registered MDE for this batch is `max(2 x 2.04%, 3%) = 4.08%`;
+`bench.py`'s worst-per-workload version is 11.37%, inflated by one A/A
+readwrite outlier (half-width 5.68% on a label that is the baseline). Nothing
+here is within reach of either.
+
+### 115. What the oracle says, plainly
+
+* **The best function-attribute oracle on the training set is
+  `TermId::run cold` at 1.0323 [1.0249, 1.0401], and the combination arm is
+  1.0215 [1.0128, 1.0300].** Under the pre-registered acceptance rule three
+  arms were ever accepted (5, 21, 27) and the run's frozen best is arm 27.
+* **On the holdout set neither survives: the combination is 1.0036
+  [0.9968, 1.0107] and the best arm is 0.9909 [0.9584, 1.0119], a sign
+  reversal.** The same reversal the random arm showed in Experiment 3.
+* **Nothing clears the MDE.** One arm of 90 exceeds +3% on training, its own
+  batch's A/A being +2.6% at the same time; on holdout nothing exceeds 3%,
+  let alone the 4.08% this batch's A/A implies. **No function attribute on
+  any of jaq's fifteen marked functions makes jaq measurably faster, and the
+  oracle's own best is inside its own noise.**
+* Therefore **Jev's 107 `KEEP_DEFAULT` answers are not refuted by the
+  function-attribute half of the oracle** (decision 66's open question). The
+  oracle found nothing here to have missed. What the oracle *did* find is
+  three ways to lose 3--5%, all of them `inline_never`/`cold` on the read
+  path, which is the sort of damage a proposer that likes to try things would
+  have to survive.
+* **The `Jev / oracle` ratio of SPEC.ja.md 2 is not computable from a
+  denominator that is indistinguishable from zero.** It waits on the loop
+  half.
+
+### 116. Wall clock, cost, and what this changes about the protocol
+
+```
+null panel (4 labels, training)                         ~4 min
+90 one-factor arms + 1 combination arm, 292 s each      7 h 23 min  (08:36-15:54 JST)
+holdout batch (4 labels)                                ~5 min
+norm_code_diff over 91 binaries + symbol tables         ~30 min
+```
+
+Total about **8 hours**, 0 API calls, $0. Per arm: two clean builds (~85 s
+each), correctness (~10 s), and a 3-label batch of 135 timed runs (~120 s).
+Disk: 12 GB of kept binaries and build logs under `artifacts/` (git-ignored).
+
+Two things this measurement says about the protocol, neither of which was
+applied to this run (the conditions were frozen before arm 1):
+
+1. **The in-batch bootstrap CI is miscalibrated, not merely offset.** A 95%
+   interval around an identical binary should cover 1.0 about 95 times in
+   100; over the 90 rounds the A/A interval covered it **49 times in 90**,
+   and 20 of the 48 provably no-op builds also excluded 1.0. Acceptance
+   rule 3 --- "the lower end of the 95% CI is above the best point estimate
+   so far" --- is therefore satisfiable by noise at this n, which is how arms
+   5, 21 and 27 were accepted here and random round 3 was accepted in
+   Experiment 3.
+   The obvious repair does **not** work: dividing a candidate by its own
+   batch's A/A would have made arms 5 and 21 look *better*, not worse
+   (1.0113/0.9858 = 1.0258 and 1.0198/0.9944 = 1.0255), because the three
+   labels of one batch scatter independently by one to two points rather
+   than sharing a batch-level shift. Only arm 27 had an A/A that moved with
+   it (1.0323 against 1.0256). There is no rescaling of a single batch that
+   fixes this.
+2. **Between-batch variance dominates within-batch variance** by about 3x on
+   jaq (in-batch A/A half-width 0.73% median; between-batch A/A sd 1.09%,
+   range 5.35 points). Raising `repetitions` inside one batch buys almost
+   nothing; what would buy something is repeating the *batch* --- the same
+   pair of binaries measured in k independent batches --- and treating the
+   between-batch scatter as the error bar. That is a change to SPEC.ja.md 2's
+   noise definition and is not made here.
+
+### 117. Deviations, and what is not established
+
+* **The loop half of the oracle (176 arms, ~14 h) has not been run.** Until
+  it is, "the oracle" in SPEC.ja.md 2 is only its function-attribute half.
+* The combination arm follows decision 65's construction but with the
+  CI-lower-bound filter of 110 (2); SPEC.ja.md 2 says only "the best of each
+  site", and with the point-estimate filter the arm would have carried 15
+  attributes rather than 12. That arm was not built.
+* **`align_16` is a no-op on all 15 marks**, so a sixth of the sweep measured
+  the baseline. It was kept because the candidate list is frozen and because
+  those 15 measurements are exactly the null panel 113 leans on.
+* The function-attribute fan-out reaches the closures of a generic mark
+  (112); `--fn-attr-scope` was left at `own`, as in Experiment 3.
+* The holdout batch carries four labels rather than three so that the
+  combination arm and the best one-factor arm are measured in **one** batch
+  (SPEC.ja.md 7's "measured once"). Its A/A label had a readwrite outlier;
+  the batch was not repeated, and no arm was re-measured to get a better
+  number.
+* Nothing here says anything about the loop hints, about other targets, or
+  about attributes on functions that are not one of these fifteen marks.
