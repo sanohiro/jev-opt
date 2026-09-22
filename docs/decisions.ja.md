@@ -354,3 +354,13 @@
 - **知見**: ユーザーの言葉(2026-09-22)。「最適化の判断は Claude の方が圧倒的に正しいが、高価で使えない。Jev は速くて安い。Jev の返しが Claude の考える結果に近くなる(またはそれ以上になる)にはどうすればよいか」。
 - **判断**: prompt study と以後の Jev ラウンドの主指標は、Claude の参照判断との一致率(完全一致 / 同じ族 / 不一致)、3 回反復の安定性、費用・待ち時間。Jev の価値は「同じ判断を 3 桁安く速く、全 site に一度に下せること」。近づけるための手として、platform と profile の構造化、1 問 1 リクエスト、ヒントの一般的な解説書、判断の 2 段分解、実測に基づく実例、を試す。「Claude の理由付けを見せる」変種は上限の確認用で製品には使わない。推奨する state v2 は「Claude なしで運用できる範囲」で最も一致率が高いもの。
 - **影響**: spec §2(指標)、§6(state)。判断後に反映。
+
+### 70. prompt study(Jev API のみ、18 通りの聞き方 × 9 site × 3 回): 聞き方は confidence を動かすが結論はほぼ動かさない
+- **知見**: Claude の参照判断は 9 site 中 KEEP_DEFAULT 6、`inline(never)` 2(`TermId::run` 10496 命令 × 62 単相化、`write::write` 5467 命令の再帰)、`vectorize.width=16` 1(`to_ascii_lowercase` のバイトループ、trip 222、call なし)。Jev は凍結版の聞き方で 100% KEEP(confidence 0.92)。18 変種で結論は「触らない」で安定し、confidence(0.35〜0.93)と確率質量は大きく動くが選択はほぼ動かない。Claude が機構ありと見た L3 の幅 16 は**一度も**選ばれず、`inline(never)` は 1 変種で 3 回中 1 回のみ。Jev が `inline` を付けるのは集合中**最大**の body(10496、5467、7660 命令)で Claude と逆方向。唯一 `inline` に機構がある 251 命令のホット葉は既に inlinehint 済みで、Jev もそれを読んで KEEP。legality の remark は唯一明確に読まれている入力で、LLVM が「ベクトル化不能」と言ったループに vectorize を選んだことは 54 セル中 0 回(remark を外すと質量が跳ね上がる)。`docs/experiments/jev-prompt-study/`。
+- **判断**: (a) 一致率を上げたのは質問文の変更だけ(V2: 「変えるべきか」→「この workload でこの関数を速くする可能性が最も高いヒントはどれか」、KEEP_DEFAULT を中立に記述)。同族一致 0 → 6。(b) platform の構造化、site ごとの profile 表、1 問 1 request は選択を 1 site も変えなかった(決定 68 の仮説は不支持。ただし記録のため platform / profile ブロックは残す)。(c) ヒント解説書、実測の実例、Claude の理由付けを渡すと Jev は**より保守的**になり全部 KEEP に戻る。(d) KEEP_DEFAULT を候補から外すと定数回答(fn は全部 `inline`、loop は全部 `unroll.disable`)になるので外さない。remark も外さない。
+- **影響**: spec §6(state v2)。
+
+### 71. 安い梃子は prompt でなく「読み出し」。全 site が KEEP でも探索が動くようにする
+- **知見**: 確率質量は情報を持っているが driver は argmax しか使っておらず、全 site KEEP → 空 plan → フィードバック無し、が構造的に起きていた。
+- **判断**: state v2 = V2 の文言 + platform / profile ブロック、request は phase ごと 1 本(従来どおり)。driver の読み出しを変える: site を `1 − P(KEEP_DEFAULT)` で並べ、全 site が KEEP なら最上位 site の最良 non-KEEP 候補を 1 つ試す(探索が必ず動く)。これは「正しい探索」ではなく「動く探索」で、正しいかは oracle が決める。Jev の「触るな」が誤りかどうかも oracle 待ち。oracle が noise floor 上に何も見つけなければ、Claude と Jev の食い違い(`TermId::run` の inline(never)、バイトループの幅 16)で Jev の方が近かったことになる。
+- **影響**: spec §1(3)、§6。API: 153 request で取りこぼし 0(503 はバースト、指数バックオフで全回収)、費用 0。
