@@ -72,7 +72,19 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH = os.path.join(REPO, "scripts", "bench.py")
 PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 
-STATE_FORMAT_VERSION = "state-v1-2026-09-22"
+# The state template. v1 is Experiment 3's, frozen. v2 is decision 73: the
+# same sections plus a platform block and a per-site verdict block, and the
+# V2 wording of "What is being decided". `--vocab` selects both the
+# vocabulary and the state template, because the two together are the one
+# measurement condition the prompt study measured (`W7`).
+STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22"}
+STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
+
+
+def set_state_format(version):
+    global STATE_FORMAT_VERSION
+    STATE_FORMAT_VERSION = STATE_FORMATS[version]
+    return STATE_FORMAT_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -820,6 +832,12 @@ def loop_items(sites, sidecar):
         leaf = s.get("leaf") or {}
         meta = dict(s)
         meta["site_id"] = ident
+        # The plugin's dump record carries no `key_copies`: it is added by
+        # scripts/jaq_sites_report.py when it writes sites.json. It is put
+        # under its own name so that the v1 state section, which looks for
+        # `key_copies` in the dump record and has therefore never found one,
+        # keeps rendering exactly what Experiment 3 sent.
+        meta["key_copies_sidecar"] = info.get("key_copies")
         meta["notes"] = info.get("notes")
         meta["candidates"] = info.get("candidates")
         meta["leaf_file"] = leaf.get("file")
@@ -926,13 +944,26 @@ def state_header(ctx, n_sites):
                          "program (it was inlined away); %d loop site(s)"
                          % (mark[:60], ctx["loops_by_mark"][mark]))
     hist = render_history(ctx["history"])
-    return STATE_PREAMBLE.format(
+    head = STATE_PREAMBLE.format(
         fmt=STATE_FORMAT_VERSION, vocab=V.VOCAB_VERSION,
         target=ctx["target"], binary=ctx["binary"],
         mde=ctx["mde_text"], ncases=len(ctx["cases"]),
         cases=", ".join(ctx["cases"]), reps=ctx["reps"],
         marks="\n".join(marks) or "  (none resolved)",
-        history=hist) + STATE_SITES_HEADER.format(n=n_sites)
+        history=hist)
+    if ctx.get("state_v2"):
+        # Exactly the two whole-state changes the study's W7 makes: the V2
+        # wording of what is being decided ("no change ... neither preferred
+        # nor discouraged" instead of "picking KEEP_DEFAULT everywhere
+        # reproduces the baseline"), and the platform block. Everything else
+        # --- the marks table, the round history, the per-site sections ---
+        # is the frozen v1 material, which is what V3 measured the cost of
+        # removing.
+        head = DECIDING_RE.sub(lambda _m: STATE_V2_DECIDING, head, count=1)
+        head = head.replace(
+            "## Where the hints are applied",
+            ctx.get("platform", "") + "\n## Where the hints are applied", 1)
+    return head + STATE_SITES_HEADER.format(n=n_sites)
 
 
 def render_history(history):
@@ -996,8 +1027,20 @@ def state_section(item, ctx):
                        % fmt_share(m["reach"]))
         else:
             out.append("profile share  unknown")
-        out.append("size after LTO %d LLVM instructions, %d loop(s) inside it"
-                   % (m["inst_count"], m["self_loops"]))
+        if ctx.get("state_v2"):
+            # `self_loops` is summed from a dump field the plugin does not
+            # emit (it writes `n_loops`), so the v1 line has always printed
+            # 0 here. v2 prints the mark's `loop_in_mark` site count from
+            # the dump instead --- the same number the marks table above and
+            # the verdict block use, so one request cannot contradict
+            # itself. The v1 line is left exactly as Experiment 3 sent it.
+            out.append("size after LTO %d LLVM instructions, %d loop site(s) "
+                       "inside it"
+                       % (m["inst_count"],
+                          ctx["loops_by_mark"].get(m["mark"], 0)))
+        else:
+            out.append("size after LTO %d LLVM instructions, %d loop(s) "
+                       "inside it" % (m["inst_count"], m["self_loops"]))
         attrs = " | ".join(a for a in m["attributes"] if a) or "(none)"
         out.append("attributes now %s%s"
                    % (attrs, "  (the distinct sets over all of them)"
@@ -1039,10 +1082,16 @@ def state_section(item, ctx):
                       "yes" if m.get("has_fp_reduction") else "no"))
         out.append("already vectorized when the hint is attached: %s"
                    % ("yes" if m.get("already_vectorized") else "no"))
-        if m.get("key_copies", 1) > 1:
+        copies = m.get("key_copies")
+        if ctx.get("state_v2") and not copies:
+            # As in `loop_items`: the dump record has no `key_copies`, so
+            # under v1 this line has never fired. v2 uses the number
+            # sites.json recorded for the same key when there is one.
+            copies = m.get("key_copies_sidecar")
+        if (copies or 1) > 1:
             out.append("this site key resolves to %d loops in the build; a "
                        "hint on it is attached to all of them and cannot be "
-                       "given to one of them alone" % m["key_copies"])
+                       "given to one of them alone" % copies)
         others = [x for x in (m.get("marks_in_chain") or [])
                   if x != m.get("mark")]
         if others:
@@ -1101,6 +1150,609 @@ def _spelling_safe(candidate):
 
 
 V.spec_spelling_safe = _spelling_safe
+
+
+# ---------------------------------------------------------------------------
+# state v2 (decision 73): the platform block and the mechanical verdict block
+# ---------------------------------------------------------------------------
+#
+# The prompt study (docs/experiments/jev-prompt-study/, round 2) measured
+# eighteen plus seven framings of this same state and found two things that
+# move Jev's answer onto the reference picks, and one that has to be kept off
+# the loop phase:
+#
+#   * the mechanical VERDICT BLOCK next to the question (idea A). It states
+#     as a finished reading what the state already carries as numbers --- the
+#     size class, the inline budget, the lanes arithmetic, the legality of
+#     vectorising this loop. W1 chose `vectorize.width=16` at the one loop
+#     with a mechanism in all three repeats; no round-1 framing ever did,
+#     including the two that carried the register width and the trip count as
+#     a table. Jev does not do the arithmetic; it acts on it once it is done.
+#   * the APPLICABILITY CONDITIONS in the `criteria` descriptions (idea B),
+#     which live in `jev_vocab.py` v2 and are used for the FUNCTION phase
+#     only (W1 against W3: the loop applicability text costs the L3 pick).
+#   * the platform block, which changed no modal answer on its own (V7) and
+#     is kept because the lanes line refers to the register width.
+#
+# Every line below is produced by one rule applied to every site. Nothing is
+# special-cased, nothing names a site, and nothing says which hint to pick;
+# where a reading is not derivable the line says so instead of guessing. The
+# thresholds are the study's, and `docs/search-driver.md` records that they
+# were written by someone who had already seen jaq's nine sites --- which is
+# what the hintbench target (decision 72) exists to test.
+
+STATE_V2_DECIDING = """\
+## What is being decided
+
+A Rust program is compiled with one frozen recipe. The only thing that varies
+between builds is a set of optimisation hints attached to named functions and
+to the loops inside them; no source file is ever edited. You are shown one
+site per question and you choose one hint for it from a fixed list. All the
+questions in this request are answered independently and they all take effect
+in the same build, which is then measured as a whole.
+
+One of the options at every site is "no change", which reproduces the
+baseline at that site. It is one option among the others, neither preferred
+nor discouraged. The measurement is end-to-end wall time over the case set
+below; the noise floor of this machine is about 1% aggregated. Hints that
+change the program's output are rejected regardless of speed.
+
+"""
+
+DECIDING_RE = re.compile(
+    r"## What is being decided\n(?:.*\n)*?(?=## The build every arm shares)")
+
+# --- the classification rules, stated once, applied to every site ----------
+# Copied from scripts/jev_state_variants.py, where they were pre-registered.
+
+SIZE_CLASSES = [(50, "tiny"), (300, "small"), (1000, "medium"),
+                (2000, "large"), (None, "very large")]
+SIZE_RULE = ("<50 tiny, <300 small, <1000 medium, <2000 large, "
+             ">=2000 very large")
+
+COPY_CLASSES = [(2, "single"), (9, "few"), (None, "many")]
+COPY_RULE = "1 single, 2-8 few, >=9 many"
+
+TRIP_CLASSES = [(2, "degenerate"), (16, "short"), (100, "medium"),
+                (None, "long")]
+TRIP_RULE = "<2 degenerate, <16 short, <100 medium, >=100 long"
+
+HOT_CLASSES = [(1.0, "not hot"), (5.0, "hot"), (None, "very hot")]
+HOT_RULE = "<1% not hot, 1-5% hot, >=5% very hot"
+
+# LLVM's own defaults, not this driver's numbers: InlineCost.cpp's
+# `-inline-threshold` and `-inlinehint-threshold` command-line defaults.
+INLINE_THRESHOLD = 225
+INLINEHINT_THRESHOLD = 325
+
+# The frozen vocabulary stops at width 16; the register width comes from the
+# platform readings and falls back to 256 bits when they are unavailable.
+DEFAULT_VECTOR_REGISTER_BITS = 256
+MAX_WIDTH_IN_VOCAB = 16
+
+ELEM_BITS = {"u8": 8, "i8": 8, "u16": 16, "i16": 16, "u32": 32, "i32": 32,
+             "f32": 32, "u64": 64, "i64": 64, "f64": 64, "usize": 64,
+             "isize": 64, "bool": 8, "char": 32}
+
+# A `loop not vectorized: <reason>` whose reason is one of these is a
+# legality failure: a `vectorize.width` hint does not override it. Anything
+# else after `loop not vectorized:` (a cost-model remark, `runtime pointer
+# checks needed`) is not a legality failure and is reported separately.
+LEGALITY_REASONS = (
+    "early exit", "unsupported switch", "incorrect number of successors",
+    "induction variable could not be identified",
+    "could not determine number of loop iterations",
+    "could not be identified as reduction",
+)
+
+VERDICT_PREAMBLE = (
+    "Mechanical readings for this site. Each line is produced by a tool from "
+    "the numbers and the compiler remarks already in the state, by the same "
+    "rule at every site in this request; none of them is an opinion about "
+    "which hint to choose."
+)
+
+
+def classify(value, table):
+    if value is None:
+        return None
+    for bound, name in table:
+        if bound is None or value < bound:
+            return name
+    return table[-1][1]
+
+
+def best_width_for(bits, register_bits=DEFAULT_VECTOR_REGISTER_BITS):
+    """The widest `vectorize.width` in the frozen vocabulary that one vector
+    register holds for an element of `bits` bits, or None when even the
+    narrowest width in the list needs more than one register (an element as
+    wide as the register itself, for instance). None is a real answer here
+    and the verdict block prints it as one."""
+    if not bits:
+        return None
+    lanes = register_bits // bits
+    for w in (16, 8, 4, 2):
+        if w <= min(lanes, MAX_WIDTH_IN_VOCAB):
+            return w
+    return None
+
+
+class Demangler:
+    """Rust symbol names, demangled in one batch by `llvm-cxxfilt`.
+
+    The dump records a loop's inline chain as mangled symbols. The element
+    type the lanes arithmetic needs is inside them, so they are demangled
+    once per run and cached. When the tool is missing every name maps to
+    itself, `_elem_type` then finds nothing, and the verdict block says the
+    element type is not derivable --- which is the honest line, not a guess.
+    """
+
+    def __init__(self, tool="llvm-cxxfilt"):
+        self.tool = tool
+        self.cache = {}
+        self.ok = bool(shutil.which(tool))
+
+    def many(self, names):
+        todo = sorted({n for n in names if n and n not in self.cache})
+        if todo and self.ok:
+            try:
+                out = subprocess.run([self.tool], input="\n".join(todo),
+                                     capture_output=True, text=True,
+                                     check=True).stdout.splitlines()
+            except Exception:
+                self.ok, out = False, []
+            if len(out) == len(todo):
+                self.cache.update(zip(todo, out))
+        for n in todo:
+            self.cache.setdefault(n, n)
+        return [self.cache.get(n, n) for n in names]
+
+
+# `core::slice::iter::Iter::<u8>`, `Iter<u8>`, `Copied::<Iter::<u8>>`: the
+# innermost iterator's element type, with no nested generics inside it.
+ITER_RE = re.compile(r"\bIter(?:::)?<([^<>]+)>")
+ARRAY_RE = re.compile(r"^\[\s*(\w+)\s*;\s*(\d+)\s*\]$")
+
+
+def _elem_type(chain_demangled):
+    """The element type at the loop's iterator, read off the inline chain.
+
+    The chain runs outermost first, so the last `Iter<...>` on it is the
+    innermost one --- the iterator the loop actually steps. A chain with no
+    `Iter<>` at all (a loop over format pieces, say) and a type parameter
+    that was recorded as a placeholder both give None, and the verdict block
+    then says the element type is unknown rather than guessing one.
+    """
+    hits = []
+    for name in chain_demangled or []:
+        hits += ITER_RE.findall(name or "")
+    if not hits:
+        return None
+    t = hits[-1].strip().lstrip("&").strip()
+    if t in ("", "_", "..") or " as " in t:
+        return None
+    return t
+
+
+def _elem_bits(t):
+    if t is None:
+        return None
+    if t in ELEM_BITS:
+        return ELEM_BITS[t]
+    m = ARRAY_RE.match(t)
+    if m and m.group(1) in ELEM_BITS:
+        return ELEM_BITS[m.group(1)] * int(m.group(2))
+    return None
+
+
+def fn_verdict_lines(item, ctx):
+    """The mechanical readings for one marked function."""
+    m = item.meta
+    L = []
+    insts = m.get("inst_count") or 0
+    copies = len(m.get("linkages") or []) or 1
+    attrs = [a for a in (m.get("attributes") or []) if a]
+    attr_text = " | ".join(attrs) or "(none)"
+    has_hint = any("inlinehint" in a for a in attrs)
+    all_hinted = bool(attrs) and all("inlinehint" in a for a in attrs)
+    has_cold = any("cold" in a for a in attrs)
+
+    if insts:
+        L.append("body size: %d LLVM instructions after LTO" % insts)
+        L.append("size class: %s (rule: %s)"
+                 % (classify(insts, SIZE_CLASSES), SIZE_RULE))
+    else:
+        L.append("body size: not recorded by the dump for this function, so "
+                 "no size class")
+    L.append("distinct copies in the binary: %d monomorphization(s); copy "
+             "class %s (rule: %s)"
+             % (copies, classify(copies, COPY_CLASSES), COPY_RULE))
+    if insts:
+        budget = INLINEHINT_THRESHOLD if has_hint else INLINE_THRESHOLD
+        name = ("-inlinehint-threshold=%d" % INLINEHINT_THRESHOLD if has_hint
+                else "-inline-threshold=%d" % INLINE_THRESHOLD)
+        r = insts / float(budget)
+        L.append("inline budget: LLVM's defaults are -inline-threshold=%d "
+                 "and -inlinehint-threshold=%d cost units; body instructions "
+                 "/ %s = %s (an order-of-magnitude comparison, not an "
+                 "InlineCost computation --- the cost=/threshold= pairs in "
+                 "the remarks above are the real ones, and they are about "
+                 "this function's callees)"
+                 % (INLINE_THRESHOLD, INLINEHINT_THRESHOLD, name,
+                    ("%.1fx, i.e. the body fits inside that budget" % r)
+                    if r < 1 else "%.0fx over" % r))
+    L.append("attributes already on it: %s" % attr_text)
+    if all_hinted:
+        L.append("no-op check: every copy already carries `inlinehint`, so "
+                 "the candidate `inline` reproduces the state this site is "
+                 "already in")
+    elif has_hint:
+        L.append("no-op check: some copies already carry `inlinehint`, so "
+                 "the candidate `inline` reproduces, on those copies, the "
+                 "state this site is already in")
+    if has_cold:
+        L.append("no-op check: `cold` already appears among the attribute "
+                 "sets this site carries")
+    share = m.get("share") if m.get("share") is not None else m.get("reach")
+    if share is None:
+        L.append("share of the program's user cycles: not recorded for this "
+                 "mark, so no hotness class")
+    else:
+        L.append("share of the program's user cycles: %s; hotness class %s "
+                 "(rule: %s)" % (fmt_share(share),
+                                 classify(float(share), HOT_CLASSES), HOT_RULE))
+    n_loops = ctx.get("loops_by_mark", {}).get(m.get("mark"))
+    if n_loops is not None:
+        L.append("loop sites inside it: %d (`loop_in_mark` sites of this "
+                 "mark in the dump)" % n_loops)
+    return L
+
+
+def loop_verdict_lines(item, ctx):
+    """The mechanical readings for one loop site."""
+    m = item.meta
+    L = []
+    trip = m.get("trip_count")
+    insts = m.get("body_inst_count")
+    if trip is None:
+        L.append("average trip count: not recorded in the training profile "
+                 "for this loop, so no trip class")
+    else:
+        L.append("average trip count: %.1f; trip class %s (rule: %s)"
+                 % (float(trip), classify(float(trip), TRIP_CLASSES),
+                    TRIP_RULE))
+    if insts is None:
+        L.append("body size: not recorded by the dump for this loop, so no "
+                 "size class")
+    else:
+        L.append("body size: %d LLVM instructions; size class %s (rule: %s)"
+                 % (insts, classify(int(insts), SIZE_CLASSES), SIZE_RULE))
+    copies = m.get("key_copies") or m.get("key_copies_sidecar")
+    L.append("calls inside the body: %s; loop nesting depth %s; loops this "
+             "site key names: %s"
+             % ("yes" if m.get("has_calls") else "no", m.get("depth"),
+                copies if copies else "not recorded for this key (a key can "
+                "name several loops, and a hint on it would reach all of "
+                "them)"))
+
+    bits_reg = ctx.get("vector_register_bits") or DEFAULT_VECTOR_REGISTER_BITS
+    chain = ctx["demangler"].many(m.get("inline_chain") or [])
+    elem = _elem_type(chain)
+    bits = _elem_bits(elem)
+    width = best_width_for(bits, bits_reg)
+    if elem and width:
+        L.append("element type at the loop's iterator: %s (read off the "
+                 "inline chain); one %d-bit vector register holds %d of "
+                 "them, so the widest `vectorize.width` in this list that "
+                 "fits one register is %d (the list stops at %d)"
+                 % (elem, bits_reg, bits_reg // bits, width,
+                    MAX_WIDTH_IN_VOCAB))
+    elif elem and bits:
+        L.append("element type at the loop's iterator: %s (read off the "
+                 "inline chain); it is %d bits wide, so one %d-bit vector "
+                 "register holds %d of them and no `vectorize.width` in this "
+                 "list fits inside one register"
+                 % (elem, bits, bits_reg, bits_reg // bits))
+    elif elem:
+        L.append("element type at the loop's iterator: %s (read off the "
+                 "inline chain); its width in bits is not one this tool "
+                 "knows, so the lane count for this loop is unknown" % elem)
+    else:
+        L.append("element type at the loop's iterator: not derivable from "
+                 "the recorded inline chain, so the lane count for this "
+                 "loop is unknown")
+    if m.get("has_fp_reduction"):
+        L.append("floating-point reduction in the body: yes --- the build "
+                 "pins -hints-allow-reordering=false, so a width hint does "
+                 "not authorise reassociating it and a non-reassociable "
+                 "reduction is simply not widened")
+
+    rem = [t for _ln, t in (ctx["remarks"].near(m.get("leaf_file"),
+                                                m.get("leaf_line"), span=10)
+                            if m.get("leaf_file") else [])]
+    reasons, vf = [], []
+    for t in rem:
+        mm = re.search(r"loop not vectorized:\s*(.+)$", t)
+        if mm and any(k in mm.group(1).lower() for k in LEGALITY_REASONS):
+            r = mm.group(1).strip()
+            if r not in reasons:
+                reasons.append(r)
+        vf += [int(x) for x in re.findall(r"vectorization width: (\d+)", t)]
+    if not rem:
+        L.append("vectorisation legality: UNKNOWN --- no remarks were "
+                 "recorded at this location, so nothing here says whether "
+                 "vectorisation is legal")
+    elif reasons:
+        L.append("vectorisation legality, from the baseline remarks at this "
+                 "line: NOT VECTORIZABLE --- %s. A `vectorize.width` hint is "
+                 "not a permission slip: LLVM drops it when vectorisation is "
+                 "illegal." % "; ".join(reasons))
+    elif vf:
+        cur = max(vf)
+        L.append("vectorisation legality, from the baseline remarks at this "
+                 "line: LEGAL --- the remarks include `vectorized loop "
+                 "(vectorization width: %d)`, i.e. LLVM already vectorises "
+                 "this line without any hint" % cur)
+        if "vectorize_width_%d" % cur in candidates_of(item, ctx["knobs"]):
+            L.append("no-op check: the width already in effect is %d, so the "
+                     "candidate `vectorize_width_%d` reproduces the state "
+                     "this site is already in" % (cur, cur))
+    else:
+        L.append("vectorisation legality, from the baseline remarks at this "
+                 "line: no legality failure is reported and no vectorized "
+                 "loop is reported")
+    if m.get("already_vectorized") and not vf:
+        L.append("no-op check: the dump records this loop as already "
+                 "vectorized at the point the hint is attached, so a "
+                 "`vectorize_*` candidate may reproduce the state it is "
+                 "already in")
+    adv = [t.split(": ", 1)[1] for t in rem
+           if "advising against unrolling" in t and ": " in t]
+    if adv:
+        L.append("unroller, from the baseline remarks at this line: %s"
+                 % adv[0])
+    if any("cost-model indicates that vectorization" in t for t in rem):
+        L.append("cost model, from the baseline remarks at this line: "
+                 "vectorization not beneficial")
+    L.append("caveat that applies to every loop here: remarks are attributed "
+             "by source location only, so several loops can share one line")
+    return L
+
+
+def verdict_block(item, ctx):
+    """The mechanical readings, as they ride next to the question."""
+    if item.kind == "fn":
+        lines = fn_verdict_lines(item, ctx)
+    elif item.kind == "loop":
+        lines = loop_verdict_lines(item, ctx)
+    else:
+        return ""
+    return ("\n\n" + VERDICT_PREAMBLE + "\n"
+            + "\n".join("  - " + l for l in lines))
+
+
+# --- the platform block ----------------------------------------------------
+
+CACHE_KIND = {"Data": "data", "Instruction": "instruction",
+              "Unified": "unified"}
+
+
+def platform_readings():
+    """lscpu and /sys/devices/system/cpu/cpu0/cache, as read on this machine.
+
+    Nothing is corrected: decision 17 recorded that the two CCDs of a 5950X
+    are not visible from inside WSL2, so the L3 figure is reported as the
+    guest kernel gives it and the block says so.
+    """
+    r = {"lscpu": {}, "caches": [], "target_cpu": None}
+    try:
+        out = subprocess.run(["lscpu"], capture_output=True, text=True,
+                             check=True).stdout
+    except Exception:
+        out = ""
+    for line in out.splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            r["lscpu"][k.strip()] = v.strip()
+    base = "/sys/devices/system/cpu/cpu0/cache"
+    for d in sorted(glob.glob(os.path.join(base, "index*"))):
+        c = {}
+        for field in ("level", "type", "size", "ways_of_associativity",
+                      "shared_cpu_list", "number_of_sets"):
+            try:
+                c[field] = open(os.path.join(d, field)).read().strip()
+            except OSError:
+                c[field] = None
+        r["caches"].append(c)
+    try:
+        r["target_cpu"] = re.search(
+            r'"-target-cpu" "([A-Za-z0-9_-]+)"',
+            subprocess.run(["clang", "-march=native", "-E", "-", "-###"],
+                           input="", capture_output=True, text=True).stderr
+        ).group(1)
+    except Exception:
+        r["target_cpu"] = None
+    return r
+
+
+ISA_FLAGS = ["avx512f", "avx512bw", "avx512vl", "avx2", "avx", "fma", "bmi1",
+             "bmi2", "aes", "sha_ni", "vaes", "vpclmulqdq", "popcnt", "movbe",
+             "rdseed", "adx", "clwb", "clflushopt", "erms", "fsrm", "sse4_2"]
+
+
+def _cache_size(text):
+    """sysfs writes `32K` / `32768K`; say it in the units humans use."""
+    if not text:
+        return "?"
+    m = re.match(r"^(\d+)([KM])$", text.strip())
+    if not m:
+        return text
+    n, unit = int(m.group(1)), m.group(2)
+    if unit == "K" and n >= 1024 and n % 1024 == 0:
+        return "%d MiB" % (n // 1024)
+    return "%d %siB" % (n, unit)
+
+
+def render_platform_block(r, ctx):
+    """The `## The machine this will run on` section of state v2."""
+    cpu = r["lscpu"]
+    flags = set((cpu.get("Flags") or "").split())
+    have = [f for f in ISA_FLAGS if f in flags]
+    if "avx512f" in flags:
+        bits, regs = 512, 32
+    elif "avx" in flags or "avx2" in flags:
+        bits, regs = 256, 16
+    else:
+        bits, regs = 128, 16
+    lanes = ", ".join("%d x %s" % (bits // b, t) for b, t in
+                      ((8, "u8"), (16, "u16"), (32, "u32/f32"),
+                       (64, "u64/f64")))
+    out = ["## The machine this will run on", ""]
+    out.append("  cpu model         %s, %s core(s) / %s logical cpu(s), "
+               "family %s model %s"
+               % (cpu.get("Model name", "unknown"),
+                  cpu.get("Core(s) per socket", "?"), cpu.get("CPU(s)", "?"),
+                  cpu.get("CPU family", "?"), cpu.get("Model", "?")))
+    if r.get("target_cpu"):
+        out.append("  llvm target-cpu   %s (what -Ctarget-cpu=native resolves "
+                   "to on this machine)" % r["target_cpu"])
+    out.append("  isa               %s" % (", ".join(have) or "not reported"))
+    if "avx512f" not in flags:
+        out.append("  no isa            **no AVX-512 of any kind**")
+    out.append("  vector width      %d bit, %d architectural vector registers"
+               % (bits, regs))
+    out.append("                    one register holds %s" % lanes)
+    for c in r["caches"]:
+        if not c.get("level"):
+            continue
+        kind = CACHE_KIND.get(c.get("type") or "", (c.get("type") or "").lower())
+        out.append("  l%s %-14s %s%s%s"
+                   % (c["level"], kind, _cache_size(c.get("size")),
+                      ", %s-way" % c["ways_of_associativity"]
+                      if c.get("ways_of_associativity") else "",
+                      ", shared by cpus %s" % c["shared_cpu_list"]
+                      if c.get("shared_cpu_list") else ""))
+    out.append("  how it is read    lscpu and "
+               "/sys/devices/system/cpu/cpu0/cache on this machine, once per "
+               "run. This is a WSL2 guest: the cache figures are the "
+               "guest-visible ones and are reported as seen, not corrected.")
+    out.append("  how it is timed   the process is pinned to one logical cpu "
+               "(taskset -c %s) with a %s ms settle gap between runs, %d "
+               "interleaved repetitions, shuffled label order, paired "
+               "bootstrap 95%% CI"
+               % (ctx.get("bench_cpu"), ctx.get("bench_gap_ms"),
+                  ctx.get("reps", 0)))
+    out.append("")
+    return "\n".join(out)
+
+
+def platform_block(ctx, cache_path=None):
+    """The rendered block, computed once per run and cached in the run dir."""
+    if cache_path and os.path.isfile(cache_path):
+        try:
+            return json.load(open(cache_path))["block"]
+        except Exception:
+            pass
+    r = platform_readings()
+    block = render_platform_block(r, ctx)
+    if cache_path:
+        try:
+            with open(cache_path, "w") as f:
+                json.dump({"ts": datetime.datetime.now().astimezone()
+                           .isoformat(), "readings": r, "block": block},
+                          f, indent=1)
+        except OSError:
+            pass
+    return block
+
+
+def vector_register_bits(cache_path):
+    """The width the lanes arithmetic uses, from the cached readings."""
+    try:
+        flags = set((json.load(open(cache_path))["readings"]["lscpu"]
+                     .get("Flags") or "").split())
+    except Exception:
+        return DEFAULT_VECTOR_REGISTER_BITS
+    if "avx512f" in flags:
+        return 512
+    if "avx" in flags or "avx2" in flags:
+        return 256
+    return 128
+
+
+# ---------------------------------------------------------------------------
+# one request's questions
+# ---------------------------------------------------------------------------
+
+def questions_for(items, ctx, knobs):
+    """The `questions` object and the site map for one request.
+
+    `--print-state` and the Jev proposer both go through this, so what is
+    printed is what is sent: under state v2 the verdict block rides in the
+    question's `instructions`, which is where the study measured its effect
+    (finding 2b: the same words in a state section make Jev uniformly
+    cautious; attached to the options it is choosing between they make it
+    discriminate).
+    """
+    questions, site_map = {}, {}
+    for i, it in enumerate(items):
+        it.qname = "q%d" % i
+        site_map[it.qname] = {"site_id": it.id, "kind": it.kind,
+                              "label": it.label}
+        instructions = V.instructions_for(it.kind, it.qname)
+        if ctx.get("verdicts"):
+            instructions += verdict_block(it, ctx)
+        questions[it.qname] = {"type": "choice",
+                               "instructions": instructions,
+                               "criteria": candidates_of(it, knobs)}
+    return questions, site_map
+
+
+# ---------------------------------------------------------------------------
+# the readout (decision 71)
+# ---------------------------------------------------------------------------
+
+def rank_by_non_keep(items, why, knobs):
+    """Sites ordered by `1 - P(KEEP_DEFAULT)`, with their best non-KEEP hint.
+
+    Decision 71: the argmax throws away the probabilities, and a round in
+    which every site's argmax is `KEEP_DEFAULT` rebuilds the baseline and
+    measures nothing. The ranking is the cheap lever: it says which site Jev
+    is least sure about leaving alone, and which hint it would reach for
+    there. `__build__` is not ranked --- forcing a build-wide compiler flag
+    is not "one entry at one site".
+    """
+    rows = []
+    for it in items:
+        if it.kind == "build":
+            continue
+        w = why.get(it.id) or {}
+        # A site whose answer was thrown away by `[jev] min_confidence` is
+        # not a site the readout may put a hint on: the gate said the answer
+        # is not worth acting on, and forcing it back in would undo it.
+        if str(w.get("source") or "").startswith("confidence "):
+            continue
+        p = w.get("probabilities") or {}
+        if not isinstance(p, dict) or not p:
+            continue
+        cands = [c for c in candidates_of(it, knobs) if c != V.KEEP_DEFAULT]
+        if not cands:
+            continue
+        def prob(c):
+            try:
+                return float(p.get(c) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+        try:
+            keep = float(p.get(V.KEEP_DEFAULT) or 0.0)
+        except (TypeError, ValueError):
+            keep = 0.0
+        best = max(cands, key=lambda c: (prob(c), -cands.index(c)))
+        rows.append({"site_id": it.id, "kind": it.kind, "label": it.label,
+                     "p_keep": keep, "score": 1.0 - keep,
+                     "best_non_keep": best, "p_best": prob(best)})
+    rows.sort(key=lambda r: (-r["score"], -r["p_best"], r["site_id"]))
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -1266,25 +1918,18 @@ class RandomProposer:
 class JevProposer:
     name = "jev"
 
-    def __init__(self, client, cfg, knobs, max_state_chars):
+    def __init__(self, client, cfg, knobs, max_state_chars,
+                 readout="forced_top1"):
         self.client = client
         self.cfg = cfg
         self.knobs = knobs
         self.max_state_chars = max_state_chars
+        self.readout = readout
 
     def choose(self, items, ctx, round_no, phase):
         picks, why = {}, {}
         for batch_i, batch in enumerate(self._batches(items, ctx)):
-            questions, site_map = {}, {}
-            for i, it in enumerate(batch):
-                it.qname = "q%d" % i
-                site_map[it.qname] = {"site_id": it.id, "kind": it.kind,
-                                      "label": it.label}
-                questions[it.qname] = {
-                    "type": "choice",
-                    "instructions": V.instructions_for(it.kind, it.qname),
-                    "criteria": candidates_of(it, self.knobs),
-                }
+            questions, site_map = questions_for(batch, ctx, self.knobs)
             state = state_header(ctx, len(batch)) + \
                 "".join(state_section(it, ctx) for it in batch)
             answers, line_no = self.client.ask(state, questions, round_no,
@@ -1309,7 +1954,56 @@ class JevProposer:
                 why[it.id] = {"source": reason, "answer_ref": ref,
                               "confidence": conf,
                               "probabilities": a.get("probabilities")}
+        self.read_out(items, picks, why, ctx, phase)
         return picks, why
+
+    def read_out(self, items, picks, why, ctx, phase):
+        """Decision 71: rank by `1 - P(KEEP_DEFAULT)`; never leave a phase
+        empty.
+
+        The argmax alone throws the probabilities away, and a phase in which
+        every argmax is `KEEP_DEFAULT` writes no plan entry, rebuilds the
+        baseline and measures nothing --- which is how Experiment 3 spent
+        five rounds. `forced_top1` (the default) keeps the argmax wherever
+        Jev reached for a hint, and where it did not it applies the ONE hint
+        Jev came closest to reaching for: the top-ranked site's own
+        highest-probability non-`KEEP_DEFAULT` candidate. This is not a
+        better search, it is a search that moves; whether the hint it tries
+        is worth anything is the oracle's question.
+
+        The whole ranking is recorded either way, so `--readout argmax` runs
+        the old behaviour with the same record attached.
+        """
+        ranking = rank_by_non_keep(items, why, self.knobs)
+        for it in items:
+            why.setdefault(it.id, {})["readout"] = "argmax"
+        asked = [it for it in items if it.kind != "build"]
+        all_keep = bool(asked) and all(
+            picks.get(it.id, V.KEEP_DEFAULT) == V.KEEP_DEFAULT
+            for it in asked)
+        rec = {"rule": self.readout, "phase": phase,
+               "all_keep_default": all_keep, "forced": None,
+               "ranking": ranking}
+        if all_keep and self.readout == "forced_top1" and ranking:
+            top = ranking[0]
+            sid = top["site_id"]
+            picks[sid] = top["best_non_keep"]
+            w = why.setdefault(sid, {})
+            w["readout"] = "forced_top1"
+            w["argmax"] = V.KEEP_DEFAULT
+            w["readout_rank"] = 1
+            w["readout_score"] = top["score"]
+            rec["forced"] = top
+            print("[%s] every answer was KEEP_DEFAULT; readout applies %s at "
+                  "%s (1-P(KEEP) = %.3f, P(hint) = %.3f)"
+                  % (phase, top["best_non_keep"], top["label"],
+                     top["score"], top["p_best"]))
+        elif all_keep and ranking:
+            print("[%s] every answer was KEEP_DEFAULT; --readout argmax "
+                  "leaves the phase empty (top of the ranking was %s at %s)"
+                  % (phase, ranking[0]["best_non_keep"], ranking[0]["label"]))
+        ctx["readout"] = rec
+        return rec
 
     def _batches(self, items, ctx):
         """Split only when the state would be too large (SPEC.ja.md 6)."""
@@ -1348,9 +2042,24 @@ class OracleProposer:
         self.emitted = 0
         self.combination_done = False
 
-    def plan_arms(self, fn_list, loop_list, build_list):
+    def plan_arms(self, fn_list, loop_list, build_list, phase="all"):
+        """The one-factor arms, optionally restricted to one phase.
+
+        `phase` is `--oracle-phase`: `A` sweeps the function attributes (and
+        the `__build__` pseudo-site, which is part of phase A's plan), `B`
+        sweeps the loop hints, `all` is both. Restricting is a way to run the
+        two halves of the sweep as separate jobs on a machine that may only
+        build one thing at a time --- it changes nothing about an arm: every
+        arm is still one candidate at one site with every other site at
+        KEEP_DEFAULT, and a phase-A run's rounds still build both phases.
+        """
+        groups = {"A": list(fn_list) + list(build_list),
+                  "B": list(loop_list),
+                  "all": list(fn_list) + list(build_list) + list(loop_list)}
+        if phase not in groups:
+            raise ValueError("unknown oracle phase %r" % phase)
         arms = []
-        for it in list(fn_list) + list(build_list) + list(loop_list):
+        for it in groups[phase]:
             for cand in candidates_of(it, self.knobs):
                 if cand == V.KEEP_DEFAULT:
                     continue
@@ -1377,10 +2086,21 @@ class OracleProposer:
                     continue
                 cur = best.get(site)
                 if cur is None or h["ratio"] > cur[1]:
-                    best[site] = (cand, h["ratio"])
-        choices = {s: c for s, (c, r) in best.items() if r > 1.0}
+                    best[site] = (cand, h["ratio"], h.get("ci95") or [None, None])
+        # A site joins the combination only if its best arm's 95% CI LOWER
+        # bound is above 1. The point estimate alone is not evidence at this
+        # noise floor: results.md "Experiment 3 (jaq)" 99 saw three copies of
+        # one binary spread 2.1 points, so "ratio > 1" selects noise as
+        # readily as it selects an effect. The point-estimate set is recorded
+        # beside the chosen one so the difference is visible.
+        chosen = {s: c for s, (c, r, ci) in best.items()
+                  if ci[0] is not None and ci[0] > 1.0}
+        point = {s: c for s, (c, r, ci) in best.items() if r > 1.0}
         return {"kind": "combination", "site": None, "candidate": None,
-                "choices": choices}
+                "choices": chosen, "selected_by": "ci95_lower > 1",
+                "per_site_best": {s: {"candidate": c, "ratio": r, "ci95": ci}
+                                  for s, (c, r, ci) in best.items()},
+                "point_rule_would_pick": point}
 
     def choose(self, items, ctx, round_no, phase):
         arm = ctx["arm"]
@@ -1424,6 +2144,7 @@ def fn_attrs_from(picks, items, why, knobs):
             e.update(frag)
             e["jev_site_id"] = it.id
             e["jev_choice"] = pick
+            e["jev_readout"] = (why.get(it.id) or {}).get("readout")
             e["answer_ref"] = (why.get(it.id) or {}).get("answer_ref")
             entries.append(e)
     entries.sort(key=lambda e: e["fn"])
@@ -1452,6 +2173,7 @@ def loop_md_from(picks, items, why):
         e.update(V.fragment_for("loop", pick))
         e["jev_site_id"] = it.id
         e["jev_choice"] = pick
+        e["jev_readout"] = (why.get(it.id) or {}).get("readout")
         e["answer_ref"] = (why.get(it.id) or {}).get("answer_ref")
         entries.append(e)
     entries.sort(key=lambda e: e["key"])
@@ -1546,6 +2268,12 @@ class Search:
         os.makedirs(self.out, exist_ok=True)
         self.run_id = args.run_id or os.path.basename(self.out.rstrip("/"))
         self.knobs = list(cfg["search"]["build_knobs"])
+        self.vocab = args.vocab
+        self.state_v2 = (args.vocab == "v2")
+        V.set_version(args.vocab)
+        set_state_format(args.vocab)
+        self.demangler = Demangler()
+        self._platform = None
         self.marks = read_marks(args.marks)
         self.sidecar = load_sidecar(args.sites)
         self.shell = shell_config(self.target, args.bench_set)
@@ -1771,9 +2499,10 @@ class Search:
         proposer = self.make_proposer()
         if self.args.proposer == "oracle":
             arms = proposer.plan_arms(self.fn_list, self.base_loops,
-                                      self.build_list)
-            print("[oracle] %d one-factor arms + 1 combination arm "
-                  "(+1 baseline build already done)" % len(arms))
+                                      self.build_list, self.args.oracle_phase)
+            print("[oracle] phase %s: %d one-factor arms + 1 combination arm "
+                  "(+1 baseline build already done)"
+                  % (self.args.oracle_phase, len(arms)))
             if self.args.dry_run:
                 for i, a in enumerate(arms, 1):
                     print("  arm %3d  %-8s %-60s %s"
@@ -1792,15 +2521,30 @@ class Search:
         if self.args.print_state:
             for phase, items in (("A", self.fn_list + self.build_list),
                                  ("B", self.base_loops)):
-                for i, it in enumerate(items):
-                    it.qname = "q%d" % i
                 ctx = self.ctx({"arm": None,
                                 "fn_choice_text": "(none: this is a preview)"})
+                # Through the same function the proposer uses, so what is
+                # printed is what would be sent, verdict block included.
+                questions, _ = questions_for(items, ctx, self.knobs)
                 print("=" * 72)
-                print("### phase %s state (%d questions) ###" % (phase, len(items)))
+                print("### phase %s state (%d questions, vocabulary %s, "
+                      "state format %s) ###"
+                      % (phase, len(items), V.VOCAB_VERSION,
+                         STATE_FORMAT_VERSION))
                 print("=" * 72)
                 print(state_header(ctx, len(items))
                       + "".join(state_section(it, ctx) for it in items))
+                print("=" * 72)
+                print("### phase %s questions ###" % phase)
+                print("=" * 72)
+                for it in items:
+                    q = questions[it.qname]
+                    print("--- %s  %s  [%s] ---" % (it.qname, it.id, it.kind))
+                    print(q["instructions"])
+                    print("criteria:")
+                    for cid, desc in q["criteria"].items():
+                        print("  %s: %s" % (cid, desc))
+                    print("")
             return 0
 
         self.load_resume()
@@ -1893,7 +2637,20 @@ class Search:
         self.jev = JevClient(self.cfg["jev"],
                              os.path.join(self.out, "jev-log"), self.run_id)
         return JevProposer(self.jev, self.cfg["jev"], self.knobs,
-                           int(self.cfg["search"]["max_state_chars"]))
+                           int(self.cfg["search"]["max_state_chars"]),
+                           self.args.readout)
+
+    def platform(self):
+        """The platform block, read from the machine once and cached in the
+        run directory (`platform.json`, readings and rendered text)."""
+        if self._platform is None:
+            path = os.path.join(self.out, "platform.json")
+            self._platform = platform_block(
+                {"bench_cpu": self.shell["bench_cpu"],
+                 "bench_gap_ms": self.shell["bench_gap_ms"],
+                 "reps": self.reps}, path)
+            self._vector_bits = vector_register_bits(path)
+        return self._platform
 
     def ctx(self, extra=None):
         c = {"target": self.target, "binary": self.shell["bin_name"],
@@ -1903,7 +2660,15 @@ class Search:
              "source": self.source, "remarks": self.remarks,
              "share_by_mark": self.share_by_mark, "fn_source": self.fn_source,
              "loops_by_mark": self.loops_by_mark,
-             "fn_choice_text": ""}
+             "fn_choice_text": "",
+             "knobs": self.knobs,
+             "state_v2": self.state_v2, "verdicts": self.state_v2,
+             "demangler": self.demangler,
+             "bench_cpu": self.shell["bench_cpu"],
+             "bench_gap_ms": self.shell["bench_gap_ms"],
+             "platform": self.platform() if self.state_v2 else "",
+             "vector_register_bits": (getattr(self, "_vector_bits", None)
+                                      if self.state_v2 else None)}
         c.update(extra or {})
         return c
 
@@ -1914,6 +2679,7 @@ class Search:
                "ts": datetime.datetime.now().astimezone().isoformat(),
                "vocab_version": V.VOCAB_VERSION,
                "state_format": STATE_FORMAT_VERSION,
+               "readout": self.args.readout,
                "case_set": self.shell["bench_set"], "arm": arm,
                "reps": self.reps, "warmup": self.warmup,
                "smoke": bool(self.args.smoke)}
@@ -1921,14 +2687,15 @@ class Search:
 
         # -- phase A: function attributes (+ the build-wide knob) ---------
         items_a = self.fn_list + self.build_list
-        picks_a, why_a = proposer.choose(items_a, self.ctx({"arm": arm}),
-                                         round_no, "A")
+        ctx_a = self.ctx({"arm": arm})
+        picks_a, why_a = proposer.choose(items_a, ctx_a, round_no, "A")
         fn_attrs = fn_attrs_from(picks_a, items_a, why_a, self.knobs)
         basis = basis_of(fn_attrs)
         plan_a = os.path.join(rdir, "plan-a.json")
         sha_a = write_plan(plan_a, "r%d-a" % round_no, fn_attrs, [], basis)
         knob_flags = build_knob_flags(picks_a, self.knobs)
         rec["phase_a"] = {"choices": picks_a, "why": why_a,
+                          "readout": ctx_a.get("readout"),
                           "fn_attrs": fn_attrs, "basis": basis,
                           "plan_sha256": sha_a, "build_knobs": knob_flags,
                           "fn_fanout": {i.meta["mark"]: {
@@ -1975,13 +2742,13 @@ class Search:
             "%s -> %s" % (i.label, V.spec_spelling("fn", picks_a[i.id]))
             for i in self.fn_list if picks_a.get(i.id, V.KEEP_DEFAULT)
             != V.KEEP_DEFAULT) or "none"
-        picks_b, why_b = proposer.choose(
-            items_b, self.ctx({"arm": arm, "fn_choice_text": fn_text}),
-            round_no, "B")
+        ctx_b = self.ctx({"arm": arm, "fn_choice_text": fn_text})
+        picks_b, why_b = proposer.choose(items_b, ctx_b, round_no, "B")
         loop_md = loop_md_from(picks_b, items_b, why_b)
         plan_b = os.path.join(rdir, "plan-b.json")
         sha_b = write_plan(plan_b, "r%d-b" % round_no, fn_attrs, loop_md, basis)
         rec["phase_b"] = {"choices": picks_b, "why": why_b,
+                          "readout": ctx_b.get("readout"),
                           "loop_md": loop_md, "plan_sha256": sha_b}
         if basis_of(fn_attrs) != basis:
             rec["status"] = "basis-mismatch"
@@ -2160,10 +2927,15 @@ class Search:
         manifest = {
             "run_id": self.run_id, "target": self.target,
             "proposer": self.args.proposer,
+            "oracle_phase": (self.args.oracle_phase
+                             if self.args.proposer == "oracle" else None),
             "ts": datetime.datetime.now().astimezone().isoformat(),
             "smoke": bool(self.args.smoke),
             "vocab_version": V.VOCAB_VERSION,
             "state_format": STATE_FORMAT_VERSION,
+            "readout": self.args.readout,
+            "platform_block": (os.path.join(self.out, "platform.json")
+                               if self.state_v2 else None),
             "config": self.cfg["_path"], "config_sha256": self.cfg["_sha256"],
             "marks": os.path.abspath(self.args.marks),
             "marks_sha256": sha256_file(self.args.marks),
@@ -2204,13 +2976,13 @@ class Search:
             out.append("")
         out.append("target `%s`, proposer `%s`, case set `%s` (%s), "
                    "%d repetitions, warmup %d, pinned to CPU %s, gap %s ms, "
-                   "vocabulary `%s`, state format `%s`."
+                   "vocabulary `%s`, state format `%s`, readout `%s`."
                    % (self.target, self.args.proposer,
                       self.shell["bench_set"],
                       ", ".join(w.split("=", 1)[0] for w in self.shell["workloads"]),
                       self.reps, self.warmup, self.shell["bench_cpu"],
                       self.shell["bench_gap_ms"], V.VOCAB_VERSION,
-                      STATE_FORMAT_VERSION))
+                      STATE_FORMAT_VERSION, self.args.readout))
         out.append("")
         out.append("Acceptance rule, fixed before the first round: a round "
                    "becomes the best so far only if its output matches the "
@@ -2293,6 +3065,25 @@ def main():
                    help="optional sites.json with profile shares and caps")
     p.add_argument("--proposer", required=True,
                    choices=("jev", "random", "oracle"))
+    p.add_argument("--vocab", default="v2", choices=("v1", "v2"),
+                   help="the frozen vocabulary AND state template: v1 is "
+                        "Experiment 3's, v2 (default) is decision 73 --- the "
+                        "prompt study's W7, i.e. the mechanical verdict "
+                        "block in both phases, the applicability conditions "
+                        "in the function criteria only, a neutral "
+                        "KEEP_DEFAULT, the V2 question wording and the "
+                        "platform block")
+    p.add_argument("--readout", default="forced_top1",
+                   choices=("forced_top1", "argmax"),
+                   help="how a phase's answers become plan entries "
+                        "(decision 71). forced_top1 (default): the argmax, "
+                        "except that a phase whose every answer is "
+                        "KEEP_DEFAULT still applies one hint --- the "
+                        "top-ranked site by 1-P(KEEP_DEFAULT), with its own "
+                        "best non-KEEP candidate. argmax: the old behaviour, "
+                        "which leaves such a phase empty. The ranking is "
+                        "recorded either way."
+                   )
     p.add_argument("--rounds", type=int, default=None,
                    help="ignored for --proposer oracle, whose arm count is "
                         "determined by the site and candidate lists")
@@ -2325,6 +3116,11 @@ def main():
                         "experiment is frozen to, e.g. "
                         "oracle.selected_keys_topk_per_mark. All three "
                         "proposers must use the same one (SPEC.ja.md 2)")
+    p.add_argument("--oracle-phase", default="all", choices=("A", "B", "all"),
+                   help="restrict --proposer oracle to the function-attribute "
+                        "arms (A), the loop arms (B) or both (default). The "
+                        "rounds themselves are unchanged: both phases are "
+                        "still built.")
     p.add_argument("--fn-attr-scope", default="own", choices=("own", "all"),
                    help="own (default): a function attribute goes on the "
                         "mark's own functions and every monomorphization, "

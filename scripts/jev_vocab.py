@@ -13,6 +13,29 @@ comparison with earlier runs. `VOCAB_VERSION` is written into the run
 manifest and into every Jev request log line so a changed vocabulary is
 visible after the fact instead of being silently mixed in.
 
+There are now two frozen vocabularies, selected by `set_version()` and by
+the driver's `--vocab` flag:
+
+  v1   what Experiment 3 was run with. Frozen; nothing below it may change.
+  v2   decision 73, the prompt study's `W7`: the same candidate ids, the
+       same plan fragments and the same SPEC spellings, with (a) the
+       applicability conditions written into the *function* descriptions,
+       (b) the plain v1 descriptions kept for the *loop* hints --- W1
+       against W3 measured that the loop applicability text costs the one
+       pick with a mechanism --- (c) `KEEP_DEFAULT` described neutrally
+       and (d) the V2 question wording ("which single hint is most likely
+       to make this faster") instead of "pick KEEP_DEFAULT unless".
+
+Every string of v2 is copied verbatim from
+`docs/experiments/jev-prompt-study/` (`scripts/jev_state_variants.py`
+`ENRICHED_FN`, `NEUTRAL_KEEP_FN`, `NEUTRAL_KEEP_LOOP`, `Q_V2_FN`,
+`Q_V2_LOOP`), so the shipped state asks what the study measured.
+
+The module-level default stays **v1** so that every other importer ---
+`scripts/jev_state_variants.py` above all, which reproduces round 1 of the
+study --- keeps the vocabulary it was measured with. The search driver
+selects v2 explicitly.
+
 Three kinds of site:
 
   fn      one marked function          -> plan `fn_attrs` entry
@@ -229,6 +252,122 @@ def build_candidates(knobs):
 
 
 # ---------------------------------------------------------------------------
+# v2 (decision 73): the prompt study's W7 vocabulary
+# ---------------------------------------------------------------------------
+#
+# Idea B of the study, and only half of it. The applicability conditions go
+# into the *function* descriptions, where they ended the behaviour of round 1
+# that decision 70 called its sharpest failure (`inline` on the two largest
+# bodies in the program, in every repeat). They are deliberately NOT written
+# into the loop descriptions: W1 (verdict block, plain loop descriptions)
+# chose `vectorize.width=16` at the one loop with a mechanism in all three
+# repeats, and W3 (verdict block plus loop applicability text) moved it to
+# `unroll.count=4`. The loop half of v2 is therefore the v1 text with a
+# neutral `KEEP_DEFAULT`.
+#
+# None of these sentences names a function, a loop, a file or a site of any
+# program, and none of them says what to pick: they are about the hint. The
+# candidate ids, the plan fragments and the SPEC spellings are v1's, so a
+# plan written under v2 is the same plan v1 would have written for the same
+# choice.
+
+FN_CANDIDATES_V2 = {
+    KEEP_DEFAULT: (
+        "Change nothing about this function's attributes. This is the 'no "
+        "change' option: the build keeps whatever LLVM's own cost model "
+        "decides, exactly as in the baseline.",
+        {},
+    ),
+    "inline": (
+        "Add the `inlinehint` attribute (the SPEC vocabulary's `inline`). "
+        "It raises the inliner's threshold for this function, so callers "
+        "that were just over the limit paste its body in. It tends to help "
+        "a small hot leaf (roughly under 300 instructions) called from few "
+        "hot sites, where the caller then specialises on what it passes. "
+        "It tends to hurt a large body (a thousand instructions and up) "
+        "and a function with many monomorphized copies, because every "
+        "pasted copy costs instruction cache. It is a no-op where the "
+        "function already carries the attribute.",
+        dict(FN_CANDIDATES['inline'][1]),
+    ),
+    "inline_never": (
+        "Add the `noinline` attribute (the SPEC vocabulary's "
+        "`inline(never)`). The function stays one out-of-line copy: call "
+        "overhead is paid at every call site and the callers stay small. "
+        "It tends to help a very large body (thousands of instructions) or "
+        "a function with many monomorphized copies, by stopping code "
+        "growth and instruction-cache pressure --- especially where an "
+        "`inlinehint` is already asking the inliner to paste that body in. "
+        "It tends to hurt a small hot leaf, where the call overhead is the "
+        "bulk of the cost. It is a no-op where the body is already too "
+        "large for any caller's threshold.",
+        dict(FN_CANDIDATES['inline_never'][1]),
+    ),
+    "cold": (
+        "Add the `cold` attribute. Callers place calls to it out of line, "
+        "it is optimised for size rather than speed, and it is never "
+        "inlined. It tends to help a function that is genuinely off the "
+        "hot path, by moving its code away from the hot path's cache "
+        "lines. It is a pessimisation by definition on a function that "
+        "carries a significant share of the cycles, whatever its size.",
+        dict(FN_CANDIDATES['cold'][1]),
+    ),
+    "align_16": (
+        "Set the function's alignment to 16 bytes (`align=16`). 16 bytes "
+        "is already the default on x86-64, so this mostly pins the current "
+        "alignment and changes nothing. It helps and hurts nowhere in "
+        "particular.",
+        dict(FN_CANDIDATES['align_16'][1]),
+    ),
+    "align_32": (
+        "Set the function's alignment to 32 bytes (`align=32`). The entry "
+        "point starts on a 32-byte boundary, which changes how the first "
+        "instructions and the first loop fall into the 32-byte "
+        "instruction-fetch windows and the uop cache. It tends to help "
+        "where a hot loop sits at or very near the function's entry; it "
+        "does nothing for a hot loop deep inside a large body, and it is a "
+        "lottery rather than a mechanism wherever the layout is not known.",
+        dict(FN_CANDIDATES['align_32'][1]),
+    ),
+    "align_64": (
+        "Set the function's alignment to 64 bytes (`align=64`). Same "
+        "mechanism as `align=32`, one step coarser: the function starts on "
+        "a cache line, and up to 63 bytes of padding are wasted per "
+        "function. Same applicability as `align=32`, with more padding to "
+        "pay for it.",
+        dict(FN_CANDIDATES['align_64'][1]),
+    ),
+}
+
+LOOP_KEEP_DEFAULT_V2 = (
+    "Attach no metadata to this loop. This is the 'no change' option: "
+    "LLVM's vectoriser and unroller decide with their own cost model, "
+    "exactly as in the baseline."
+)
+
+FN_INSTRUCTIONS_V2 = (
+    "Section `{qname}` of the state describes one marked function of this "
+    "program. Which single hint from the list is most likely to make this "
+    "function faster on this workload?"
+)
+
+LOOP_INSTRUCTIONS_V2 = (
+    "Section `{qname}` of the state describes one loop inside a marked "
+    "function of this program. Which single hint from the list is most "
+    "likely to make this loop faster on this workload?"
+)
+
+# The loop half of v2: v1's descriptions, with KEEP_DEFAULT described
+# neutrally. Built from v1 rather than copied, so the two cannot drift.
+LOOP_CANDIDATES_V2 = {
+    cid: ((LOOP_KEEP_DEFAULT_V2 if cid == KEEP_DEFAULT else desc),
+          dict(frag))
+    for cid, (desc, frag) in LOOP_CANDIDATES.items()
+}
+
+
+
+# ---------------------------------------------------------------------------
 # frozen question wording
 # ---------------------------------------------------------------------------
 
@@ -253,33 +392,79 @@ BUILD_INSTRUCTIONS = (
 )
 
 
-def candidates_for(kind, build_knobs=()):
-    """Ordered {candidate id: description} for a site kind."""
-    if kind == "fn":
-        return {k: v[0] for k, v in FN_CANDIDATES.items()}
-    if kind == "loop":
-        return {k: v[0] for k, v in LOOP_CANDIDATES.items()}
+VOCAB_VERSIONS = {"v1": "v1-2026-09-22", "v2": "v2-2026-09-22"}
+
+_TABLES = {
+    "v1": {"fn": FN_CANDIDATES, "loop": LOOP_CANDIDATES},
+    "v2": {"fn": FN_CANDIDATES_V2, "loop": LOOP_CANDIDATES_V2},
+}
+
+_INSTRUCTIONS = {
+    "v1": {"fn": FN_INSTRUCTIONS, "loop": LOOP_INSTRUCTIONS,
+           "build": BUILD_INSTRUCTIONS},
+    # The `__build__` question is asked with v1's wording in both versions:
+    # the study never varied it, and inventing wording for it here would be
+    # a change nothing measured.
+    "v2": {"fn": FN_INSTRUCTIONS_V2, "loop": LOOP_INSTRUCTIONS_V2,
+           "build": BUILD_INSTRUCTIONS},
+}
+
+_ACTIVE = "v1"
+
+
+def set_version(version):
+    """Select the vocabulary for this process, and update `VOCAB_VERSION`.
+
+    `VOCAB_VERSION` is what the driver writes into the manifest, into every
+    plan and into every request log line, so selecting a vocabulary and
+    recording which one was selected are the same act.
+    """
+    global _ACTIVE, VOCAB_VERSION
+    if version not in VOCAB_VERSIONS:
+        raise ValueError("unknown vocabulary %r (have %s)"
+                         % (version, ", ".join(sorted(VOCAB_VERSIONS))))
+    _ACTIVE = version
+    VOCAB_VERSION = VOCAB_VERSIONS[version]
+    return VOCAB_VERSION
+
+
+def active_version():
+    return _ACTIVE
+
+
+def candidates_for(kind, build_knobs=(), version=None):
+    """Ordered {candidate id: description} for a site kind.
+
+    `version` defaults to whatever `set_version()` selected (v1 unless the
+    caller said otherwise). The `__build__` list is the same in both
+    vocabularies: it is built from `[search] build_knobs`, not frozen here.
+    """
+    table = _TABLES[version or _ACTIVE]
+    if kind in table:
+        return {k: v[0] for k, v in table[kind].items()}
     if kind == "build":
         return {k: v[0] for k, v in build_candidates(build_knobs).items()}
     raise ValueError("unknown site kind %r" % (kind,))
 
 
-def instructions_for(kind, qname):
-    if kind == "fn":
-        return FN_INSTRUCTIONS.format(qname=qname)
-    if kind == "loop":
-        return LOOP_INSTRUCTIONS.format(qname=qname)
-    if kind == "build":
-        return BUILD_INSTRUCTIONS.format(qname=qname)
-    raise ValueError("unknown site kind %r" % (kind,))
+def instructions_for(kind, qname, version=None):
+    text = _INSTRUCTIONS[version or _ACTIVE].get(kind)
+    if text is None:
+        raise ValueError("unknown site kind %r" % (kind,))
+    return text.format(qname=qname)
 
 
-def fragment_for(kind, candidate, build_knobs=()):
-    """The plan fragment (fn/loop) or rustc flag (build) a candidate means."""
-    if kind == "fn":
-        return dict(FN_CANDIDATES[candidate][1])
-    if kind == "loop":
-        return dict(LOOP_CANDIDATES[candidate][1])
+def fragment_for(kind, candidate, build_knobs=(), version=None):
+    """The plan fragment (fn/loop) or rustc flag (build) a candidate means.
+
+    The fragments are the same in every vocabulary --- v2 is a description
+    variant of v1, not a different set of hints --- but the lookup still
+    goes through the selected table so that a candidate id which exists in
+    only one of them cannot silently resolve against the other.
+    """
+    table = _TABLES[version or _ACTIVE]
+    if kind in table:
+        return dict(table[kind][candidate][1])
     if kind == "build":
         return build_candidates(build_knobs)[candidate][1]
     raise ValueError("unknown site kind %r" % (kind,))
@@ -309,9 +494,12 @@ def spec_spelling(kind, candidate):
 
 
 if __name__ == "__main__":
-    print("vocabulary %s" % VOCAB_VERSION)
+    import sys
+    want = sys.argv[1] if len(sys.argv) > 1 else _ACTIVE
+    print("vocabulary %s" % set_version(want))
     for kind in ("fn", "loop"):
-        print("\n%s candidates:" % kind)
+        print("\n%s question: %s" % (kind, instructions_for(kind, "qN")))
+        print("%s candidates:" % kind)
         for cid, desc in candidates_for(kind).items():
             print("  %-20s %-18s %s" % (cid, spec_spelling(kind, cid),
                                         desc.split(".")[0] + "."))
