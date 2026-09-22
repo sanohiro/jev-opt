@@ -2830,13 +2830,29 @@ class OracleProposer:
                 continue
             ci = (h.get("kernel_ci95") if h.get("kernel_ratio") is not None
                   else h.get("ci95")) or [None, None]
+            # The confirmation flag has to come from the same readout the
+            # ranking uses. `score_confirmation` scores the two separately:
+            # `confirmed` is the arm's own kernel workload, `confirmed_
+            # aggregate` is the eight-way (three-way on jaq) mean. On a
+            # target with no per-site workload --- every target but
+            # hintbench, because `own_workload_of` returns None there ---
+            # `kernel` is never populated, so `confirmed` is False for every
+            # arm and reading it here would leave `best_conf` empty and make
+            # the combination arm an empty plan, i.e. the baseline. Ranking
+            # on the aggregate and confirming on the kernel is also simply
+            # inconsistent. So: whichever readout `r` came from, that is the
+            # one that has to have survived two batches.
             for site, cand in h["choices"].items():
                 if cand == V.KEEP_DEFAULT:
                     continue
+                per_kernel = h.get("kernel_ratio") is not None
                 row = {"candidate": cand, "ratio": r, "ci95": ci,
                        "readout": readout, "aggregate_ratio": h.get("ratio"),
-                       "confirmed": bool(h.get("confirmed")),
-                       "confirm_ratio": h.get("confirm_kernel_ratio"),
+                       "confirmed": bool(h.get("confirmed") if per_kernel
+                                         else h.get("confirmed_aggregate")),
+                       "confirm_ratio": (h.get("confirm_kernel_ratio")
+                                         if per_kernel
+                                         else h.get("confirm_ratio")),
                        "code_class": h.get("code_class"),
                        "status": h.get("status")}
                 if site not in best or r > best[site]["ratio"]:
