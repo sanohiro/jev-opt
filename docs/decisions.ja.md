@@ -389,3 +389,8 @@
 - **知見**: 12 site(関数 8 × 6 候補 + ループ 4 × 11 候補)。ループ site の凍結規則: ループヒントが検証対象のマークのみ、マーク内で hotness 最大の key 1 本。k3 は driver 側のループが `loop_in_mark` に紛れ込む(決定 61 の曖昧さの再現)ので規則 (2) が要った。
 - **判断**: jaq の oracle A 完了後に `scripts/hintbench_oracle.sh run`。K2 の `inline` と K7 の `cold` は基準とコード同一なので in-sweep null パネルとして現れるはず(74 の追認)。
 - **影響**: spec §9。
+
+### 77. `inline`(inlinehint)と `cold` は、このレシピ(O3 + PGO + fat LTO)の下で実質不活性。語彙を v3 に改訂
+- **知見**: LLVM 23.1.1 `InlineCost.cpp` で確定。inlinehint は読まれる(`:2137`、`max` で閾値を上げる)が、直後の hot / locally-hot callsite 分岐(`:2148〜2154`)が閾値を**代入で上書き**する(FIXME に「本来は超えたときだけ更新すべきだが AutoFDO + ThinLTO が依存」と明記)。`cold` の閾値 45 が適用される唯一のアームは `else if` 鎖の末尾(`:2163〜2179`)で、callsite が hot / locally hot / cold に分類された時点で到達不能。hintbench で観測した閾値 525 と 787 は `LocallyHotCallSiteThreshold`(525、O3 のみ)と単一 BB ボーナス(+50%)から完全に再現される。`hot` 属性は `InlineCost.cpp` に一度も現れない。`alwaysinline` と `noinline` は解析器が作られる前に決着し profile に免疫。さらに instrumentation profile の PSI-hot な callsite ではコスト便益解析が閾値比較を短絡する(remark が `benefit over cost` になる)ので、**jaq の最ホット site では閾値を動かす語彙は原理的に何も効かない**。plugin(PipelineEarlySimplification)の後に `PGOInstrumentationUse` が hot 関数へ inlinehint を付けるので、plugin の `inline` は冗長でもある。`docs/experiments/hintbench/inline-attrs-under-pgo.md`。
+- **判断**: 語彙 v3: `inline` → **`inline(always)`**(PGO 下で唯一生きている正方向のインライン梃子。plugin に alwaysinline の分岐を追加、`noinline` を先に外す、`optnone` の callee はスキップ、callee がモジュールから消えるケースに dump / 正規化ハッシュが耐えること)。`cold` と `hot` は語彙から**外す**。`inline(never)` と `align=N` はそのまま。ループヒントは不変。決定 70・73 の一致率は「不活性な候補(`inline`)での一致」を含んでいたので、v3 で取り直す。study の Claude の参照判断 `inline(never)` 2 件はそのまま有効。
+- **影響**: spec §1(2)、`jev_vocab.py` v3、plugin、hintbench の `EXPECTED.md`(K2 は `inline(always)` で効きうる)。
