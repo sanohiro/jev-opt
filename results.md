@@ -9278,3 +9278,194 @@ and the manifest records `v3-2026-09-22` for both the vocabulary and the
 state format. **Nothing in this section is a measurement of v3.1 or v4** ---
 but nothing needs to be: v4 changed only the candidate *descriptions*, and
 an oracle arm reads no descriptions.
+
+---
+
+## Experiment 4 (hintbench): Jev with feedback vs random
+
+Five rounds of `scripts/jev_search.py --proposer jev`, five of
+`--proposer random`, over `targets/hintbench`, scored against the oracle of
+section 122. **20:55--22:11 JST on 2026-09-22, 56 minutes, 12 API calls,
+$0.** Full tables, per-round states and the per-site scoring are in
+`docs/experiments/hintbench/exp4.md`; the runs' own records are copied into
+`docs/experiments/hintbench/exp4-jev/` and `exp4-random/`.
+
+This is the loop of SPEC.ja.md 1(3) closed on a target where a right answer
+exists: propose, build, measure, **tell the proposer what happened**, ask
+again. Decision 87 left it as the open question --- Jev's one shot was
+7 of 12 with a −42% pick at k4, and "フィードバック付きラウンドが必須".
+
+### 129. Two driver changes, made and committed before round 1
+
+Both are in commit `aa3e587`, both are recorded in `exp4.md` 1.4, and
+neither touches the vocabulary, the questions, the site set or the
+measurement conditions.
+
+**(a) The feedback did not exist.** The round history in the state carried
+the **aggregate** ratio only, and a site's history line the whole-build
+ratio only. On this target the aggregate is the geometric mean of eight
+kernels, so the 42% that `vectorize.width=16` costs at k4 reached the
+proposer as 6% of a number naming no site. `record_batch` now keeps every
+case's ratio and CI --- it kept only the arm's own kernel, and a search
+round has no single arm, so `--proposer jev|random` recorded **none** ---
+`render_history` prints a per-case table, and a site's history line quotes
+its own case, its interval and whether the round was accepted. State format
+bumped to `state-v3.2` / `state-v4.1` (decision 19); everything else is
+byte-identical, and on a target with no per-case readout so is the state.
+
+**Round 1 is therefore the one-shot control, and it held.** Its phase-A
+state differs from the state in `jev-oneshot-v4.jsonl` by exactly one line
+(the format string), its questions are identical, and **it returned the
+same answer at all twelve sites**.
+
+**(b) A 503 burst cost a round.** Decision 87 recorded a burst exhausting
+all three internal retries on both phases of a repeat; `jev_oneshot.py`
+already re-sent such a request unchanged and `jev_search.py` did not, so a
+phase with no probabilities would go out all-`KEEP_DEFAULT` and
+`forced_top1` could not rescue it either. `JevProposer.choose` now does
+what the one-shot harness does. **It fired on rounds 1 and 2 of the Jev
+run** --- six of the twelve requests carried at least one 503 --- so
+without it round 1 would not have been the control above.
+
+### 130. Jev, with feedback: 2 rounds accepted, +6.8%, 77% of the oracle combination
+
+| round | hints | ratio | 95% CI | confirm | accepted | exact/family/miss | harmful |
+|---|---|--:|---|---|---|---|--:|
+| 1 | k2 `inline(always)`, k6 `inline(always)`, k4 loop **`width=16`**, k5 loop `width=8`, k8 loop `width=8` | **0.9931** | [0.9905, 0.9957] | 0.9903 | no | 7 / 1 / 4 | **2** |
+| 2 | k2 `inline(always)`, k6 `inline(always)`, k8 loop `width=8` | **1.0628** | [1.0590, 1.0660] | 1.0656 | **yes** | 9 / 1 / 2 | 0 |
+| 3 | the same | 1.0636 | [1.0614, 1.0659] | 1.0665 | no | 9 / 1 / 2 | 0 |
+| 4 | the same | 1.0669 | [1.0627, 1.0718] | 1.0672 | no | 9 / 1 / 2 | 0 |
+| 5 | the same | **1.0679** | [1.0644, 1.0715] | 1.0663 | **yes** | 9 / 1 / 2 | 0 |
+
+Third batch, best plan: **1.0673 [1.0645, 1.0704]**, A/A 1.0034 ±0.0024,
+MDE 3.34%. Against the combination arm of section 126 (1.0881 training,
+1.0847 on its own third batch), `(plan−1)/(comb−1)` gives **77.1% of the
+oracle combination on training and 79.4% on the third batch.**
+
+Round 1 reproduces decision 87 exactly --- 7 of 12, functions 7/8, loops
+0/4 --- and is the only round that is **slower than the baseline**. The
+three answers the four later rounds still get wrong:
+
+| site | Jev's final pick | truth | what it left or cost |
+|---|---|---|---|
+| `fn:k6_hot_loop` | `inline(always)` | `KEEP_DEFAULT` | 1.0011 at k6, unconfirmed, and **−2.8% at k3** (oracle arm 26) |
+| k3 loop | `KEEP_DEFAULT` | `unroll.count=4` | **+4.4%**, never tried |
+| k8 loop | `vectorize.width=8` | `vectorize.width=16` | the baseline's own width; **+8.8%**, never tried |
+
+Everything else is exact, including `inline(always)` at `k2_mix` --- the
++67.8% of section 123 --- in all five rounds.
+
+### 131. Random, same everything, seeded: nothing accepted, 0% of the combination
+
+| round | ratio | 95% CI | confirm | accepted | exact/family/miss | harmful |
+|---|--:|---|---|---|---|--:|
+| 1 | **0.9415** | [0.9387, 0.9442] | 0.9332 | no | 2 / 1 / 8 | 1 |
+| 2 | 0.9947 | [0.9918, 0.9975] | 0.9968 | no | 0 / 0 / 12 | 2 |
+| 3 | 0.9990 | [0.9954, 1.0024] | not triggered | no | 2 / 0 / 10 | 0 |
+| 4 | **0.7087** | [0.7067, 0.7106] | 0.6999 | no | 0 / 0 / 12 | **2** |
+| 5 | 0.9952 | [0.9926, 0.9975] | 0.9954 | no | 2 / 0 / 9 | 0 |
+
+**No round beat the baseline**, so there is no best plan and the third
+batch is the run's null arm: 0.9990 [0.9970, 1.0013], A/A 1.0012, MDE
+3.81%. Random reached **0% of the oracle combination** on both batches.
+Over 58 site-answers: 6 exact, 1 same-family, 51 miss, **5 harmful**. All
+six exact answers are `KEEP_DEFAULT` where the truth is `KEEP_DEFAULT`.
+**In 58 draws it found none of the three hints that can make this
+benchmark faster.** Its worst round cost 29% and its worst case 80% (k4
+`vectorize.width=2`, 0.2031) --- correct programs, stopped by the speed
+gate.
+
+Rounds 1 and 5 asked eleven sites, not twelve: random put `inline(never)`
+on `k4_count_bytes`, which changes the inlining the k4 loop lives in, so
+its key does not come back from the phase-A dump. Recorded as
+`n_loop_sites: 3`, nothing failed, and an unasked site is not scored.
+
+### 132. The feedback removed the harmful picks in one round, and discovered nothing
+
+`P` of the named candidate, per round, from the raw responses in
+`exp4-jev/jev-v4-r5.jsonl`:
+
+| site | candidate | r1 | r2 | r3 | r4 | r5 |
+|---|---|--:|--:|--:|--:|--:|
+| k4 loop | `vectorize_width_16` | **0.88** | 0.28 | 0.07 | 0.13 | **0.12** |
+| k5 loop | `vectorize_width_8` | **0.58** | 0.37 | 0.03 | 0.10 | **0.08** |
+| k8 loop | `vectorize_width_8` | 0.60 | 0.56 | 0.85 | 0.81 | **0.79** |
+| k8 loop | `vectorize_width_16` | 0.01 | 0.02 | 0.00 | 0.00 | **0.00** |
+| k3 loop | `unroll_count_4` | 0.15 | 0.15 | 0.09 | 0.10 | **0.13** |
+| `k2_mix` fn | `inline_always` | 0.75 | 0.88 | 0.95 | 0.96 | **0.91** |
+| `k6_hot_loop` fn | `inline_always` | 0.76 | 0.79 | 0.56 | 0.59 | **0.62** |
+
+Round 2's state said this at the k4 loop, and nothing else there changed:
+
+```
+  what earlier rounds chose here:
+    round 1: vectorize.width=16 -> whole-build ratio 0.9931; on case k4, the
+    one case this site's own code is timed by, 0.5813 with 95% CI [0.5797,
+    0.5830] (not accepted)
+```
+
+`P(width=16)` fell 0.88 → 0.28 and the argmax moved to `KEEP_DEFAULT`; by
+round 3, with a second line recording that `KEEP_DEFAULT` returned k4 to
+1.0002 and was accepted, it was 0.07 and never returned. The other harmful
+pick went the same way (k5, 0.58 → 0.08), and the one that worked was
+reinforced (k2, 0.75 → 0.91--0.96).
+
+**It discovered nothing.** k3 to `unroll.count=4`: 0.15 → 0.13, flat. k8 to
+`width=16`: 0.01 → 0.00, and `width=8` --- the width already in force ---
+*rose* to 0.79. The feedback can only speak about hints that were tried:
+no state ever said what `unroll.count=4` would be worth, because no round
+tried it, and "k8 1.005, not accepted" reads as "width 8 is harmless", not
+as "try something else". The driver's only exploration mechanism,
+`forced_top1`, fires only when a phase is entirely `KEEP_DEFAULT`, and
+`k2_mix` alone kept phase A non-empty in all five rounds.
+
+So the shape of the result is: **feedback is a good filter and not a
+search.** It removed both harmful picks and both null ones in a single
+round and then converged, at 77% of what the exhaustive sweep found, onto
+the one hint the one-shot had already got right.
+
+### 133. The acceptance rule promoted the same binary twice
+
+Rounds 2, 3, 4 and 5 of the Jev run are the **identical binary**
+(`bb18ceb4...`), measured in four independent batches: 1.0628, 1.0636,
+1.0669, 1.0679 --- a 0.51-point spread. Round 5 was accepted "as the new
+best" over round 2 because 1.0644 > 1.0628.
+
+Rule 3 compares an interval against the incumbent's *point estimate* and
+rule 4 only asks that the interval exclude 1, which it does for a plan that
+really is +6.7%; **neither asks whether the new plan differs from the
+incumbent.** It cost nothing here --- the plan is the same plan --- but on
+a run where two different plans sit inside the batch-to-batch spread this
+promotes the luckier batch, which is the jaq failure of decision 80 (a) in
+a form the confirmation batch does not cover. It was **not** fixed during
+the experiment: changing the rule mid-run would have changed the rule the
+two runs were measured under.
+
+Those four batches are also a free null panel on one pair: spread 0.51 pt,
+and the in-run A/A across the ten rounds of both runs ran 0.9982--1.0020 at
+half-widths 0.0016--0.0044. Quieter than jaq's 4.67 pt (section 113), in
+line with `oracle.md` 3.
+
+### 134. Two things the per-case readout cannot do
+
+* **It cannot separate two sites that share a case.** k4 has a function
+  site and a loop site and one workload, so after round 1 the *function*
+  site's history line also read "`KEEP_DEFAULT` → on case k4 … 0.5813" ---
+  true, and it attributes the loop's loss to the function's answer. Jev did
+  not take it (`KEEP_DEFAULT` at `k4_count_bytes` held P 0.90--0.97
+  throughout), but the state cannot say which of two sites moved a case,
+  and on a target with more sites per case it would say much less.
+* **It hides a hint's cost elsewhere.** `inline(always)` at `k6_hot_loop`
+  is 1.0011 on k6 and **0.9718 on k3** (oracle arm 26); at `k2_mix` it is
+  1.6775 on k2 and 0.9873 on k3. The oracle's per-kernel readout of section
+  103 scores each arm on its own kernel only, so neither cost was ever
+  scored, and both are inside Jev's accepted plan --- which is why its k3
+  sits at 0.985--0.988 in every accepted round. The readout is still right
+  for *ranking* a one-factor arm; it is not a statement that the arm is
+  free.
+
+One more correction it forces: decision 84 called `vectorize.width=8` at k5
+and k8 "null candidates". The oracle confirmed k5's at **0.9950 with a
+negative sign** in two batches --- under the MDE, but confirmed --- so by
+the "confirmed below 1" definition used here it is a *harmful* pick, not an
+inert one, and Jev's round-1 answer at k5 is counted as such above.

@@ -1,0 +1,61 @@
+[baseline] reusing /home/hiro/prj/jev-optimize/artifacts/hintbench-sites/baseline
+[sites] sites.json caps the loop sweep at 4 of 6 sites
+[state] every mark carries the same profile share (12.50%): reported as `not measured`, no hotness class
+
+=== round 1 (jev) ===
+[A] every answer was `no answer` (the request never got through); re-sending it unchanged
+[A] 2/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 3/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (3 symbols changed, symbol table moved)
+[B] ratio 0.9931  CI [0.9905, 0.9957]  (in-run A/A 1.0001 +-0.0016)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360922
+[B] confirm: ratio 0.9903 CI [0.9884, 0.9922]
+
+=== round 2 (jev) ===
+[A] every answer was `no answer` (the request never got through); re-sending it unchanged
+[A] 2/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 1/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (3 symbols changed, symbol table moved)
+[B] ratio 1.0628  CI [1.0590, 1.0660]  (in-run A/A 0.9982 +-0.0039)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360923
+[B] confirm: ratio 1.0656 CI [1.0629, 1.0683]
+[accept] round 2 is the new best (1.0628)
+
+=== round 3 (jev) ===
+[A] 2/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 1/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (3 symbols changed, symbol table moved)
+[B] ratio 1.0636  CI [1.0614, 1.0659]  (in-run A/A 0.9983 +-0.0024)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360924
+[B] confirm: ratio 1.0665 CI [1.0650, 1.0680]
+
+=== round 4 (jev) ===
+[A] 2/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 1/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (3 symbols changed, symbol table moved)
+[B] ratio 1.0669  CI [1.0627, 1.0718]  (in-run A/A 1.0019 +-0.0044)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360925
+[B] confirm: ratio 1.0672 CI [1.0647, 1.0695]
+
+=== round 5 (jev) ===
+[A] 2/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 1/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (3 symbols changed, symbol table moved)
+[B] ratio 1.0679  CI [1.0644, 1.0715]  (in-run A/A 1.0020 +-0.0030)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360926
+[B] confirm: ratio 1.0663 CI [1.0642, 1.0689]
+[accept] round 5 is the new best (1.0679)
+[holdout] measuring round-05 on holdout
+[holdout] ratio 1.0673 CI [1.0645, 1.0704]
+
+wrote /home/hiro/prj/jev-optimize/artifacts/hintbench-search/jev-v4-r5/summary.md

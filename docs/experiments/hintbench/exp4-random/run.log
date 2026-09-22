@@ -1,0 +1,56 @@
+[baseline] reusing /home/hiro/prj/jev-optimize/artifacts/hintbench-sites/baseline
+[sites] sites.json caps the loop sweep at 4 of 6 sites
+[state] every mark carries the same profile share (12.50%): reported as `not measured`, no hotness class
+
+=== round 1 (random) ===
+[A] 6/8 functions hinted, build knobs none
+[A] refreshed loop sites: 3
+[B] 3/3 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (2 symbols changed, symbol table moved)
+[B] ratio 0.9415  CI [0.9387, 0.9442]  (in-run A/A 1.0015 +-0.0026)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360922
+[B] confirm: ratio 0.9332 CI [0.9301, 0.9358]
+
+=== round 2 (random) ===
+[A] 8/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 4/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (2 symbols changed, symbol table moved)
+[B] ratio 0.9947  CI [0.9918, 0.9975]  (in-run A/A 0.9999 +-0.0030)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360923
+[B] confirm: ratio 0.9968 CI [0.9940, 0.9995]
+
+=== round 3 (random) ===
+[A] 6/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 4/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (2 symbols changed, symbol table moved)
+[B] ratio 0.9990  CI [0.9954, 1.0024]  (in-run A/A 0.9995 +-0.0020)
+
+=== round 4 (random) ===
+[A] 8/8 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 4/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.7087  CI [0.7067, 0.7106]  (in-run A/A 1.0010 +-0.0024)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360925
+[B] confirm: ratio 0.6999 CI [0.6984, 0.7014]
+
+=== round 5 (random) ===
+[A] 6/8 functions hinted, build knobs none
+[A] refreshed loop sites: 3
+[B] 3/3 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (2 symbols changed, symbol table moved)
+[B] ratio 0.9952  CI [0.9926, 0.9975]  (in-run A/A 0.9996 +-0.0026)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360926
+[B] confirm: ratio 0.9954 CI [0.9927, 0.9980]
+[holdout] no round beat the baseline; measuring the baseline as the run's null arm (A/A and MDE only)
+[holdout] measuring baseline on holdout
+[holdout] ratio 0.9990 CI [0.9970, 1.0013]
+
+wrote /home/hiro/prj/jev-optimize/artifacts/hintbench-search/random-r5/summary.md

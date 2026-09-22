@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "plan_id": "r5-b",
+  "vocab_version": "v4-2026-09-22",
+  "basis": "5a757994344e95a669bd48a64ed3c22bff1e23266577d4dd9d5b3996934b16c6",
+  "fn_attrs": [
+    {
+      "fn": "_RNvCsdFj6sTOVq6u_9hbkernels11k6_hot_loop",
+      "inline": "always",
+      "jev_site_id": "fn:hbkernels::k6_hot_loop",
+      "jev_choice": "inline_always",
+      "jev_readout": "argmax",
+      "answer_ref": "jev-v4-r5.jsonl#11"
+    },
+    {
+      "fn": "_RNvCsdFj6sTOVq6u_9hbkernels6k2_mix",
+      "inline": "always",
+      "jev_site_id": "fn:hbkernels::k2_mix",
+      "jev_choice": "inline_always",
+      "jev_readout": "argmax",
+      "answer_ref": "jev-v4-r5.jsonl#11"
+    }
+  ],
+  "loop_md": [
+    {
+      "key": "9e9ba3f36ca98757-spec_next-range.rs-1103",
+      "stage": "lto",
+      "vectorize_width": 8,
+      "jev_site_id": "hbkernels::k8_scale_add@range.rs:1103:12#d2",
+      "jev_choice": "vectorize_width_8",
+      "jev_readout": "argmax",
+      "answer_ref": "jev-v4-r5.jsonl#12"
+    }
+  ]
+}
