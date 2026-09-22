@@ -284,7 +284,7 @@ only place that number appears.
 
 ### v2 is frozen
 
-`v2-2026-09-22` / `state-v2-2026-09-22` were frozen at commit `%%COMMIT%%`.
+`v2-2026-09-22` / `state-v2-2026-09-22` were frozen at commit `ac94c8a`.
 Changing any of it --- a threshold, a description, the question wording, a
 verdict line --- makes the runs before and after incomparable, exactly as
 decision 19 says, and requires re-running whatever is being compared.
