@@ -10994,3 +10994,434 @@ is where it gets interpreted.
 For future write-ups checking whether driver-added text reached Jev: grep
 `.request.questions[].instructions` in the `.jsonl`, not `.request.state`
 and not the `.log`.
+
+### 157. exp6-both
+
+Command run (the §150 template with the both arm's two flags filled in):
+
+```
+export TARGET=hintbench
+scripts/jev_search.py --target hintbench \
+    --marks targets/hintbench/jev-marks.txt \
+    --sites artifacts/hintbench-sites/sites.json \
+    --site-set oracle.selected_keys_loop_hint_kernels \
+    --proposer jev --rounds 5 --vocab v5 --readout forced_top1 \
+    --source-comments strip --explore 2 --explore-revisit 1 --pv-untried on \
+    -n 15 --warmup 3 \
+    --baseline-dir artifacts/hintbench-sites/baseline \
+    --measure-holdout --out artifacts/hintbench-search/exp6-both
+scripts/bench_panel.sh artifacts/hintbench-search/exp6-both/holdout-batch2 15 3 20260927 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-search/exp6-both/round-04/bin \
+    aa=artifacts/hintbench-sites/baseline/bin
+scripts/hintbench_exp4_score.py run artifacts/hintbench-search/exp6-both
+```
+
+`run-manifest.json`: `exploration.revisit: 1`, `exploration.max_visits: 2`,
+`exploration.revisit_text: "r1"`, `exploration.pv_untried: "on"`,
+`vocab_version: "v5-2026-09-23"`, `state_format: "state-v5.1-2026-09-23"`,
+`baseline_bin_sha256` `07498197…`, matching §150's frozen baseline (byte
+identical to exp6-ctl's, exp6-rev's and exp6-pv's, §152/§153/§155). Wall
+clock: Jev requests span 17:40:33–18:00:33 JST (`jev-log/exp6-both.log`,
+first/last `2026-09-`-prefixed lines); the full run including holdout,
+`wall_s` in `run-manifest.json`, **1659.9 s (27.7 min)**.
+
+**The rounds** (`rounds.jsonl`; `phase_a`/`phase_b.choices` for the picks
+columns; `phase_a`/`phase_b.exploration.pick_detail` for the explored
+column, `kind` and `visit_no` fields; `exp6-both-run.log` for the
+forced/direct wording):
+
+| round | phase A picks | phase B picks | explored this round (new / revisit, visit_no) | ratio | 95% CI | confirm | A/A (in-run) | accepted |
+|---|---|---|---|--:|---|--:|--:|---|
+| 1 | k2, k4, k5, k6 `inline(always)` (k4, k5 via explore) | k4 loop `vectorize.width=16` (`forced_top1`, 1−P(KEEP)=0.510, P(hint)=0.350), k5 loop `unroll.count=8` (explore), k8 loop `interleave.count=1` (explore) | A: k5, k4 fn (new, v1); B: k5, k8 loop (new, v1) | 0.9533 | [0.9321, 0.9689] | 1.0075 [1.0012, 1.0139] | 1.0009 ±0.0033 | no |
+| 2 | k2, k3, k6, k8 `inline(always)` (k8, k3 via explore), k5 `inline(never)` (revisit) | k4 loop `vectorize.width=16` (`forced_top1`, 1−P(KEEP)=0.430, P(hint)=0.170), k3 loop `unroll.count=4` (explore, new), k8 loop `interleave.count=2` (explore, revisit) | A: k8, k3 fn (new, v1); k5 fn (revisit, v2); B: k3 loop (new, v1); k8 loop (revisit, v2) | 1.0020 | [0.9971, 1.0065] | not triggered | 1.0005 ±0.0023 | no |
+| **3** | k1, k2, k6, k7 `inline(always)` (k1, k7 via explore), k4 `inline(never)` (revisit) | k5 loop `interleave.count=1` (revisit), k3 loop `unroll.count=4` (direct pick, P=0.72), k8 loop `KEEP_DEFAULT` | A: k1, k7 fn (new, v1); k4 fn (revisit, v2); B: k5 loop (revisit, v2) | **0.9237** | [0.9216, 0.9261] | 0.9139 [0.9121, 0.9156] | 0.9978 ±0.0027 | no |
+| **4** | k2, k6 `inline(always)`, k8 `inline(never)` (revisit) | k4 loop `interleave.count=1` (revisit), k3 loop `unroll.count=4` (direct pick, P=0.71), k5 loop `KEEP_DEFAULT` | A: k8 fn (revisit, v2); B: k4 loop (revisit, v2) | **1.0754** | [1.0705, 1.0803] | **1.0722** [1.0682, 1.0763] | 1.0013 ±0.0043 | **yes** |
+| 5 | k2, k6 `inline(always)`, k3 `inline(never)` (revisit) | k4 loop `interleave.count=1` (direct pick, P=0.65), k5 loop `KEEP_DEFAULT`, k8 loop `KEEP_DEFAULT` | A: k3 fn (revisit, v2); B: none eligible | 1.0491 | [1.0444, 1.0537] | 1.0482 [1.0446, 1.0518] | 0.9989 ±0.0032 | no |
+
+Every round: output correct, every plan entry applied, no `ambiguous`, no
+`vanished`, no `unmatched` (`rounds.jsonl`, `apply` fields; `exp6-both-run.log`
+prints `[B] correctness: OK` for all five rounds). `exp6-both-run.log` prints
+`[accept]` exactly once: `round 4 is the new best (1.0754)`. Round 2's
+confirmation batch was not triggered (`rounds.jsonl` round 2
+`confirm_trigger: []`, `confirm: null`); rounds 1, 3, 4 and 5 all triggered
+on `aggregate` (`confirm_trigger: ["aggregate"]`).
+
+**Round 3 measured 0.9237 — the cause, per case** (`rounds.jsonl` round 3
+`per_workload`): k5's own-case ratio that round is **0.2680**
+([0.2665, 0.2697]), by far the lowest of the eight (next lowest, k1,
+reads 1.0017); every other case sits within 5% of 1.0000. Round 3's own
+plan touches k5 exactly once: the phase-B revisit at the k5 loop
+(`hbkernels::k5_mul_reduce@macros.rs:180:28#d2`) picked
+`interleave_count_1` this round (P 0.30, table below) — the k5 function
+attribute itself stayed `KEEP_DEFAULT` that round (round 3 `phase_a.choices`),
+so the loop hint is the only round-3 change at k5. (Round 1 had picked
+`unroll_count_8` at this same loop site; round 2's phase-B site set that
+round was k4/k8/k3 only, with no k5-loop entry at all, `exp6-both.jsonl`
+line 7 `site_map` — so round 3's revisit is the loop's first re-ask since
+round 1, not a change from a round-2 value.) The score run's isolated
+(own-kernel) oracle measurement for the round-3 candidate at that site is
+`pick_ratio` **0.2957** [0.2914, 0.3001], flagged `harmful: true`
+(`scripts/hintbench_exp4_score.py run …`, round 3 `scored` entry for
+`hbkernels::k5_mul_reduce@macros.rs:180:28#d2`) — the same order of
+magnitude as round 3's combined 0.2680. `interleave_count_1` at the k5 loop
+is the pick that caused round 3's low ratio.
+
+**Rule-3 mechanism checks for the k8 loop**
+(`hbkernels::k8_scale_add@range.rs:1103:12#d2`), evidence from
+`rounds.jsonl` (`phase_b.exploration.eligible_new`/`.eligible_revisit`/
+`.pick_detail`, `kind`, `visit_no`) and `exp6-both-run.log`'s
+`[B.explore]` lines:
+
+**(a) Was the k8 loop asked at least twice by round 4? PASS.** It is asked
+via explore twice, both before round 4: round 1 as `kind: "new"`,
+`visit_no: 1` (`exp6-both-run.log` line 8: `[B.explore]
+hbkernels::k8_scale_add @ range.rs:1103: nothing has been tried here;
+trying interleave.count=1`) and round 2 as `kind: "revisit"`,
+`visit_no: 2` (line: `[B.explore] hbkernels::k8_scale_add @ range.rs:1103:
+revisit 2, tried here so far interleave.count=1; trying
+interleave.count=2`), which appears in round 2's
+`phase_b.exploration.eligible_revisit` list
+(`{"site_id": "hbkernels::k8_scale_add@range.rs:1103:12#d2", "n_tried": 1,
+"tried": ["interleave_count_1"]}`). This differs from exp6-rev, where the
+same check FAILED (§153) because the k8 loop's own argmax answer never
+returned to `KEEP_DEFAULT` in a later round there; in exp6-both, round 2's
+own main phase-B argmax at this site *is* `KEEP_DEFAULT`
+(`exp6-both.jsonl` line 7, `q1`, `choice: "KEEP_DEFAULT"`, confidence
+0.57, `probabilities.KEEP_DEFAULT: 0.61`), which is what makes it eligible
+for that same round's revisit explore sub-request. With `max_visits: 2`
+spent by round 2, the k8 loop no longer appears in any round's
+`eligible_revisit` list from round 3 onward (round 3's list holds only the
+k5 loop, round 4's only the k4 loop, round 5's is empty); it is still
+asked as an ordinary (non-explore) main-phase-B question in rounds 3 and 5
+(answered `KEEP_DEFAULT` both times) and dropped from the phase-B site set
+entirely in round 4 (`rounds.jsonl` round 4 `phase_b.choices` has no
+k8-loop key; `site_map` for that request lists only the k5, k4 and k3
+loops). The pattern is the same every round a function gets
+`inline(never)` in phase A: that kernel's loop site is absent from phase
+B's site set that same round (`[A] refreshed loop sites: 3`, down from 4)
+— round 2's k5 `inline(never)` drops the k5 loop from round 2's phase B
+(line 7 `site_map`: k4, k8, k3 only); round 3's k4 `inline(never)` drops
+the k4 loop (line 11: k5, k8, k3); round 4's k8 `inline(never)` drops the
+k8 loop (line 15: k5, k4, k3, as cited above); round 5's k3 `inline(never)`
+drops the k3 loop (line 19: k5, k4, k8). This is why round 4's phase-B
+request never asks about the k8 loop, and it is also why the score (below)
+scores only 11 of 12 sites that round.
+
+**(b) Was `vectorize.width=16` chosen at k8 in any round? FAIL.** The
+k8-loop answers across the run: round 1 explore `interleave_count_1`
+(P 0.24, `vectorize_width_16` P 0.02); round 2 revisit `interleave_count_2`
+(P 0.30, `vectorize_width_16` P 0.08 — up from round 1's 0.02, but still
+not the argmax); round 3 main `KEEP_DEFAULT` (`vectorize_width_16` P 0);
+round 4 not asked; round 5 main `KEEP_DEFAULT` (`vectorize_width_16`
+P 0.01). `vectorize_width_16` is never the chosen candidate at this site
+in this run.
+
+**(c) Is it kept in the final plan? FAIL (moot, since (b) never fired).**
+`best-plan.json`'s `loop_md` has no entry at all for
+`hbkernels::k8_scale_add@range.rs:1103:12#d2` (i.e. it stands at
+`KEEP_DEFAULT` in the accepted round-4 plan), not `vectorize_width_16`.
+
+**Every revisit question asked** (`kind: "revisit"` in `pick_detail`; site,
+round, candidates offered, pick, P; and what happened to its round):
+
+| round | phase | site | tried before | candidates offered | pick | P | round accepted? | in final plan? |
+|---|---|---|---|---|---|--:|---|---|
+| 2 | A | `fn:hbkernels::k5_mul_reduce` | `inline_always` | `inline_never` (1) | `inline_never` | 1.00 | no (ratio 1.0020) | no |
+| 2 | B | `hbkernels::k8_scale_add@range.rs:1103:12#d2` | `interleave_count_1` | `unroll_count_2/4/8`, `vectorize_width_2/4/8/16`, `interleave_count_2/4` (9) | `interleave_count_2` | 0.30 | no (ratio 1.0020) | no |
+| 3 | A | `fn:hbkernels::k4_count_bytes` | `inline_always` | `inline_never` (1) | `inline_never` | 1.00 | no (ratio 0.9237) | no |
+| 3 | B | `hbkernels::k5_mul_reduce@macros.rs:180:28#d2` | `unroll_count_8` | `unroll_count_2/4`, `vectorize_width_2/4/8/16`, `interleave_count_1/2/4` (9) | `interleave_count_1` | 0.30 | no (ratio 0.9237) | no |
+| **4** | A | `fn:hbkernels::k8_scale_add` | `inline_always` | `inline_never` (1) | `inline_never` | 1.00 | **yes** | **yes** (`k8_scale_add: inline(never)`) |
+| **4** | B | `hbkernels::k4_count_bytes@macros.rs:180:28#d2` | `vectorize_width_16` | `unroll_count_2/4/8`, `vectorize_width_2/4/8`, `interleave_count_1/2/4` (9) | `interleave_count_1` | 0.32 | **yes** | **yes** (`k4 loop: interleave.count=1`) |
+| 5 | A | `fn:hbkernels::k3_fill_run` | `inline_always` | `inline_never` (1) | `inline_never` | 1.00 | no (ratio 1.0491) | no |
+
+Seven revisit questions total: four function-attribute revisits (2-way
+vocabulary, P trivially 1.00 once the first value is excluded) and three
+loop revisits (real rankings over 9 remaining candidates). Only round 4's
+two revisits — `k8_scale_add: inline(never)` and `k4 loop:
+interleave.count=1` — landed in the accepted, final plan; round 2's and
+round 3's revisits (including the k8-loop one) belong to rounds that were
+never accepted and so do not appear in `best-plan.json`.
+
+**Best plan (round 4), per case** (`rounds.jsonl` round 4 `per_workload`):
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| ratio | 0.9984 | **1.6953** | 1.0437 | 0.9915 | 0.9986 | 1.0004 | 0.9974 | 1.0008 |
+
+Plan (`best-plan.json`, `plan_id: "r4-b"`): k6, k2 fn `inline(always)`
+(`jev_readout: argmax`, `answer_ref exp6-both.jsonl#13`); k8 fn
+`inline(never)` (`jev_readout: exploration`, `exploration: true`, `#14`);
+k3 loop `unroll.count=4` (`jev_readout: argmax`, `#15`); k4 loop
+`interleave.count=1` (`jev_readout: exploration`, `exploration: true`,
+`#16`). No entry for k5 loop or k8 loop (both stand at `KEEP_DEFAULT`).
+Basis sha256 `c40acc8b…`.
+
+**Holdout**: ratio **1.0725**, 95% CI [1.0694, 1.0754], in-run A/A 0.9999
+±0.0029, MDE 0.0389 (`run-manifest.json` `holdout` block; `exp6-both-run.log`
+`[holdout] ratio 1.0725 CI [1.0694, 1.0754]`, measured once on round 4
+after it was frozen as best).
+
+**Batch 2** (`artifacts/hintbench-search/exp6-both-holdout-batch2.log`,
+`artifacts/hintbench-search/exp6-both/holdout-batch2/stats.json`, seed
+20260927, produced while this write-up started, finished before it did):
+
+| label | aggregate ratio (geomean) | 95% CI | half-width |
+|---|--:|---|--:|
+| base | 1.0000 | [1.0000, 1.0000] | 0.00% |
+| aa | **1.0010** | [0.9986, 1.0036] | 0.25% |
+| cand | 1.0769 | [1.0726, 1.0810] | 0.42% |
+
+Per case, cand vs aa (`holdout-batch2/stats.json` `per_workload`):
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| cand | 1.0061 | **1.6974** | 1.0488 | 0.9974 | 1.0030 | 1.0000 | 1.0019 | 1.0072 |
+| aa | 1.0019 | 0.9984 | 0.9978 | 1.0013 | 1.0018 | 0.9974 | 0.9989 | 1.0107 |
+
+**The ±0.5% rule (§151 rule 1) held on the first attempt, unlike
+exp6-ctl's, exp6-rev's and exp6-pv's original batch 2 (§152/§153/§155).**
+The A/A leg reads 1.0010, a +0.10% deviation, 95% CI [0.9986, 1.0036]
+including 1.0000, half-width 0.25%; no per-case outlier appears at k5 or
+k8 this time (`aa`/k5 1.0018, `aa`/k8 1.0107, both within 1.1% of 1). Per
+§151 rule 1's ±0.5% check, exp6-both's batch 2 does not owe a retake
+(confirmed by the retake chain's own check, `abs(aa_ratio − 1) <= 0.005`
+in `chain-retakes.sh`: `chain-retakes.log`, `[retake] … exp6-both batch2
+A/A ok, no retake`, §158). `cand`'s number (1.0769) is usable as
+confirmed without a retake.
+
+**Gateway** (`run-manifest.json` `gateway.attempts_by_phase`; per-phase
+seconds waiting summed from each request's `seconds_waiting` in
+`jev-log/exp6-both.jsonl`, which foot to the manifest's total):
+
+| phase | requests | attempts | landed | mean body bytes | seconds waiting |
+|---|--:|--:|--:|--:|--:|
+| A | 5 | 14 | 5 | 71081.6 | 18.226 |
+| B | 5 | 11 | 5 | 41241.0 | 12.555 |
+| explore | 9 | 13 | 9 | 21339.4 | 8.001 |
+| **total** | **19** | **38** | **19** | — | **38.783** |
+
+`lost_phases: 0`, `lost_rounds: 0` (`run-manifest.json`) — **0 of 19
+requests lost** (10 phase requests A+B ×5 rounds, 9 explore requests:
+`A.explore`+`B.explore` fired every round except round 5, which had no
+`B.explore` since nothing was eligible that phase). Rule 5's threshold
+(>2 of 10 phase requests lost invalidates the arm) is not approached; no
+re-run under `-b` is needed. `exp6-both-run.log`/`jev-log/exp6-both.jsonl`
+show every 503 absorbed by the round's own resend/backoff (up to 5
+attempts, round 2 `B.explore`, `n_attempts: 5`, 8.001 s) inside the 600 s
+wall budget.
+
+**Rule-4 mechanism check (pv-untried line, corrected reading per §156).**
+Grepping `state` or the `.log` finds nothing, as expected (§156); the
+sentence lives in `request.questions[*].instructions`:
+
+```
+$ grep -c "cost model picked" artifacts/hintbench-search/exp6-both/jev-log/exp6-both.jsonl
+9
+$ grep -c "cost model picked" artifacts/hintbench-search/exp6-both/jev-log/exp6-both.log
+0
+$ jq -r '.request.questions[]?.instructions' artifacts/hintbench-search/exp6-both/jev-log/exp6-both.jsonl \
+    | grep -c "cost model picked"
+34
+```
+
+9 requests carry the sentence at least once; 34 is the total copy count
+(one copy per vectorized-loop metric per question — width and interleave
+— matching §156's pv count exactly, 34, though pv's requests-with-the-phrase
+count was 6 against both's 9, since both's revisit mechanism sends extra
+`B.explore` requests pv's arm does not). Per round/phase, via
+`jq -r '[.round, .phase, (.request.questions[]?.instructions // "" | [scan("cost model picked")] | length)]'`:
+round 1 B: 6, B.explore: 4; round 2 B: 4, B.explore: 2; round 3 B: 4,
+B.explore: 2; round 4 B: 4, B.explore: 2; round 5 B: 6 (no B.explore that
+round) — 10+6+6+6+6 = 34, matching the flat count.
+
+**At k8, round 1's phase-B answers** (the request the task asks about;
+`jev-log/exp6-both.jsonl` line 3 is the main, non-explore phase-B request,
+line 4 is `B.explore`, the request whose answer the driver actually
+applies at k8 since it was newly eligible for exploration that round):
+
+* **Main phase (q2, line 3, site `hbkernels::k8_scale_add@range.rs:1103:12#d2`)**:
+  `choice: "KEEP_DEFAULT"`, confidence 0.74, `probabilities.vectorize_width_16: 0.00`
+  (`KEEP_DEFAULT` 0.75). The question's `instructions` for this site
+  carries the plugin's own per-loop fact ("LLVM vectorized it, with
+  vectors of 8 lanes, interleaved 4 times") plus the untried-line sentence
+  ("8 is the width LLVM's cost model picked for this loop with no hint …
+  Vocabulary values other than 8 not yet tried here: 2, 4, 16").
+* **Exploration sub-request (e1, line 4)**: `choice: "interleave_count_1"`,
+  confidence 0.16, **`probabilities.vectorize_width_16: 0.02`**.
+
+**P(vectorize_width_16) at k8, round 1, the exploration request that is
+actually applied — the number to compare across arms**: exp6-both
+**0.02**, matching exp6-pv's **0.02** exactly (§155/§156) to two decimals;
+against exp6-ctl's **0.01** (§152) and Exp5's **0.01** (§145) — both of
+which ran with `--pv-untried off`, i.e. state format
+`state-v5.0-2026-09-23`, no untried-line sentence. This is consistent with
+§156's reading: the untried line reached Jev in both exp6-pv and
+exp6-both, and in both arms the sampled P at k8 came out around 0.02 (one
+hundredth above the `off`-arms' 0.01), never enough to move the argmax
+away from the harmful/near-neutral non-`KEEP_DEFAULT` candidate the model
+actually picked at that request.
+
+**Score** (`scripts/hintbench_exp4_score.py run artifacts/hintbench-search/exp6-both`,
+context per §151 rule 7, not headline):
+
+| round | exact | same-family | miss | harmful | ratio | share of the combination (training) |
+|---|--:|--:|--:|--:|--:|--:|
+| 1 | 5 | 0 | 7 | 2 | 0.9533 | −53.06% |
+| 2 | 5 | 0 | 6 | 3 | 1.0020 | 2.30% |
+| 3 | 5 | 0 | 6 | 1 | 0.9237 | −86.58% |
+| **4** | **8** | **0** | **3** | **1** | **1.0754** | **85.61%** |
+| 5 | 7 | 0 | 4 | 2 | 1.0491 | 55.73% |
+
+Combination's own training ratio, for scale: **1.0881** (`combination_training`
+in the score output, identical to exp6-ctl's, exp6-rev's and exp6-pv's,
+§152/§153/§155). Round 4's request that round did not ask about the k8
+loop (dropped from the phase-B site set, per the rule-3(a) evidence
+above), so only 11 of the 12 sites are scored that round (8 function +
+3 loop), not 12; the k8-loop truth (`vectorize_width_16`, the +8.8%) is
+absent from round 4's tally rather than counted a miss. Round 4's
+(accepted) three misses are `inline(always)` at k6 and `inline(never)` at
+k8 (truth `KEEP_DEFAULT` at both, function attrs) and `interleave.count=1`
+at the k4 loop (truth `KEEP_DEFAULT`, the one `harmful` entry, own-kernel
+`pick_ratio` 0.7301 [0.7266, 0.7349] — though this round's actual combined
+per-case k4 ratio was 0.9915, not harmful in the full plan's context, the
+same pattern exp6-ctl's round 1 showed for its own harmful pick, §152). No
+same-family picks appear in any round of this arm (matching exp6-pv,
+§155, and unlike exp6-ctl and exp6-rev which each had one).
+
+**What this arm establishes (§151 rule 2, both − ctl and the interaction
+on the headline).** Against exp6-ctl (§152: training 1.0742, confirm
+1.0776, holdout 1.0735), exp6-rev (§153: training 1.0780, confirm 1.1082,
+holdout 1.0812 — confirm and batch 2 there are suspect pending the retake
+in §158, but rev's pre-registered *headline* is its training/confirm/
+holdout triple as recorded in §153) and exp6-pv (§155: training 1.0518,
+confirm 1.0598, holdout 1.0525):
+
+| metric | exp6-ctl | exp6-both | both − ctl (points) | exceeds 0.5 pt noise bar? |
+|---|--:|--:|--:|---|
+| training (best round) | 1.0742 | 1.0754 | +0.12 | no |
+| confirm | 1.0776 | 1.0722 | −0.54 | yes |
+| holdout | 1.0735 | 1.0725 | −0.10 | no |
+
+| metric | interaction: both − rev − pv + ctl (points) | exceeds 0.5 pt noise bar? |
+|---|--:|---|
+| training | +1.98 | yes |
+| confirm | −1.82 | yes |
+| holdout | +1.23 | yes |
+
+(Arithmetic: training 1.0754 − 1.0780 − 1.0518 + 1.0742 = 1.0198 → +1.98
+pt; confirm 1.0722 − 1.1082 − 1.0598 + 1.0776 = 0.9818 → −1.82 pt; holdout
+1.0725 − 1.0812 − 1.0525 + 1.0735 = 1.0123 → +1.23 pt.)
+
+both − ctl sits within the 0.5 pt noise bar on training and holdout
+(+0.12, −0.10) and just outside it on confirm (−0.54, negative — both's
+confirm reads lower than ctl's). The interaction term is outside the bar
+on all three readouts, alternating sign (+1.98 training, −1.82 confirm,
++1.23 holdout) — i.e. it is large relative to the 0.5 pt bar but not
+consistent in direction across training/confirm/holdout, so it does not
+read as one stable interaction effect on this evidence. Rule 3's checks
+above establish that, mechanically, the revisit budget in this run did
+reach the k8 loop a second time (unlike exp6-rev, where it never did) but
+still never picked `vectorize_width_16` there, and rule 4's check
+establishes that the untried-line sentence reached Jev in this arm (as it
+did in exp6-pv, sharing the same 0.02 sampled P at k8) without moving the
+pick toward `vectorize_width_16` either. Neither single-run headline
+difference in this section is attributable to either mechanism doing what
+it was designed to do at the k8 loop.
+
+### 158. Batch-2 retakes (rev, and pv/both where owed)
+
+Per §151 rule 1, run by the owner's retake chain
+(`chain-retakes.sh`; durable logs
+`artifacts/hintbench-search/exp6-rev-holdout-batch2b.log` and
+`artifacts/hintbench-search/exp6-pv-holdout-batch2b.log`, the script's own
+`$A/$1-$2.log` redirect; chain-level log
+`/tmp/claude-1000/-home-hiro-prj-jev-optimize/25288dc0-eddf-42fc-99a6-132754ad8c1b/scratchpad/chain-retakes.log`,
+session-scoped, cited below only for the pass/fail lines it prints):
+exp6-rev's batch 2 (§153) is owed a retake unconditionally (it was never
+retaken in this write-up's scope, §153); exp6-pv's and exp6-both's are
+retaken only if their original batch-2 A/A fell outside ±0.5%. The chain's
+own check (`aa_ok()` in `chain-retakes.sh`, `abs(aa_ratio − 1) <= 0.005`)
+ran against each arm's *original* `holdout-batch2/stats.json`:
+
+* **exp6-rev**: not checked by `aa_ok` (retaken unconditionally, per the
+  task's instruction); original batch-2 `aa` was 0.9864 (§153), well
+  outside ±0.5%.
+* **exp6-pv**: original batch-2 `aa` was 0.9846 (§155), outside ±0.5% →
+  retaken (`chain-retakes.log`: `[retake] … exp6-pv batch2 A/A outside
+  rule -> retake`).
+* **exp6-both**: original batch-2 `aa` was 1.0010 (§157), inside ±0.5% →
+  **not retaken** (`chain-retakes.log`: `[retake] … exp6-both batch2 A/A
+  ok, no retake`).
+
+Commands (both into `holdout-batch2b/`, on each arm's own best round's
+binary, `chain-retakes.sh`'s `best()`/`panel()`):
+
+```
+scripts/bench_panel.sh artifacts/hintbench-search/exp6-rev/holdout-batch2b 15 3 20260927 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-search/exp6-rev/round-03/bin \
+    aa=artifacts/hintbench-sites/baseline/bin
+scripts/bench_panel.sh artifacts/hintbench-search/exp6-pv/holdout-batch2b 15 3 20260927 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-search/exp6-pv/round-02/bin \
+    aa=artifacts/hintbench-sites/baseline/bin
+```
+
+**exp6-rev retake** (`artifacts/hintbench-search/exp6-rev-holdout-batch2b.log`, `artifacts/hintbench-search/exp6-rev/holdout-batch2b/stats.json`):
+
+| label | aggregate ratio (geomean) | 95% CI | half-width |
+|---|--:|---|--:|
+| base | 1.0000 | [1.0000, 1.0000] | 0.00% |
+| aa | **1.0012** | [0.9983, 1.0041] | 0.29% |
+| cand | 1.1107 | [1.1077, 1.1137] | 0.30% |
+
+Per case, cand vs aa:
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| cand | 1.0015 | **1.6981** | 1.0396 | 1.0079 | **1.2879** | 0.9997 | 1.0092 | 1.0007 |
+| aa | 0.9997 | 1.0014 | 1.0002 | 0.9981 | 1.0020 | 1.0002 | 1.0072 | 1.0008 |
+
+**Rule held.** The A/A leg reads 1.0012, a +0.12% deviation, 95% CI
+[0.9983, 1.0041] including 1.0000, half-width 0.29% — unlike the original
+batch (§153, `aa` 0.9864, −1.36%, CI excluding 1.0000), no per-case outlier
+appears at k5 or k8 (`aa`/k5 1.0020, `aa`/k8 1.0008, both within 0.21% of
+1); every case sits within 0.72% of 1.0000 (worst: k7, 1.0072). `cand`
+reads 1.1107 [1.1077, 1.1137], close to but above §153's original batch-2
+cand (1.1083) and its training/confirm (1.0780/1.1082); it is now usable
+as confirmed. exp6-rev's earlier reported holdout (1.0812) and headline
+table (§153) stay as written; this section adds the retake only.
+
+**exp6-pv retake** (`artifacts/hintbench-search/exp6-pv-holdout-batch2b.log`, `artifacts/hintbench-search/exp6-pv/holdout-batch2b/stats.json`):
+
+| label | aggregate ratio (geomean) | 95% CI | half-width |
+|---|--:|---|--:|
+| base | 1.0000 | [1.0000, 1.0000] | 0.00% |
+| aa | **0.9864** | [0.9839, 0.9893] | 0.27% |
+| cand | 1.0661 | [1.0565, 1.0749] | 0.92% |
+
+Per case, cand vs aa:
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| cand | 1.0030 | **1.6941** | 1.0524 | 1.0021 | 0.9997 | 0.9979 | 1.0042 | **0.9298** |
+| aa | 1.0022 | 0.9958 | 1.0034 | 1.0042 | **0.9150** | 0.9983 | 0.9955 | **0.9802** |
+
+**Rule still did not hold on the retake.** The A/A leg reads 0.9864, a
+−1.36% deviation, 95% CI [0.9839, 0.9893] excluding 1.0000 — essentially
+unchanged from the original batch (§155, `aa` 0.9846, −1.54%). The same
+two cases deviate in the same direction: `aa`/k5 0.9150 (−8.50%, original
+0.9236) and `aa`/k8 0.9802 (−1.98%, original 0.9652), while the other six
+cases deviate at most 0.46% (k4). Per §151 rule 1 a batch is retaken
+*once*; both readings are now reported (original in §155, this retake
+here) and neither is treated as a clean confirmation — `cand`'s number
+from either batch (1.0551 original, 1.0661 this retake) is not to be used
+as a confirmed headline figure.
+
+**exp6-both: not retaken.** §157's own batch-2 `aa` (1.0010, [0.9986,
+1.0036], half-width 0.25%) was inside ±0.5% on the first attempt, so
+`chain-retakes.sh` skipped it (`chain-retakes.log`: `[retake] … exp6-both
+batch2 A/A ok, no retake`); no `holdout-batch2b/` directory exists for
+exp6-both. §157's batch-2 `cand` (1.0769) stands as confirmed without a
+retake.

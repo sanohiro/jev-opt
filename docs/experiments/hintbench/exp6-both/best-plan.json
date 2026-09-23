@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "plan_id": "r4-b",
+  "vocab_version": "v5-2026-09-23",
+  "basis": "c40acc8bf6430f115f73e90ad0cc8b9f341a2c70d6faa7f15bef7469d3c4bb95",
+  "fn_attrs": [
+    {
+      "fn": "_RNvCsdFj6sTOVq6u_9hbkernels11k6_hot_loop",
+      "inline": "always",
+      "jev_site_id": "fn:hbkernels::k6_hot_loop",
+      "jev_choice": "inline_always",
+      "jev_readout": "argmax",
+      "answer_ref": "exp6-both.jsonl#13"
+    },
+    {
+      "fn": "_RNvCsdFj6sTOVq6u_9hbkernels12k8_scale_add",
+      "inline": "never",
+      "jev_site_id": "fn:hbkernels::k8_scale_add",
+      "jev_choice": "inline_never",
+      "jev_readout": "exploration",
+      "answer_ref": "exp6-both.jsonl#14",
+      "exploration": true
+    },
+    {
+      "fn": "_RNvCsdFj6sTOVq6u_9hbkernels6k2_mix",
+      "inline": "always",
+      "jev_site_id": "fn:hbkernels::k2_mix",
+      "jev_choice": "inline_always",
+      "jev_readout": "argmax",
+      "answer_ref": "exp6-both.jsonl#13"
+    }
+  ],
+  "loop_md": [
+    {
+      "key": "5acd6025657bd898-next-macros.rs-180",
+      "stage": "lto",
+      "interleave_count": 1,
+      "jev_site_id": "hbkernels::k4_count_bytes@macros.rs:180:28#d2",
+      "jev_choice": "interleave_count_1",
+      "jev_readout": "exploration",
+      "answer_ref": "exp6-both.jsonl#16",
+      "exploration": true
+    },
+    {
+      "key": "ac9e5da87f238a0d-k3_fill_run-lib.rs-174",
+      "stage": "lto",
+      "unroll_count": 4,
+      "jev_site_id": "hbkernels::k3_fill_run@lib.rs:174:9#d3",
+      "jev_choice": "unroll_count_4",
+      "jev_readout": "argmax",
+      "answer_ref": "exp6-both.jsonl#15"
+    }
+  ]
+}
