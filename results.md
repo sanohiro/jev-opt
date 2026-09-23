@@ -11766,8 +11766,8 @@ the `bench_panel.sh` panels.
 This reproduces decision 95's split exactly: the 20 Exp6 round batches and
 4 first holdouts (slow, c96) against the 18 confirm batches and 7 panel base
 legs (fast, c112), and all 4 A/A failures of the "aa k5/k8 slow" shape are
-the 4 panels whose aa leg alone is c96 (lengths 88/87/88 against base
-90/89/90). **Which Exp6 numbers are same-class with the oracle:** the
+the 4 panels whose aa leg alone is c96 (aa lengths 88/88/87/88 against
+base 90/90/89/90: ctl b2, rev b2, pv b2, pv b2b). **Which Exp6 numbers are same-class with the oracle:** the
 training (round) ratios (1.0742 / 1.0780 / 1.0518 / 1.0754) and the first
 holdout ratios — yes (c96). The confirm ratios and every panel
 (holdout-batch2/2b) number — no (c112, or mixed). The headlines are not
@@ -11778,5 +11778,4 @@ c112).
 
 The fix — every label of a timing batch executed from a path of the same
 length, 80 bytes (class 96, the oracle's and every round batch's class) —
-is being implemented in `scripts/bench.py` under decision 97; paths are
-fixed-length names, no content hash is needed.
+is being implemented in `scripts/bench.py` under decision 97.
