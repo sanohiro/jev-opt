@@ -9777,3 +9777,331 @@ Oracle A's holdout showed a **sign reversal** (best arm 0.9909, combination
   between Oracle A and Oracle A2 is not available and is not made: the
   candidate list changed (6 to 5, two of them replaced) and the fan-out
   changed (138 entries to 49).
+
+## Experiment 5 (hintbench): Jev with exploration
+
+Experiment 4 (sections 129--134) established that the feedback works as a
+**filter** and discovers nothing: it dropped both harmful picks in one round
+and never once tried the two hints that could have paid, `unroll.count=4` at
+the k3 loop (+4.4%) and `vectorize.width=16` at the k8 loop (+8.8%). Decision
+90 implemented the four repairs decision 89 asked for. This is the run that
+measures them. The write-up is `docs/experiments/hintbench/exp5.md`; the
+summary, best plan and Jev log are in `docs/experiments/hintbench/exp5-jev/`.
+
+### 143. What was run
+
+```
+scripts/jev_search.py --target hintbench \
+    --marks targets/hintbench/jev-marks.txt \
+    --sites artifacts/hintbench-sites/sites.json \
+    --site-set oracle.selected_keys_loop_hint_kernels \
+    --proposer jev --rounds 5 --vocab v4 --readout forced_top1 \
+    --source-comments strip --explore 2 -n 15 --warmup 3 \
+    --baseline-dir artifacts/hintbench-sites/baseline \
+    --measure-holdout --out artifacts/hintbench-search/jev-v42-r5
+
+export TARGET=hintbench
+scripts/bench_panel.sh \
+    artifacts/hintbench-search/jev-v42-r5/holdout-batch2 15 3 20260927 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-search/jev-v42-r5/round-03/bin \
+    aa=artifacts/hintbench-sites/baseline/bin
+
+scripts/hintbench_exp4_score.py run artifacts/hintbench-search/jev-v42-r5
+```
+
+Everything of `exp4.md` 1.1 is frozen and unchanged --- 8 marks, the same
+site set `oracle.selected_keys_loop_hint_kernels` (8 functions + 4 loops),
+k1..k8, n=15, warmup 3, shuffle seed 20260921 + round, `taskset -c 8`, gap
+0 ms, bootstrap 10000, vocabulary v4, `--source-comments strip`,
+`--readout forced_top1`, no-op skip on. **Three things differ**, and all
+three are the experiment:
+
+1. `--explore 2` (decision 89 b), where Experiment 4 had no such flag;
+2. state format `state-v4.2-2026-09-22` --- decision 89 (c)/(d) plus the
+   plugin's `post_vectorize` facts --- where Experiment 4 sent `state-v4.1`;
+3. acceptance now has a **fifth** condition, "the plan differs from the
+   incumbent's" (decision 89 a).
+
+**The baseline was rebuilt with the new plugin and is the same binary.**
+Decision 90 (a) required it because the old dump carries no `post_vectorize`.
+`.text` sha256 `df5968bc…` is `oracle.md` 1.1's frozen value, the whole
+binary is `07498197…` --- byte-identical to Experiment 4's manifest ---
+`norm_code_diff.py` against the PGO baseline says `IDENTICAL` over 373
+symbols, and `run_correctness` matches line for line. The search therefore
+measures against the same bytes as Experiment 4 and the whole oracle sweep.
+
+**The plugin's post-vectorization facts agree with the oracle's remarks at
+four of four loop sites**, none `ambiguous`: k5, k4 and k8 come back
+`isvectorized: true`, VF 8, IC 4 (`iv_step` 32), matching "vectorized loop
+(vectorization width: 8, interleaved count: 4)"; k3 comes back `false`,
+matching "loop not vectorized". The v4.2 state prints those instead of the
+`UNKNOWN` that v4.1 printed for three of the four.
+
+**One driver change, made before round 1** and recorded in `exp5.md` 1.5:
+`explore_round` got the same unchanged re-send `JevProposer.choose` has had
+since Experiment 4 (`A.explore.retry` / `B.explore.retry`, ten seconds, the
+same request, the exhausted line kept in the JSONL with its `http_status`).
+No request is ever modified to make it succeed. **It never fired** (149).
+
+### 144. The rounds
+
+| round | phase A (functions) | phase B (loops) | explored this round | ratio | 95% CI | confirm | A/A | accepted |
+|---|---|---|---|--:|---|--:|--:|---|
+| 1 | *lost* (503) | k4 `vectorize.width=16` (`forced_top1`), k5 `unroll.count=8`, k8 `unroll.count=2` | A: k5, k4 fn; B: k5, k8 loop | **0.9369** | [0.9340, 0.9400] | 0.9678 | 1.0017 | **no** |
+| 2 | *lost* (503) | k3 `unroll.count=4` | A: k8, k3 fn; B: k3 loop | 1.0079 | [1.0051, 1.0107] | 1.0075 | 1.0025 | **yes** |
+| **3** | k1, k2, k3, k6, k7 `inline(always)` | k3 `unroll.count=4` | A: k1, k7 fn; B: none eligible | **1.0741** | [1.0720, 1.0760] | 1.0740 | 0.9995 | **yes** |
+| 4 | *lost* (503) | k3 `unroll.count=4` | none eligible | 1.0089 | [1.0064, 1.0112] | 1.0060 | 1.0004 | no |
+| 5 | k2, k6 `inline(always)` | *lost* (503) | none eligible | 1.0660 | [1.0637, 1.0682] | 1.0669 | 1.0006 | no |
+
+Every round: output correct, every plan entry applied, no `ambiguous`, no
+`vanished`, no `unmatched`. Per case:
+
+| round | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| 1 | 0.9965 | 1.0050 | 1.0008 | **0.5823** | 1.0176 | 1.0004 | 0.9996 | 0.9992 |
+| 2 | 1.0019 | 1.0068 | **1.0455** | 1.0130 | 1.0015 | 1.0002 | 1.0013 | 0.9937 |
+| **3** | 1.0012 | **1.6691** | **1.0402** | 1.0087 | 0.9997 | 1.0009 | 1.0001 | 1.0100 |
+| 4 | 1.0006 | 1.0044 | **1.0409** | 1.0088 | 0.9984 | 0.9989 | 1.0038 | 1.0156 |
+| 5 | 1.0039 | **1.6764** | 0.9856 | 1.0014 | 0.9946 | 1.0020 | 1.0028 | 1.0040 |
+
+**Round 3 is the best plan: 1.0741, confirmed at 1.0740 in a second
+independent batch.** Its plan is `inline(always)` at k1, k2, k3, k6 and k7
+and `unroll.count=4` at the k3 loop. Round 1's k4 at **0.5823** reproduces
+the oracle's 0.5793 for `vectorize.width=16` there to three digits, and the
+speed gate rejected the round, as it did in Experiment 4.
+
+Round 1 is also where the two mechanisms under test collided, and it is
+`exp5.md` 2.2's finding: the improved state made **every** loop answer
+`KEEP_DEFAULT` (k4 `vectorize.width=16` fell from P 0.88 to 0.36, k8 and k5
+`vectorize.width=8` from P 0.60 and 0.58 to **P 0.01 and 0.00** once the
+state could say "8 is the width LLVM already uses here"), an all-`KEEP`
+phase is exactly the trigger for `forced_top1`, and `forced_top1` then
+applied the phase's top-ranked non-`KEEP` candidate --- the −42% at k4. Two
+mechanisms that are each right on their own composed into a harmful plan,
+and it cost more than the round: a `forced_top1` entry marks the site
+**tried**, so exploration could never reach the k4 loop afterwards.
+
+### 145. Exploration reached both target hints and took one of them
+
+This is what the experiment was built to answer.
+
+| the hint | reached by exploration | offered | Jev's answer | in the final plan |
+|---|---|---|---|---|
+| k3 loop `unroll.count=4`, **+4.4%** | **yes**, round 2 (the only eligible loop left) | 11 untried candidates, no `KEEP_DEFAULT` | **`unroll_count_4`, P 0.31** over `unroll_disable` 0.28 | **yes** |
+| k8 loop `vectorize.width=16`, **+8.8%** | **yes**, round 1 | 11 untried candidates, no `KEEP_DEFAULT` | `unroll_count_2` P 0.32; **`vectorize_width_16` ranked 11th of 11 at P 0.01** | no |
+
+**One of two.** At k3 the answer was right and the margin was thin (0.31
+against 0.28 --- and `unroll_disable` is the −29.4% at the same loop, which
+decision 86 records as Claude's own wrong answer there). Experiment 4 never
+tried either candidate in 58 answers; this question was asked once and got
+the right one. The measurement then did the rest:
+
+| k3 loop, P(candidate) | round 1 | round 2 | round 3 | round 4 |
+|---|--:|--:|--:|--:|
+| `KEEP_DEFAULT` | 0.62 | (explored) | **0.03** | 0.04 |
+| `unroll_count_4` | 0.15 | 0.31 | **0.95** | 0.95 |
+
+Exploration proposes once, the round measures +4.55% at k3, and from round 3
+the argmax carries it without needing exploration again. That is the loop
+decision 89 (b) was written to close, closed.
+
+At k8 the mechanism worked and the model did not. The site was identified as
+untried, `KEEP_DEFAULT` was removed, and all eleven untried candidates were
+put in front of the model with their frozen descriptions --- the +8.8% among
+them --- in a question whose premise is "one of these will be tried this
+round; which?". It came **last but one**. Measured, Jev's `unroll_count_2`
+gave 0.9992 at k8 against the oracle's 1.0164 for that same candidate.
+
+The k8 verdict block is the one `post_vectorize` improved most, which makes
+the P 0.01 the interesting number in this experiment:
+
+```
+  - what LLVM did with this loop in the baseline build, recorded by the
+    plugin itself after LoopVectorize had run ... LLVM vectorized it, with
+    vectors of 8 lanes, interleaved 4 times (the vectorized loop's induction
+    variable advances 32 elements per iteration).
+  - vectorisation legality: LEGAL, and already taken --- the baseline
+    vectorizes this loop with no hint at all.
+  - no-op check: 8 is the width LLVM already uses here, so the candidate
+    `vectorize_width_8` asks for the state this site is in and the build it
+    produces can only be the baseline's.
+```
+
+The fact did what decision 87 (c) predicted: it killed the wrong answer
+(`vectorize_width_8`, P 0.60 → 0.01) and stopped the site asking for the
+state it was already in. **It did not produce the right one.** "LLVM chose
+8" is read as "8 is correct", not as "8 is a choice and 16 is the untried
+alternative next to it". And because one exploration answer makes a site
+permanently tried, k8 was never asked again in this run.
+
+### 146. Rounds 4 and 5 were not stopped by the plan-change rule
+
+The new fifth acceptance condition (decision 89 a) **never fired**: all five
+plans are distinct (`plan_sig` 786fb052, dfa05c9b, 2c909638, 7d4d8d52,
+79928ae1, and `same_plan_as_best` is `false` in all five records), so the
+Experiment 4 failure it repairs --- the same binary promoted twice, section
+133 --- could not arise. Rounds 4 and 5 were measured, compared, and lost on
+the number.
+
+They lost because each is **half a plan**, and the missing half is whatever
+the gateway dropped:
+
+| | round 4 | round 5 |
+|---|---|---|
+| never landed | phase **A** (`A` + `A.retry`, both 503) | phase **B** (`B` + `B.retry`, both 503) |
+| function hints | **none** | k2, k6 `inline(always)` |
+| loop hints | k3 `unroll.count=4` | **none** |
+| ratio | 1.0089 | 1.0660 |
+| k2 / k3 case | 1.0044 / **1.0409** | **1.6764** / 0.9856 |
+| why not accepted | below the incumbent's 1.0741 | below the incumbent's 1.0741 |
+
+Round 4 is round 3 without the +67.8%; round 5 is round 3 without the +4.4%.
+Two details:
+
+* **`forced_top1` could not fire in round 4's phase A**, and correctly so:
+  the readout record reads `all_keep_default: true, forced: null,
+  ranking: []`. A phase whose every answer is "no answer" has no
+  probabilities, so there is no 1−P(KEEP) ranking to take a top-1 from. In
+  `choices` this is indistinguishable from round 1's genuinely all-`KEEP`
+  phase; only the `why` block separates a dropped request from an answer.
+* **Round 5's phase A is the filter working again.** Given round 3's
+  measurement, `k1_step` fell from P(pick) 0.47 to `KEEP_DEFAULT`,
+  `k3_fill_run` from 0.33 to `KEEP_DEFAULT` and `k7_error_path` from 0.08 to
+  `KEEP_DEFAULT`, leaving `k2_mix` (P 0.82) and `k6_hot_loop` (P 0.65).
+  Three inert hints dropped in one round; the one that pays kept and
+  strengthened. The resulting plan is, to the entry, **Experiment 4's
+  accepted plan minus the k8 width-8** --- which this run had already beaten
+  in round 3.
+
+### 147. The third batch, taken twice
+
+**The run's own `--measure-holdout` batch is unusable, and the reason is in
+its controls.** Its `aa` label --- a second copy of the baseline binary, a
+known null --- came back **1.0068 with a half-width of 1.83%** where
+Experiment 4's third batch had 1.0034 ±0.24% and every round batch of this
+run had ±0.20--0.33%. Three runs in it are interference outliers of
+1.5--2.2x: `base`/k7 **740.5 ms** against that label's own 345.5 ms median,
+`cand`/k1 600.1 ms against 333.0, `aa`/k1 499.4 ms against 332.6. The worst
+lands on the **baseline** label, so `aa` reads 1.0752 at k7 and `cand`
+1.0661 at k7, and the batch's MDE is **23.30%** against Experiment 4's
+3.34%.
+
+A second batch was therefore taken, once, on the same two binaries --- the
+stripped sha256s `bench_panel.sh` printed, `a84b7c0d…` and `ac3790d4…`, are
+the ones in `holdout/timing/` --- under the same frozen conditions, with a
+fresh seed **pre-registered in `exp5.md` 3.1 before it ran**, together with
+the rule that **its number is the one used whatever it says** and that batch
+1 is kept and published with its outliers. Neither batch was chosen after
+the fact.
+
+| | ratio | 95% CI | A/A | worst case half-width | MDE |
+|---|--:|---|--:|--:|--:|
+| batch 1 (07:16 JST, seed 20260921) --- **rejected on its controls** | 1.0756 | [1.0557, 1.0984] | **1.0068 ±1.83%** | 11.65% (k7) | **23.30%** |
+| **batch 2 (seed 20260927) --- the one used** | **1.0724** | [1.0704, 1.0742] | **0.9979 ±0.20%** | 1.56% (k8) | 3.12% |
+| *(Experiment 4's third batch, for scale)* | 1.0673 | [1.0645, 1.0704] | 1.0034 ±0.24% | 1.67% | 3.34% |
+
+Batch 2, per case:
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| cand | 0.9989 | **1.6736** | **1.0389** | 1.0111 | 1.0029 | 0.9971 | 1.0018 | 0.9944 |
+| aa | 1.0007 | 0.9986 | 0.9997 | 1.0011 | 1.0003 | 0.9957 | 1.0017 | 0.9854 |
+
+**Rejecting batch 1 cost the experiment its best-looking number**: it would
+have read 89.3% of the oracle combination's third batch, where batch 2 reads
+**85.5%**. The rejection was decided on the A/A and the outliers, before that
+comparison existed.
+
+### 148. Scored against the oracle, and against Experiment 4
+
+Same script, same twelve truths, same rule as section 130:
+
+| round | exact | same-family | miss | **harmful** | ratio | share of the combination (training) |
+|---|--:|--:|--:|--:|--:|--:|
+| 1 | 5 | 0 | 7 | **1** | 0.9369 | **−71.7%** |
+| 2 | 8 | 0 | 4 | 0 | 1.0079 | 8.9% |
+| **3** | **7** | **0** | **5** | **0** | **1.0741** | **84.2%** |
+| 4 | **10** | 0 | 2 | 0 | 1.0089 | 10.1% |
+| 5 | 9 | 0 | 3 | 0 | 1.0660 | 74.9% |
+
+The accepted plan's five misses are `inline(always)` at the k1, k3, k6 and
+k7 functions --- truth `KEEP_DEFAULT` at all four, and three of the four are
+builds **identical to the baseline** --- and `KEEP_DEFAULT` at the k8 loop,
+where the truth is the +8.8%. That last one is the entire remaining gap.
+
+| | Experiment 4 | **Experiment 5** |
+|---|--:|--:|
+| best plan, training | 1.0679 | **1.0741** |
+| best plan, third batch | 1.0673 | **1.0724** |
+| share of the combination, training | 77.1% | **84.2%** |
+| share of the combination, third batch | 79.4% | **85.5%** |
+| exact / same-family / miss / harmful | 9 / 1 / 2 / 0 | 7 / 0 / **5** / 0 |
+| rounds accepted | 2 | 2 |
+| harmful picks that reached a build | 2 (round 1) | 1 (round 1) |
+| harmful picks that survived a round | 0 | 0 |
+
+**The exact count fell and the speed rose, and both have one cause.**
+Experiment 5 found `unroll.count=4` at the k3 loop, worth +4.4%, which
+Experiment 4 never tried; it also carried four inert `inline(always)` that
+Experiment 4 did not, because exploration forces a non-`KEEP` answer at a
+site whose right answer is "none of them". Three of the four cost nothing
+measurable. The accepted plan's k3 reads 1.0402 where `unroll_count_4`
+alone is 1.0436, and section 134's one-factor arms point the right way ---
+`inline(always)` is 0.9718 at k3 from k6 and 0.9873 at k3 from k2 --- but
+they do not compose: 1.0436 x 0.9718 x 0.9873 is 1.0014, not 1.0402. The
+direction is attributable, the size is not.
+
+**The 12-site score is a weak instrument on this target and should not be
+read as a headline.** Eight of the twelve truths are `KEEP_DEFAULT`, and
+getting those right is worth nothing: round 4 scores **10 of 12**, the best
+of the run, and is **+0.9%**; round 3 scores 7 and is +7.4%.
+
+### 149. Cost, the gateway, and deviations
+
+| | |
+|---|--:|
+| wall clock, 5 rounds + batch 1 | **31.1 min** (06:47--07:18 JST) |
+| batch 2 | ~3 min |
+| HTTP requests | **21** --- 10 landed, 11 exhausted with 503 |
+| Choice questions | 109 |
+| latency total / mean / max | **16.3 s** / 776 ms / 975 ms |
+| tokens in / out | 141 901 / 3 833 |
+| cost | **$0.00** (Vercel AI Gateway, Hobby free tier) |
+| Jev's share of the run's wall clock | **0.87%** |
+
+**Half of this run's phase requests never got through.** Phase A was lost in
+rounds 1, 2 and 4 and phase B in rounds 2 and 5 --- **5 of 10 phases**, each
+after both the request and its unchanged re-send returned 503. Of the five
+exploration requests, **5 of 5 landed** (two after an internal 503 and its
+backoff), so the `A.explore.retry` / `B.explore.retry` added before round 1
+**never fired**: it was written for a real risk that did not materialise,
+and it stays because the risk was real. The bodies are the sizes Experiment 4
+sent successfully at the same endpoint the previous evening, and no request
+was modified to make one succeed.
+
+Deviations and what is not established:
+
+* **The third batch was taken twice** (147), against `exp4.md` 1.2's "the
+  third batch is measured once". The rejection is on the controls, it was
+  pre-registered with its seed and its rule before the second batch ran, and
+  batch 1 is published in full.
+* **"Five rounds" should be read as two and a half rounds of both phases
+  plus two half-rounds.** Rounds 4 and 5 are not independent evidence about
+  the proposer; they are round 3 with a request missing. A re-run against a
+  healthy gateway would not be expected to reproduce them.
+* **Random is not re-run.** Exploration is a `jev` mechanism --- random draws
+  non-`KEEP_DEFAULT` candidates by construction --- so Experiment 4's random
+  control (section 131: 0% of the combination, nothing accepted, 5 harmful
+  picks) stands unchanged.
+* `exploration_sites` makes a site ineligible permanently once **any**
+  candidate has been tried there, in any round, accepted or not. Round 1's
+  `forced_top1` spent the k4 loop's eligibility on the oracle's −42%, and
+  round 1's exploration spent k8's on `unroll_count_2`. **Whether a budget
+  that allowed a second visit would have found the k8 width 16 is not
+  measured here.**
+* The k3 `unroll.count=4` result rests on one answer with a 0.31-against-0.28
+  margin. Nothing establishes that the answer is robust; what is established
+  is that it was offered, taken, measured and kept.
+* Nothing here says anything about a target other than hintbench. The jaq
+  run with exploration has not been done.

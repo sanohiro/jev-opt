@@ -1,0 +1,106 @@
+{
+ "run_id": "jev-v42-r5",
+ "target": "hintbench",
+ "proposer": "jev",
+ "oracle_phase": null,
+ "ts": "2026-09-23T07:18:39.145009+09:00",
+ "smoke": false,
+ "vocab_version": "v4-2026-09-22",
+ "state_format": "state-v4.2-2026-09-22",
+ "source_comments": "strip",
+ "readout": "forced_top1",
+ "explore": 2,
+ "platform_block": "/home/hiro/prj/jev-optimize/artifacts/hintbench-search/jev-v42-r5/platform.json",
+ "config": "/home/hiro/prj/jev-optimize/jev-opt.toml",
+ "config_sha256": "a8029ac1b89345a4ed1e69110a8c3dd6adaad4306a0d0a9b203c00deafd4438e",
+ "marks": "/home/hiro/prj/jev-optimize/targets/hintbench/jev-marks.txt",
+ "marks_sha256": "87922190f8720cbf9a0e5fb1906dedc35b65b836a402ee2dbda43b0f449a42df",
+ "sites": "/home/hiro/prj/jev-optimize/artifacts/hintbench-sites/sites.json",
+ "plugin_sha256": "ca4a6625f2bdea45b69db4b7a23e2ca8ce54661835b1085328f74c05fdcfcff7",
+ "profdata_sha256": "d1b226d5d69fdbc4d4043ec94915ee1757e8e3ed0dda4b37a7b698eb147099bf",
+ "baseline_bin_sha256": "0749819773842642cecaa04e79d6cfaae899288b967a697bbf692d40e8384cb6",
+ "case_set": "holdout-as-search",
+ "workloads": [
+  "k1",
+  "k2",
+  "k3",
+  "k4",
+  "k5",
+  "k6",
+  "k7",
+  "k8"
+ ],
+ "taskset_cpu": "8",
+ "gap_ms": "0",
+ "repetitions": 15,
+ "warmup": 3,
+ "seed": 20260921,
+ "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)\nbinary: rustc\ncommit-hash: bba531001d4de6d7f49693e0836a2668ca063282\ncommit-date: 2026-09-20\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1\n",
+ "lscpu_e": "CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE\n  0    0      0    0 0:0:0:0          yes\n  1    0      0    0 0:0:0:0          yes\n  2    0      0    1 1:1:1:0          yes\n  3    0      0    1 1:1:1:0          yes\n  4    0      0    2 2:2:2:0          yes\n  5    0      0    2 2:2:2:0          yes\n  6    0      0    3 3:3:3:0          yes\n  7    0      0    3 3:3:3:0          yes\n  8    0      0    4 4:4:4:0          yes\n  9    0      0    4 4:4:4:0          yes\n 10    0      0    5 5:5:5:0          yes\n 11    0      0    5 5:5:5:0          yes\n 12    0      0    6 6:6:6:0          yes\n 13    0      0    6 6:6:6:0          yes\n 14    0      0    7 7:7:7:0          yes\n 15    0      0    7 7:7:7:0          yes\n 16    0      0    8 8:8:8:0          yes\n 17    0      0    8 8:8:8:0          yes\n 18    0      0    9 9:9:9:0          yes\n 19    0      0    9 9:9:9:0          yes\n 20    0      0   10 10:10:10:0       yes\n 21    0      0   10 10:10:10:0       yes\n 22    0      0   11 11:11:11:0       yes\n 23    0      0   11 11:11:11:0       yes\n 24    0      0   12 12:12:12:0       yes\n 25    0      0   12 12:12:12:0       yes\n 26    0      0   13 13:13:13:0       yes\n 27    0      0   13 13:13:13:0       yes\n 28    0      0   14 14:14:14:0       yes\n 29    0      0   14 14:14:14:0       yes\n 30    0      0   15 15:15:15:0       yes\n 31    0      0   15 15:15:15:0       yes\n",
+ "best": {
+  "round": 3,
+  "ratio": 1.074139757055058,
+  "ci95": [
+   1.072006130779879,
+   1.0760281011247206
+  ],
+  "plan": "/home/hiro/prj/jev-optimize/artifacts/hintbench-search/jev-v42-r5/round-03/plan-b.json",
+  "label": "round-03",
+  "plan_sig": "2c9096384e7bf94f9b2179cabe2c278e7fbde82dc18e97b2da829a631ce66bbb",
+  "batches": [
+   {
+    "round": 3,
+    "ratio": 1.074139757055058,
+    "ci95": [
+     1.072006130779879,
+     1.0760281011247206
+    ],
+    "batch": "round"
+   },
+   {
+    "round": 3,
+    "ratio": 1.074037614587685,
+    "ci95": [
+     1.0722950801893676,
+     1.075867492593727
+    ],
+    "batch": "confirmation"
+   }
+  ]
+ },
+ "holdout": {
+  "plan": "round-03",
+  "null_arm": false,
+  "case_set": "holdout",
+  "cases": [
+   "k1",
+   "k2",
+   "k3",
+   "k4",
+   "k5",
+   "k6",
+   "k7",
+   "k8"
+  ],
+  "ratio": 1.075644213809893,
+  "ci95": [
+   1.055665314831568,
+   1.098402862291609
+  ],
+  "aa": {
+   "ratio": 1.0067702183647076,
+   "halfwidth": 0.018252149695233144
+  },
+  "mde": 0.23296108988051467
+ },
+ "jev_totals": {
+  "requests": 21,
+  "questions": 109,
+  "latency_ms": 16306.010727013927,
+  "max_latency_ms": 974.671790987486,
+  "input_tokens": 141901,
+  "output_tokens": 3833,
+  "cost_usd": 0.0
+ },
+ "wall_s": 1864.6
+}

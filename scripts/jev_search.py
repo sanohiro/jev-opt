@@ -3011,6 +3011,22 @@ class JevProposer:
             "".join(state_section(it, ctx) for it, _c in pairs)
         answers, line_no = self.client.ask(state, questions, round_no,
                                            "%s.explore" % phase, site_map)
+        # The same unchanged re-send `choose` does for a phase whose every
+        # answer is `no answer` (Experiment 4, 1.4 b): a request that never
+        # got through leaves every eligible site at KEEP_DEFAULT, and because
+        # the site is then still untried it costs the round its whole
+        # exploration slot --- which is the mechanism this experiment is
+        # about. Six of Experiment 4's twelve requests carried at least one
+        # 503 and two exhausted all three internal retries. The request is
+        # never modified to make it succeed and the exhausted line stays in
+        # the JSONL with its `http_status`.
+        if answers is None:
+            print("[%s.explore] the request never got through; re-sending it "
+                  "unchanged" % phase)
+            time.sleep(10)
+            answers, line_no = self.client.ask(
+                state, questions, round_no, "%s.explore.retry" % phase,
+                site_map)
         ref = "%s.jsonl#%d" % (self.client.run_id, line_no)
         for it, cands in pairs:
             a = (answers or {}).get(it.qname) or {}

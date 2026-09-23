@@ -870,6 +870,18 @@ for a threshold but fixes no value).
   `KEEP_DEFAULT`: exploration must not be able to put a hint in a plan that
   the model did not choose.
 
+  **An exploration request that never got through is re-sent unchanged**, ten
+  seconds later, logged as `A.explore.retry` / `B.explore.retry` --- the same
+  rule `choose` applies to a phase whose every answer is `no answer`
+  (`docs/experiments/hintbench/exp4.md` 1.4 b), and added before round 1 of
+  Experiment 5 for the same reason. A request the gateway dropped leaves
+  every eligible site at `KEEP_DEFAULT`, and because those sites are then
+  still untried it costs the round its whole exploration slot. Six of
+  Experiment 4's twelve requests carried at least one 503 and two exhausted
+  all three internal retries. No request is ever modified to make it
+  succeed, and the exhausted line stays in the JSONL with its
+  `http_status`.
+
   `--explore 0` restores Experiment 4's behaviour exactly. Exploration is a
   `jev` mechanism: `random` already draws non-`KEEP_DEFAULT` candidates by
   construction, and the oracle's arms are enumerated. It is a command-line
