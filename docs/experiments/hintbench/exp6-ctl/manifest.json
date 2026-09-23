@@ -1,0 +1,154 @@
+{
+ "run_id": "exp6-ctl",
+ "target": "hintbench",
+ "proposer": "jev",
+ "oracle_phase": null,
+ "ts": "2026-09-23T15:58:22.343399+09:00",
+ "smoke": false,
+ "vocab_version": "v5-2026-09-23",
+ "state_format": "state-v5.0-2026-09-23",
+ "source_comments": "strip",
+ "readout": "forced_top1",
+ "explore": 2,
+ "exploration": {
+  "k": 2,
+  "revisit": 0,
+  "max_visits": 2,
+  "revisit_text": null,
+  "pv_untried": "off"
+ },
+ "platform_block": "/home/hiro/prj/jev-optimize/artifacts/hintbench-search/exp6-ctl/platform.json",
+ "config": "/home/hiro/prj/jev-optimize/jev-opt.toml",
+ "config_sha256": "25274b5b61eff4e71e504a769e85b5be6d7ebbef8c1570aae890be592acbab64",
+ "marks": "/home/hiro/prj/jev-optimize/targets/hintbench/jev-marks.txt",
+ "marks_sha256": "87922190f8720cbf9a0e5fb1906dedc35b65b836a402ee2dbda43b0f449a42df",
+ "sites": "/home/hiro/prj/jev-optimize/artifacts/hintbench-sites/sites.json",
+ "plugin_sha256": "ca4a6625f2bdea45b69db4b7a23e2ca8ce54661835b1085328f74c05fdcfcff7",
+ "profdata_sha256": "d1b226d5d69fdbc4d4043ec94915ee1757e8e3ed0dda4b37a7b698eb147099bf",
+ "baseline_bin_sha256": "0749819773842642cecaa04e79d6cfaae899288b967a697bbf692d40e8384cb6",
+ "case_set": "holdout-as-search",
+ "workloads": [
+  "k1",
+  "k2",
+  "k3",
+  "k4",
+  "k5",
+  "k6",
+  "k7",
+  "k8"
+ ],
+ "taskset_cpu": "8",
+ "gap_ms": "0",
+ "repetitions": 15,
+ "warmup": 3,
+ "seed": 20260921,
+ "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)\nbinary: rustc\ncommit-hash: bba531001d4de6d7f49693e0836a2668ca063282\ncommit-date: 2026-09-20\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1\n",
+ "lscpu_e": "CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE\n  0    0      0    0 0:0:0:0          yes\n  1    0      0    0 0:0:0:0          yes\n  2    0      0    1 1:1:1:0          yes\n  3    0      0    1 1:1:1:0          yes\n  4    0      0    2 2:2:2:0          yes\n  5    0      0    2 2:2:2:0          yes\n  6    0      0    3 3:3:3:0          yes\n  7    0      0    3 3:3:3:0          yes\n  8    0      0    4 4:4:4:0          yes\n  9    0      0    4 4:4:4:0          yes\n 10    0      0    5 5:5:5:0          yes\n 11    0      0    5 5:5:5:0          yes\n 12    0      0    6 6:6:6:0          yes\n 13    0      0    6 6:6:6:0          yes\n 14    0      0    7 7:7:7:0          yes\n 15    0      0    7 7:7:7:0          yes\n 16    0      0    8 8:8:8:0          yes\n 17    0      0    8 8:8:8:0          yes\n 18    0      0    9 9:9:9:0          yes\n 19    0      0    9 9:9:9:0          yes\n 20    0      0   10 10:10:10:0       yes\n 21    0      0   10 10:10:10:0       yes\n 22    0      0   11 11:11:11:0       yes\n 23    0      0   11 11:11:11:0       yes\n 24    0      0   12 12:12:12:0       yes\n 25    0      0   12 12:12:12:0       yes\n 26    0      0   13 13:13:13:0       yes\n 27    0      0   13 13:13:13:0       yes\n 28    0      0   14 14:14:14:0       yes\n 29    0      0   14 14:14:14:0       yes\n 30    0      0   15 15:15:15:0       yes\n 31    0      0   15 15:15:15:0       yes\n",
+ "best": {
+  "round": 2,
+  "ratio": 1.0742407978601562,
+  "ci95": [
+   1.0680102807492537,
+   1.0808122341563573
+  ],
+  "plan": "/home/hiro/prj/jev-optimize/artifacts/hintbench-search/exp6-ctl/round-02/plan-b.json",
+  "label": "round-02",
+  "plan_sig": "72df10812c2effb876425fbb93630aa2d69933ad2edc0a9c5c74161652012f29",
+  "batches": [
+   {
+    "round": 2,
+    "ratio": 1.0742407978601562,
+    "ci95": [
+     1.0680102807492537,
+     1.0808122341563573
+    ],
+    "batch": "round"
+   },
+   {
+    "round": 2,
+    "ratio": 1.0776278361993477,
+    "ci95": [
+     1.0731028563129352,
+     1.0823398804571556
+    ],
+    "batch": "confirmation"
+   }
+  ]
+ },
+ "holdout": {
+  "plan": "round-02",
+  "null_arm": false,
+  "case_set": "holdout",
+  "cases": [
+   "k1",
+   "k2",
+   "k3",
+   "k4",
+   "k5",
+   "k6",
+   "k7",
+   "k8"
+  ],
+  "ratio": 1.0734600527353602,
+  "ci95": [
+   1.0708992655752174,
+   1.0759449517701025
+  ],
+  "aa": {
+   "ratio": 0.9997864292057542,
+   "halfwidth": 0.0032257199580508766
+  },
+  "mde": 0.03
+ },
+ "jev_totals": {
+  "requests": 14,
+  "questions": 68,
+  "latency_ms": 11922.022874030517,
+  "max_latency_ms": 1357.7722080226522,
+  "input_tokens": 236566,
+  "output_tokens": 5070,
+  "cost_usd": 0.0
+ },
+ "retry_policy": {
+  "backoff": 2.0,
+  "cap_s": 5.0,
+  "jitter": 0.2,
+  "timeout_s": 20.0,
+  "wall_budget_s": 600.0,
+  "retries_cap": 200,
+  "phase_resend_max": 2
+ },
+ "gateway": {
+  "requests": 14,
+  "attempts": 76,
+  "landed": 14,
+  "exhausted": 0,
+  "lost_phases": 0,
+  "lost_rounds": 0,
+  "seconds_waiting": 124.65077829641125,
+  "attempts_by_phase": {
+   "A": {
+    "requests": 5,
+    "attempts": 50,
+    "landed": 5,
+    "body_bytes_total": 353277,
+    "mean_body_bytes": 70655.4
+   },
+   "B": {
+    "requests": 5,
+    "attempts": 22,
+    "landed": 5,
+    "body_bytes_total": 241031,
+    "mean_body_bytes": 48206.2
+   },
+   "explore": {
+    "requests": 4,
+    "attempts": 4,
+    "landed": 4,
+    "body_bytes_total": 86266,
+    "mean_body_bytes": 21566.5
+   }
+  }
+ },
+ "wall_s": 1730.9
+}
