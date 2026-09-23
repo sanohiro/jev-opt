@@ -1,0 +1,35 @@
+== argv0 class readout: target zopfli, /home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/samples.json ==
+mode raw, cpu 2, gap 0 ms, stdout pipe, shuffle:20260926, warmup 3, runs 18, 2026-09-23T21:30:58+0900 .. 2026-09-23T21:41:03+0900
+  c128   len 112 class 128  /home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  c96    len  80 class  96  /home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c096xxxxxxxxxxxxxxxx
+  c112   len  96 class 112  /home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c112xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  c80    len  64 class  80  /home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c080
+
+| case | leg | median ms | IQR/med | med ratio vs base | boot ratio | 95% CI | spread | sig |
+|---|---|--:|--:|--:|--:|---|--:|:-:|
+| text | c96 (base) | 2755.2 | 1.03% | 1 | 1 | | | |
+| text | c128 | 2754.2 | 0.86% | 1.0004 | 1.0004 | [0.9965, 1.0044] | 0.52% | no |
+| text | c112 | 2761.5 | 1.13% | 0.9977 | 0.9980 | [0.9935, 1.0027] | 0.56% | no |
+| text | c80 | 2754.0 | 0.79% | 1.0004 | 1.0002 | [0.9955, 1.0048] | 0.52% | no |
+| binary | c96 (base) | 1691.4 | 1.22% | 1 | 1 | | | |
+| binary | c128 | 1687.8 | 1.08% | 1.0021 | 0.9986 | [0.9942, 1.0031] | 0.61% | no |
+| binary | c112 | 1691.0 | 1.21% | 1.0002 | 1.0000 | [0.9951, 1.0052] | 0.61% | no |
+| binary | c80 | 1691.3 | 0.89% | 1.0000 | 0.9990 | [0.9940, 1.0042] | 0.61% | no |
+| json | c96 (base) | 2764.0 | 0.89% | 1 | 1 | | | |
+| json | c128 | 2742.8 | 1.19% | 1.0077 | 1.0049 | [1.0000, 1.0098] | 0.59% | yes |
+| json | c112 | 2742.0 | 0.92% | 1.0080 | 1.0053 | [1.0003, 1.0096] | 0.46% | yes |
+| json | c80 | 2765.6 | 0.88% | 0.9994 | 0.9999 | [0.9953, 1.0046] | 0.45% | no |
+
+| leg | aggregate (geomean) | 95% CI | Rule 1 (outside +-0.5%) | all cases sig, one sign | Rule 2 |
+|---|--:|---|:-:|:-:|:-:|
+| c128 | 1.0013 | [0.9986, 1.0038] | ok | no | no |
+| c112 | 1.0011 | [0.9984, 1.0038] | ok | no | no |
+| c80 | 0.9997 | [0.9972, 1.0023] | ok | no | no |
+
+per case, SIGNIFICANT legs (+ = faster than c96; * = LARGE, |shift| >= 1.0%):
+  text: (none)   hintbench map: no
+  binary: (none)   hintbench map: no
+  json: c128+, c112+   hintbench map: no
+
+largest per-case spread threshold in this panel: 0.61%; M = 1.0% (a shift below max(spread, M) cannot be claimed here)
+VERDICT: NULL

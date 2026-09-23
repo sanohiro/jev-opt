@@ -1,0 +1,35 @@
+== argv0 class readout: target jaq, /home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/samples.json ==
+mode raw, cpu 4, gap 250 ms, stdout devnull, shuffle:20260925, warmup 3, runs 35, 2026-09-23T21:21:07+0900 .. 2026-09-23T21:30:40+0900
+  c96    len  80 class  96  /home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c096xxxxxxxxxxxxxxxxxxx
+  c112   len  96 class 112  /home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c112xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  c80    len  64 class  80  /home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c080xxx
+  c128   len 112 class 128  /home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+| case | leg | median ms | IQR/med | med ratio vs base | boot ratio | 95% CI | spread | sig |
+|---|---|--:|--:|--:|--:|---|--:|:-:|
+| objsearch | c96 (base) | 1022.3 | 2.57% | 1 | 1 | | | |
+| objsearch | c112 | 1031.9 | 2.75% | 0.9907 | 0.9920 | [0.9828, 1.0019] | 1.38% | no |
+| objsearch | c80 | 1022.7 | 1.46% | 0.9996 | 1.0050 | [0.9938, 1.0157] | 1.29% | no |
+| objsearch | c128 | 1029.2 | 4.16% | 0.9933 | 0.9918 | [0.9810, 1.0029] | 2.08% | no |
+| strproc | c96 (base) | 1093.0 | 2.12% | 1 | 1 | | | |
+| strproc | c112 | 1093.9 | 2.03% | 0.9992 | 1.0015 | [0.9961, 1.0074] | 1.06% | no |
+| strproc | c80 | 1091.6 | 1.23% | 1.0013 | 1.0037 | [0.9977, 1.0100] | 1.06% | no |
+| strproc | c128 | 1095.8 | 1.17% | 0.9975 | 1.0012 | [0.9950, 1.0076] | 1.06% | no |
+| readwrite | c96 (base) | 885.2 | 1.24% | 1 | 1 | | | |
+| readwrite | c112 | 881.9 | 1.31% | 1.0038 | 1.0068 | [0.9984, 1.0171] | 0.66% | no |
+| readwrite | c80 | 882.9 | 1.37% | 1.0026 | 1.0006 | [0.9904, 1.0121] | 0.68% | no |
+| readwrite | c128 | 882.8 | 1.74% | 1.0028 | 0.9953 | [0.9808, 1.0092] | 0.87% | no |
+
+| leg | aggregate (geomean) | 95% CI | Rule 1 (outside +-0.5%) | all cases sig, one sign | Rule 2 |
+|---|--:|---|:-:|:-:|:-:|
+| c112 | 1.0001 | [0.9951, 1.0060] | ok | no | no |
+| c80 | 1.0031 | [0.9975, 1.0093] | ok | no | no |
+| c128 | 0.9961 | [0.9893, 1.0034] | ok | no | no |
+
+per case, SIGNIFICANT legs (+ = faster than c96; * = LARGE, |shift| >= 3.0%):
+  objsearch: (none)   hintbench map: no
+  strproc: (none)   hintbench map: no
+  readwrite: (none)   hintbench map: no
+
+largest per-case spread threshold in this panel: 2.08%; M = 3.0% (a shift below max(spread, M) cannot be claimed here)
+VERDICT: NULL

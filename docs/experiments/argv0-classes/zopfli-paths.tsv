@@ -1,0 +1,5 @@
+label	path	len	class	inode	sha256
+c96	/home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c096xxxxxxxxxxxxxxxx	80	96	1427491	79c3322677aa336f8fab45c449559cac9568277636afdfc998e9d07bae887a98
+c80	/home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c080	64	80	1427491	79c3322677aa336f8fab45c449559cac9568277636afdfc998e9d07bae887a98
+c112	/home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c112xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	96	112	1427491	79c3322677aa336f8fab45c449559cac9568277636afdfc998e9d07bae887a98
+c128	/home/hiro/prj/jev-optimize/artifacts/zopfli-aa-classes/bin/c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	112	128	1427491	79c3322677aa336f8fab45c449559cac9568277636afdfc998e9d07bae887a98

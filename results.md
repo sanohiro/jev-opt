@@ -11924,3 +11924,160 @@ decision-97 alias, so the exec path was the label path):
   single-class (c96) and needs no footnote; the pre-search jaq batches above
   (Stage 0 A/A, headroom, Exp1/Exp2) are cross-class relative to it and get a
   footnote. Headlines are not recomputed here.
+
+### 164. argv[0] class check on jaq and zopfli: results
+
+Per §163's protocol, one `bench.py run --argv0-raw` panel per target (4
+labels x 3 cases, hard links to one stripped baseline binary), then
+`bench.py stats --base c96 --resamples 10000`, then
+`target_aa_classes_readout.py`. Commands, exactly as recorded in each run's
+`cmd.txt`:
+
+```
+$ python3 -u scripts/bench.py run --cpu 2 --warmup 3 --runs 18 --stdout pipe \
+    --gap-ms 0 --shuffle 20260926 --argv0-raw \
+    --label c96=artifacts/zopfli-aa-classes/bin/c096xxxxxxxxxxxxxxxx \
+    --label c80=artifacts/zopfli-aa-classes/bin/c080 \
+    --label c112=artifacts/zopfli-aa-classes/bin/c112xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+    --label c128=artifacts/zopfli-aa-classes/bin/c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+    --workload text=targets/zopfli/workloads/hold-text.dat \
+    --workload binary=targets/zopfli/workloads/hold-binary.dat \
+    --workload json=targets/zopfli/workloads/hold-json.dat \
+    --out artifacts/zopfli-aa-classes/samples.json
+$ python3 -u scripts/bench.py stats artifacts/zopfli-aa-classes/samples.json \
+    --base c96 --seed 20260926 --resamples 10000 \
+    --json artifacts/zopfli-aa-classes/stats.json
+
+$ python3 -u scripts/bench.py run --cpu 4 --warmup 3 --runs 35 --stdout devnull \
+    --gap-ms 250 --shuffle 20260925 --argv0-raw \
+    --label c96=artifacts/jaq-aa-classes/bin/c096xxxxxxxxxxxxxxxxxxx \
+    --label c80=artifacts/jaq-aa-classes/bin/c080xxx \
+    --label c112=artifacts/jaq-aa-classes/bin/c112xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+    --label c128=artifacts/jaq-aa-classes/bin/c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+    --workload objsearch='.[] | select(.k == "v") | .id' \
+       targets/jaq/workloads/train-objects.json (x4) \
+    --workload strproc='[.[] | .name | ascii_downcase | length] | add' \
+       targets/jaq/workloads/train-strings.json (x8) \
+    --workload readwrite=-c '.' targets/jaq/workloads/train-ndjson.json (x2) \
+    --out artifacts/jaq-aa-classes/samples.json
+$ python3 -u scripts/bench.py stats artifacts/jaq-aa-classes/samples.json \
+    --base c96 --seed 20260925 --resamples 10000 \
+    --json artifacts/jaq-aa-classes/stats.json
+```
+
+**Contamination note (zopfli run 1, superseded).** zopfli run 1
+(`artifacts/zopfli-aa-classes-run1-contaminated/`, panel 21:11:01-21:21:05
+JST) ran during the same window another agent used to invoke
+`targets/zopfli/workloads/gen.py`, which truncates-then-rewrites
+`targets/zopfli/workloads/hold-{text,binary,json}.dat` in place. Filesystem
+timestamps on the three inputs read 21:13 JST, i.e. inside the panel's
+10-minute span. This was a protocol violation by that agent: AGENTS.md's
+concurrency rule ("never run two timing benchmarks concurrently"; §5 below
+extends it explicitly to workload generation) was not followed, and a
+zopfli invocation that opened one of the three files during the ~2 s
+truncate-then-rewrite window could have read a short (partially-written)
+file, silently corrupting that one run's timing (and, since zopfli's output
+size depends on input size, potentially its measured wall time). gen.py's
+docstring guarantees the *rewritten* content is byte-identical to what was
+there before (fixed seed, same size, same bytes) — the input is not stale
+data, only briefly incomplete mid-write.
+
+Checked for the resulting outlier: per-run min/median ratios (`stats.md`)
+for every leg x case in run 1 are all >= 0.984 (worst: c128 binary min
+1659.4/1663.5 = 0.9975; every text/binary/json leg's min ratio sits within
+0.16-1.03% of its median ratio) — none of the truncated-read signature
+(a much smaller output, hence a much shorter or malformed run) that a short
+read would produce. The verdict itself (NULL, see run 1's `readout.txt`)
+does not depend on the flagged window. Nonetheless run 1 is recorded as
+**contaminated and superseded**, not used for the target-vs-length verdict;
+run 2, run cleanly after the contaminating process had finished and with no
+further writes to `targets/zopfli/workloads/`, is the record.
+
+**zopfli (run 2, clean; `artifacts/zopfli-aa-classes/`, 21:30:57-21:41:04
+JST).** Baseline `artifacts/zopfli-headroom/bin/baseline`
+(sha256 8b0ba235be9bf45c1...), stripped 79c3322677aa336f8f... (four hard
+links, one inode). Holdout cases (Stage 0 set), CPU 2, gap 0, stdout pipe,
+warmup 3, runs 18, shuffle 20260926.
+
+| case | leg | median ms | med ratio vs base | boot ratio | 95% CI | spread | sig |
+|---|---|--:|--:|--:|---|--:|:-:|
+| text | c96 (base) | 2755.2 | 1 | 1 | | | |
+| text | c128 | 2754.2 | 1.0004 | 1.0004 | [0.9965, 1.0044] | 0.52% | no |
+| text | c112 | 2761.5 | 0.9977 | 0.9980 | [0.9935, 1.0027] | 0.56% | no |
+| text | c80 | 2754.0 | 1.0004 | 1.0002 | [0.9955, 1.0048] | 0.52% | no |
+| binary | c96 (base) | 1691.4 | 1 | 1 | | | |
+| binary | c128 | 1687.8 | 1.0021 | 0.9986 | [0.9942, 1.0031] | 0.61% | no |
+| binary | c112 | 1691.0 | 1.0002 | 1.0000 | [0.9951, 1.0052] | 0.61% | no |
+| binary | c80 | 1691.3 | 1.0000 | 0.9990 | [0.9940, 1.0042] | 0.61% | no |
+| json | c96 (base) | 2764.0 | 1 | 1 | | | |
+| json | c128 | 2742.8 | 1.0077 | 1.0049 | [1.0000, 1.0098] | 0.59% | **yes** |
+| json | c112 | 2742.0 | 1.0080 | 1.0053 | [1.0003, 1.0096] | 0.46% | **yes** |
+| json | c80 | 2765.6 | 0.9994 | 0.9999 | [0.9953, 1.0046] | 0.45% | no |
+
+| leg | aggregate (geomean) | 95% CI | Rule 1 (+-0.5%) | Rule 2 |
+|---|--:|---|:-:|:-:|
+| c128 | 1.0013 | [0.9986, 1.0038] | ok | no |
+| c112 | 1.0011 | [0.9984, 1.0038] | ok | no |
+| c80 | 0.9997 | [0.9972, 1.0023] | ok | no |
+
+Per case, significant legs: text (none), binary (none), json (c128+,
+c112+, both under M=1.0%, so not LARGE — "hintbench map: no" for all
+three). Largest per-case spread threshold 0.61%; M = 1.0%. json's two
+significant-but-not-large legs (c128, c112) do not satisfy Rule 3 (needs
+>= 2 LARGE legs, same sign) or Rule 2 (needs every case significant, one
+sign — text and binary are not). **Rule 1: no leg flags. Rule 2: no. Rule
+3: no. VERDICT: NULL.**
+
+**jaq (`artifacts/jaq-aa-classes/`, 21:21:07-21:30:40 JST).** Baseline
+`artifacts/jaq-search/jev-r5/baseline/bin` (sha256 e183c81d1d7e9177...),
+stripped 83f7eb239c786c8c98... (four hard links, one inode). Training
+cases, CPU 4, gap 250 ms, stdout devnull, warmup 3, runs 35, shuffle
+20260925.
+
+| case | leg | median ms | med ratio vs base | boot ratio | 95% CI | spread | sig |
+|---|---|--:|--:|--:|---|--:|:-:|
+| objsearch | c96 (base) | 1022.3 | 1 | 1 | | | |
+| objsearch | c112 | 1031.9 | 0.9907 | 0.9920 | [0.9828, 1.0019] | 1.38% | no |
+| objsearch | c80 | 1022.7 | 0.9996 | 1.0050 | [0.9938, 1.0157] | 1.29% | no |
+| objsearch | c128 | 1029.2 | 0.9933 | 0.9918 | [0.9810, 1.0029] | 2.08% | no |
+| strproc | c96 (base) | 1093.0 | 1 | 1 | | | |
+| strproc | c112 | 1093.9 | 0.9992 | 1.0015 | [0.9961, 1.0074] | 1.06% | no |
+| strproc | c80 | 1091.6 | 1.0013 | 1.0037 | [0.9977, 1.0100] | 1.06% | no |
+| strproc | c128 | 1095.8 | 0.9975 | 1.0012 | [0.9950, 1.0076] | 1.06% | no |
+| readwrite | c96 (base) | 885.2 | 1 | 1 | | | |
+| readwrite | c112 | 881.9 | 1.0038 | 1.0068 | [0.9984, 1.0171] | 0.66% | no |
+| readwrite | c80 | 882.9 | 1.0026 | 1.0006 | [0.9904, 1.0121] | 0.68% | no |
+| readwrite | c128 | 882.8 | 1.0028 | 0.9953 | [0.9808, 1.0092] | 0.87% | no |
+
+| leg | aggregate (geomean) | 95% CI | Rule 1 (+-0.5%) | Rule 2 |
+|---|--:|---|:-:|:-:|
+| c112 | 1.0001 | [0.9951, 1.0060] | ok | no |
+| c80 | 1.0031 | [0.9975, 1.0093] | ok | no |
+| c128 | 0.9961 | [0.9893, 1.0034] | ok | no |
+
+Per case, significant legs: none in objsearch, strproc or readwrite
+("hintbench map: no" throughout). Largest per-case spread threshold
+2.08%; M = 3.0% (a jaq shift below max(spread, M) cannot be claimed here,
+per §163(c)). **Rule 1: no leg flags. Rule 2: no. Rule 3 (needs >= 2 LARGE
+legs in one case): no leg is even SIGNIFICANT. VERDICT: NULL.** This is
+the pre-registered expected jaq outcome (§163's "FLAG, NOT CLAIMED is the
+expected null" was the *floor* prediction given jaq's 2-4% batch noise;
+the panel in fact landed inside tolerance on Rule 1, so the outcome is the
+stronger NULL, not FLAG, NOT CLAIMED).
+
+**Verdicts and consequence.** Both targets: **NULL** — no argv[0]-length
+class effect distinguishable from A/A noise, at any of lengths 64/80/96/112
+(classes c80/c96/c112/c128), on either target. This differs from
+hintbench's k5 (results.md §161), which alternates by ~9% with a clean
+32-byte period on the same class boundaries; neither jaq nor zopfli shows
+anything resembling that mode split. Per decision 97(d)/HANDOFF §4 row 3e:
+no footnote is needed for jaq's or zopfli's archive on class grounds (their
+existing single-class batches, results.md §163's "Archive classes" table,
+stand as measured); every new batch on either target stays pinned to the
+80-byte / class-96 alias (decision 97) regardless — that pin was never
+conditional on this check finding an effect, it is also what keeps every
+batch of a campaign internally comparable. The hintbench k5 length
+sensitivity (decision 97) is therefore **target-specific**, not a general
+property of "Rust binary reading argv before input" — it does not
+generalize to jaq (mimalloc allocator) or zopfli (glibc allocator) on this
+machine.

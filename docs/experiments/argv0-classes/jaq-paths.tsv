@@ -1,0 +1,5 @@
+label	path	len	class	inode	sha256
+c96	/home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c096xxxxxxxxxxxxxxxxxxx	80	96	1427288	83f7eb239c786c8c988b80944b609cf959a9e2c80bc2dbbf7f43df94b683c13b
+c80	/home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c080xxx	64	80	1427288	83f7eb239c786c8c988b80944b609cf959a9e2c80bc2dbbf7f43df94b683c13b
+c112	/home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c112xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	96	112	1427288	83f7eb239c786c8c988b80944b609cf959a9e2c80bc2dbbf7f43df94b683c13b
+c128	/home/hiro/prj/jev-optimize/artifacts/jaq-aa-classes/bin/c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	112	128	1427288	83f7eb239c786c8c988b80944b609cf959a9e2c80bc2dbbf7f43df94b683c13b
