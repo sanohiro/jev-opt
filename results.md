@@ -12554,3 +12554,143 @@ loop candidates: `unroll_count_{2,4,8}`, `unroll_disable` (decision 98),
 - Measuring agent and write-up agent are separate (HANDOFF.ja.md §5): this
   section is written by the write-up agent before the measuring agent's
   first arm, and nothing in it is edited once the run starts.
+
+### 167. Jev vs random on zopfli: pre-registration (decision 96, n=3 each)
+
+Written before the oracle (§166) has finished and before any Jev number for
+zopfli exists. This section fixes the six runs, the command, and the rules
+that will govern their reading, per SPEC.ja.md §2's per-feature-effect
+bullet (decision 96) and AGENTS.md non-negotiable 4 (every Jev decision is
+an independent toggle, ablated against a random control).
+
+**Six runs.**
+
+| run id | proposer | seed-offset |
+|---|---|--:|
+| `zopfli-jev-r0` | jev | 0 |
+| `zopfli-rand-r0` | random | 0 |
+| `zopfli-jev-r1` | jev | 1000 |
+| `zopfli-rand-r1` | random | 1000 |
+| `zopfli-jev-r2` | jev | 2000 |
+| `zopfli-rand-r2` | random | 2000 |
+
+**Command** (one template, `<proposer>`/`<seed-offset>`/`<run id>`
+substituted per row above; everything else fixed across all six runs):
+
+```
+export TARGET=zopfli
+scripts/jev_search.py --target zopfli \
+    --marks targets/zopfli/jev-marks.txt \
+    --sites targets/zopfli/sites.json \
+    --site-set oracle.selected_keys_top6 \
+    --proposer <jev|random> --seed-offset <0|1000|2000> \
+    --rounds 5 --vocab v6 --readout forced_top1 \
+    --source-comments strip --explore 2 --explore-revisit 0 --pv-untried off \
+    -n 15 --warmup 3 \
+    --baseline-dir artifacts/zopfli-sites/baseline \
+    --measure-holdout --out artifacts/zopfli-search/<run id>
+```
+
+**Why this configuration.** Of Experiment 6's four hintbench arms (ctl,
+rev, pv, both --- §150-§159), `ctl` is the only one with a clean mechanism
+record: `rev`'s revisit budget is under redesign (decision 93 --- it never
+reached the argmax-non-KEEP site it was built for), and `pv`'s
+`post_vectorize`-untried judgement line is null (decision 93, the P mass it
+was meant to move stayed at 0.01-0.02). So this campaign runs zopfli's
+first Jev/random comparison at `ctl`'s settings: `--explore 2
+--explore-revisit 0 --pv-untried off`, `--readout forced_top1`,
+`--source-comments strip`, vocabulary v6 (decision 98, adds
+`unroll.disable` for zopfli's unvectorized loops), 5 rounds, n=15/warmup=3
+per batch, site set `oracle.selected_keys_top6` (§166, 5 sites behind 6
+marks), baseline dir from §166. `--measure-holdout` is added on every run
+(all six, jev and random alike) so the holdout ratio is available per run
+without a separate pass.
+
+**Rules, stated before any run starts (SPEC.ja.md §2's per-feature-effect
+bullet, decision 96).**
+
+- n = 3 per arm, fixed now; no replicates are added after seeing results
+  (optional stopping is prohibited --- an added replicate is a new,
+  separately pre-registered experiment, decision 96(f)).
+- Per-run representative value = that run's best *accepted* plan's training
+  ratio (the ratio the run's own acceptance rule, decision 80(a), promoted
+  to best).
+- Arm representative = median of its 3 per-run values, reported with the
+  range (min-max) alongside it, never the median alone.
+- Direction is pre-registered: **Jev >= random**. This is called an effect
+  only if (i) the two arms' ranges do not overlap in that direction and
+  (ii) the median difference exceeds the MDE (3%, §165/§166's floor,
+  recomputed against this sweep's own A/A when taken). A range that fails
+  to overlap in the *opposite* direction is recorded as "reverse
+  indication," not an effect. Anything else is reported as "not resolved
+  at n=3" (decision 96(b): under exchangeability, non-overlap at n=3 has a
+  5% one-sided false-positive rate on its own, so a numeric miss here is
+  not strong evidence of "no effect," only "not shown at this n").
+- k/n mechanism checks, computed per Jev run (n=1 is enough for each,
+  decision 96(c)) and then aggregated across the 3 Jev runs as k/3:
+  (a) the run's final plan contains the oracle's best confirmed positive
+      site, if the oracle confirms one at all --- if the oracle's §166
+      sweep confirms no positive site, (a) is void and the honest
+      description of a run that changes nothing is "flat; correct
+      no-ops," not a failed check;
+  (b) the run's final plan contains no arm the oracle confirmed harmful;
+  (c) Jev's `KEEP_DEFAULT` rate at the sites the oracle measured flat
+      (ratio inside the MDE band both directions).
+- Jev nondeterminism (decision 94/96(e)): for every pair among the 3 Jev
+  runs, round-1 requests carry empty history and should be byte-identical
+  (`request_sha256`). For each byte-identical pair, record the max |delta
+  P| and the number of argmax flips, per phase.
+- Gateway rule as Experiment 6 (decision 92(d)/95): a run that loses more
+  than 2 of its 10 main-phase requests to unrecovered 503s is invalid and
+  is rerun once, suffixed `-b`; retries within a request stay at the fixed
+  2 s +/-20% backoff, 200 attempts / 600 s wall budget per request
+  (decision 92/95).
+- Correctness gate: sha256 of all nine `.gz` outputs must match the
+  baseline for every accepted arm in the plan (non-negotiable 5); a plan
+  containing an output-mismatched arm is rejected regardless of speed and
+  does not become the run's representative value.
+- argv0 pinned to length 80 / class 96 for every label in every batch
+  (decision 97); a batch recorded at another class is `measure-failed`,
+  not silently accepted (decision 99 found no argv0-length effect on
+  zopfli itself, but the fixed-class *procedure* stays regardless, per
+  decision 99(b)).
+- Holdout is measured once per run via `--measure-holdout` and reported,
+  but arm selection and the representative value are both read from the
+  training (search) set only --- the holdout number is transfer evidence,
+  not a selection criterion.
+- Caps (SPEC.ja.md §2(f)): 6 runs total; approximately 25 logical Jev
+  requests per Jev run (10 main-phase-equivalent + ~6-7 exploration
+  phases across 5 rounds, by Experiment 6's own measured shape, decision
+  96(f)) --- so <= 75 Jev requests across the 3 Jev runs (random runs make
+  no Jev requests); per-request retries capped at 200 attempts / 600 s
+  wall, as above.
+- Wall-clock estimate, structural (no zopfli-specific jev_search.py
+  round-batch timing is sourced yet, only the oracle's fixed 3-label
+  batch, §166). §166's batch unit --- 18 rounds x 3 labels (base, cand, an
+  in-run aa) x 3 search-set cases, ~4.91 s/label/round summed across cases
+  --- comes to ~4.4 min per batch. A jev_search.py round is one build
+  (zopfli's plugin-off build was 5 s, §165; an apply-mode build was not
+  separately timed for this target, so §166's hintbench analogue, ~290 s
+  build-plus-two-batches per arm, is the nearest sourced figure) + one
+  round batch (which, unlike the oracle's fixed 3-label batches, carries a
+  label for every site with a live candidate that round, so its true cost
+  is >= the ~4.4 min unit and was not separately measured) + a
+  confirmation batch (decision 80(a)) only for candidates whose round
+  batch already cleared the MDE. 5 rounds + one `--measure-holdout` pass
+  (sized like a training batch, taken once) is therefore at least
+  5 build+round-batch units + 0-5 confirmation batches + 1 holdout batch
+  per run --- a floor of roughly 6-11 batch-units, i.e. on the order of
+  30-50 min of timing alone per run at the ~4.4 min/unit floor, understating
+  the true figure since round batches are wider than the oracle's. Six
+  runs run one after another (never two timings concurrently, AGENTS.md)
+  is therefore expected to take on the order of hours; no sourced number
+  for this target supports a tighter bound, but it should be well under
+  §166's ~10 h oracle worst case, since each jev_search.py run touches far
+  fewer builds than the oracle's 68 arms.
+- Order of runs: alternate jev and random --- `zopfli-jev-r0`,
+  `zopfli-rand-r0`, `zopfli-jev-r1`, `zopfli-rand-r1`, `zopfli-jev-r2`,
+  `zopfli-rand-r2` --- so that any time-of-day or machine-state drift
+  across the session affects both arms alike rather than concentrating in
+  one arm's later runs.
+- Measuring agent and write-up agent are separate (HANDOFF.ja.md §5).
+  Nothing in this section is edited once `zopfli-jev-r0` starts.

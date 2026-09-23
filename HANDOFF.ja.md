@@ -67,6 +67,7 @@
 - **Experiment 6(hintbench、4 arm、決定 93〜95)**: 語彙 v5 を採用。3 arm(ctl / rev / both)が訓練 +7.4〜7.8%(oracle の組み合わせ 1.0881 の 84〜88%)、pv だけ +5.2%(k8 ループで有害な選択を引いた)。再訪予算の機構は動く(both は再訪に成功)が、幅 16(k8)には一度も届かず、`post_vectorize` の未試行判定行も null(k8 の P は 0.01 → 0.02 止まり)。試行回数ベースの 503 対策で 4 arm 合計 40 フェーズ中 0 喪失(Exp5 は 10 中 5)。rev の +11% 台の読みは k5 の計測モードであって plan の効果ではなく、見出しは 1.0780 のまま。ドライバに新フラグ: `--vocab v5`、`--explore-revisit R`、`--pv-untried on|off`、設定キー `retries=200`、`retry_wall_budget_s=600`、`backoff_cap_s=5`、`phase_resend_max=2`。`results.md` §150〜§159、`docs/experiments/hintbench/exp6.md`。
 - **hintbench の A/A のみパネル調査(決定 97)**: 7 パネル約 17 分、基準バイナリのコピーだけ。k5 のモードは argv[0] の長さのクラスで決まる(周期 32 バイト、31/31 脚、len 88|89 で段差)。ファイル配置・seed・CPU・スタック位置・SMT 負荷では変わらない。機構(ヒープのオフセット)は未確定。Exp6 の訓練比と holdout 比は oracle と同クラス(c96)、confirm とパネルは c112 か混在。`results.md` §161(クラスをまたぐ既存結果の脚注表)、`docs/experiments/hintbench/aa-study.md`。修正後の 3 脚 A/A で検証済み(§162)。
 - **次にやること(§4 の表の 3a〜)**: 探索の適格条件の見直し、`inline(never)` でループが site 集合から落ちる件の理解、jaq / zopfli の 2 クラス A/A 確認、jaq ループ oracle、zopfli。
+- **zopfli キャンペーン開始(2026-09-23 夜)**: 準備完了(決定 98・99、`results.md` §165〜166): 探索用訓練セット(search-*.dat、896 KiB × 3)、plugin off 基準は Stage 0 と `.text` 同一、A/A 訓練 0.2% / holdout 0.05%(geomean)、MDE 3%、マーク 6 本(93.4%)、site 5 本(`oracle.selected_keys_top6`)、語彙 v6。oracle 68 arm(6 マーク × 関数属性 12 + 5 site × ループ候補 55 + 組み合わせ 1)を 22:1x に起動、成果物 `artifacts/zopfli-search/oracle/`、ログ `artifacts/zopfli-search/oracle-run.log`。見込み最悪 10 h、期待はそれより短い(§166「4. Oracle command」「Cost estimate」)。記録(結果の書き起こし)は測定担当とは別のエージェントが oracle 完了後に行う。§167(`results.md`)に Jev vs ランダム(n=3 ずつ、6 走行)の事前登録を追記済み --- oracle の後、oracle と同じ 6 マーク / 5 site / 語彙 v6 の上で走らせる。
 
 ## 4. 今後の計画(Claude の提案。オーナー未承認の部分は「提案」)
 
@@ -84,7 +85,7 @@
 | 3d | `inline(never)` を付けたカーネルのループが同ラウンドの phase B の site 集合から落ちる件の理解 | 未調査のバグを潰す(exp6.md §7) | — | 提案 |
 | 4 | jaq ループ oracle(重複除去、post_vectorize の事実で state を埋める) | jaq でループヒントの正解を得る | 約 9 h(夜間) | 提案 |
 | 5 | jaq で探索付き Jev 5〜8 ラウンド + ランダム | 記事の主数字。ノイズ 4% なので集計でのみ語る | jaq では jev n=3 + ランダム n=3 の 6 走行だけを回し、機能ごとのアブレーションは 1 走行 30 分の hintbench で行う。費用は 1 走行 5 ラウンドとして、Exp3 の実測(約 5 分/ラウンド、確認バッチ無し、`results.md` §102)なら約 3〜4 h、確認バッチ込み(未測定)なら数倍。最初の走行で壁時計を測ってから事前登録を確定する。 | 提案 |
-| 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | 提案 |
+| 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | **進行中(oracle 計測中)**: perf マーク済み(決定 98、6 本・93.4%)、site 済み(5 本、決定 98)、baseline・A/A 済み(§165)。oracle 68 arm を 22:1x に起動(§166、`artifacts/zopfli-search/oracle/`)。Jev vs ランダム(n=3、§167)は事前登録済みで oracle の後に着手。 |
 | 7 | jaq が薄ければ記事の主対象を zopfli に(オーナー判断) | 「効果が出る対象を探して回る」のではなく、既に測った 2 対象からの選択 | — | 要判断 |
 | 8 | 記事の骨格: hintbench で機構、実プログラムで転移、PGO 下で死ぬヒントの発見、測定の教訓 | zenn 記事(オーナーが書く)の素材 | — | 提案 |
 | 9 | 英語版 `SPEC.md` の生成、`work/` の zenn 草稿の破棄または更新 | 英語記事の参照先 | 半日 | 提案 |
@@ -165,4 +166,6 @@ Claude Code の記憶ディレクトリ `~/.claude/projects/-home-hiro/memory/` 
 1. `git log --oneline | head -20`、`tail -150 docs/decisions.ja.md`、`results.md` の末尾 2 節を読む。
 2. §3.3 の進行中 2 件は完了済み(jaq 関数属性 oracle v4 は決定 91・`results.md`「Oracle A2 (jaq)」、hintbench 探索付き Jev は Exp5 決定 92 と Exp6 決定 93〜95、`docs/experiments/hintbench/exp5.md`・`exp6.md`)。新たに「進行中」を残した作業があれば、終わり次第ここと決定ログと §3.4 に追記する。
 3. §4 の表の次の行(3a 探索の適格条件の見直し → 3e jaq / zopfli の 2 クラス A/A 確認 → 3d `inline(never)` の site 落ちの理解 → jaq ループ oracle → zopfli)を、オーナーの承認を得て進める。
-4. 何かを「やらない」と決めたら、その理由を決定ログに書く。
+4. **zopfli の oracle**(§3.4、§4 の行 6)が終わっていたら、まず書き起こす: `results.md` §166 の直後に `## Oracle (zopfli)` を追加し、§166「4. Oracle command」「5. Rules before numbers」に書いた規則(no-op skip、確認バッチ、MDE、正しさゲート、argv0 クラス 96 など)どおりに数値を記録する。書き起こしが終わったら `results.md` §167 に事前登録済みの 6 走行(`zopfli-jev-r0/r1/r2`、`zopfli-rand-r0/r1/r2`、jev/random を交互に)を §167 のコマンド・規則のまま実行する。進捗の見方: `tail artifacts/zopfli-search/oracle-run.log`(または各走行の `oracle-run.log` 相当)と成果物ディレクトリの `rounds.jsonl` の更新時刻。`ps -eo cmd | grep -E 'bench.py|jev_search|cargo'` に何も無く 15 分以上 `rounds.jsonl` が動いていなければ止まっている可能性(§5「止まった担当の見つけ方」)。**計測は同時に 1 つ**: oracle が終わってから §167 を始める(6 走行も 1 つずつ)。測定担当と記録担当は別エージェントにする。
+   なお oracle にも限界がある(§166 の「3. A stated limitation」): Stage 0 で唯一効いたグローバル勝ち筋 `-unroll-max-count=1`(+1.6%)が通る `cache.rs:108` のループは、cap 規則(`per_mark:2` → `top:6`)でこの oracle の 5 site から漏れている(マークからではなく cap から漏れている)。別の `--site-set`(cap を広げる、または手で key を足す)を**同じ 6 マークの上で**試すかはオーナー判断で、マークファイル自体は変えない。
+5. 何かを「やらない」と決めたら、その理由を決定ログに書く。
