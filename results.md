@@ -11554,3 +11554,64 @@ SDK's `system_one()` has no seed/temperature parameter
 consistency cookbook reports that picked labels can flip across repeats
 (https://docs.typesafe.ai/cookbooks/consistency_choice_cookbook.md).
 Checked 2026-09-23, documentation only.
+
+### 160. A/A-only panel study (hintbench k5 mode): pre-registration
+
+Written before any number of this study exists. Binary: the frozen baseline
+`artifacts/hintbench-sites/baseline/bin` (stripped sha256 a84b7c0dfe37e4f6…,
+= Exp6 `timing/base`); nothing built, no HTTP, no tracked file changed.
+Command: `scripts/hintbench_aa_study/run.sh` (readout `readout.py`, output
+`artifacts/hintbench-aa-study/<panel>/`, summary `readout.txt`).
+
+**Archive (read-only, all 170 hintbench `samples.json`).** The 344
+baseline-copy legs split by `c = max(32, (len(argv0)+23) & ~15)` (glibc chunk
+of a `len`-byte string) with zero exceptions: c=96 (len 73–88) slow, c=80/112
+(len 72, 89–94) fast. k8 co-moves ~2%; other kernels do not. No leg is
+bimodal (H1 refuted). Legs of one batch disagree when base/aa straddle 88|89
+(`exp6-*/holdout-batch2`, base 90 / aa 88), so H3 and H4 are refuted and
+this is the cause of every A/A failure of the "aa k5/k8 slow" shape.
+
+**Hypothesis H6**: the mode is keyed to argv[0] length through the heap
+offset of the kernel data (`env::args().collect()` allocates the argv
+strings before it; brk randomization is page-granular). Prediction:
+plain-`k5` leg slow iff `c % 32 == 0`.
+
+**Panels** (CPU 8, gap 0, stdout pipe, warmup 3, 15 runs; lengths asserted):
+1. `p1` `scripts/bench_panel.sh`, 8 kernels, seed 20260927; copies at c =
+   112 (base), 80, 96, 128, 144, 160. H6: slow at 96, 128, 160. (Period 64
+   would make c=128 differ from c=96.) ~5.5 min.
+2. `p2` `bench.py` k5+k8, seed 20260922: copies at len 91 (base) and
+   85–94, a same-length twin at 89, two hard links to one inode at 88 and
+   89. H6: step exactly at 88|89, twins equal, links differ. H2 (file or
+   page-cache placement) needs the links equal. ~3 min.
+3. `p3` fixed paths (c 112, c 96); `k5`, `k5 <3800000 zero-padded to
+   7/25/41/57 chars>`, `k8`, `k8 920000`, `k8 <padded to 25>`: same work,
+   shifted heap. H6: at each path a7 = a41, a25 = a57, a7 ≠ a25. ~2 min.
+4. `p4` = p1, seed 20360922. ~5.5 min.
+5. `p5a` c 112/80/96 on CPU 10 (H5); `p5b` on CPU 8 with a 4 KiB extra env
+   variable and cwd `/` (moves the stack, not the heap: the stack-vs-heap
+   discriminator); `p5c` with a busy loop on SMT sibling CPU 9. H6: map
+   unchanged in all three. ~2 min.
+Drop order if short: p5c, p4, p5b. Total ~18 min.
+
+**Readout rules.** Per run F/S at 345 ms (spikes only; ≥ 4 of 15 runs on
+the far side in one leg reopens H1). Per leg, within a panel: split k5 leg
+medians at the largest gap if it is ≥ 12 ms (relative, because all kernels
+moved ~3% between Exp4 and Exp6); otherwise use 345 ms and flag it. k8: no
+mode; leg medians grouped by `c % 32`.
+- H6 (length key) confirmed: 0 misses in p1, p2, p4, p5a, p5b.
+- Mechanism (heap offset) confirmed only if p3 alternates at both paths. If
+  p2 steps at 88|89 but p3 does not alternate, the length key stands and the
+  mechanism is recorded as unknown; consequences (a), (b) still apply.
+- A leg missing in both p1 and p4 refutes the mod-32 map (record the true
+  map); p1/p4 disagreeing reopens H3. H2 only if p2's links agree with
+  each other against length; H5 only if p5a's map differs.
+
+**Consequences if H6 holds.** (a) All labels of a batch get argv[0] paths of
+equal length (fix the *file name*, e.g. `timing/aa` → a same-length name;
+the label `aa` stays, stats code indexes it). (b) Cross-batch comparisons
+(round/confirm/holdout/panel/oracle) are valid only within one class; every
+batch records `len(argv0)` and class. (c) k5/k8 ground truth is per class:
+the oracle's k5 numbers (unroll 8 = 1.0194, combination 1.0881) are class-96,
+rev's 1.28 is class-112. Measuring arms in both classes is proposed to the
+owner, not done.
