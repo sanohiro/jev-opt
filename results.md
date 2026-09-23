@@ -11830,3 +11830,97 @@ of a batch in class 96, the study's slow mode, and an A/A of three copies
 of the same baseline binary through it reads flat (1.0004, 0.9975), inside
 the pre-registered A/A tolerance. This closes the loop opened in §160/§161:
 the fix works on the binary and workload it was built for.
+
+### 163. argv[0] class check on jaq and zopfli: pre-registration
+
+Written before any number of this check exists (HANDOFF 4 row 3e, decision 97
+(d)). Nothing is built, nothing is sent over HTTP. Both targets copy argv onto
+the heap before reading input (jaq `cli.rs:167` `args_os()`, zopfli
+`main.rs:23` `env::args().skip(1)`). Question: does either target's timing
+depend on argv[0]'s byte length the way hintbench's k5 does (results.md 161:
+class c = max(32, (len+23) & ~15), c96/c128 slow, c80/c112 fast, period 32)?
+
+**Binaries.** One stripped copy of the frozen baseline per target, four hard
+links to that one inode (byte identity is structural; H2, file placement, was
+refuted in 161, so a shared inode is safe and removes jaq's copy-to-copy page
+placement drift from the comparison):
+- jaq: `artifacts/jaq-search/jev-r5/baseline/bin` (sha256 e183c81d…),
+  stripped 83f7eb239c786c8c… = `oracle-A2-holdout/timing/base`.
+- zopfli: `artifacts/zopfli-headroom/bin/baseline` (sha256 8b0ba235…),
+  stripped 79c3322677aa336f… = `zopfli-aa/A1` (24).
+
+**Legs** (exec path length → glibc class): c96 = len 80 (base of every ratio;
+the length of bench.py's pinned alias), c80 = len 64, c112 = len 96,
+c128 = len 112. The hintbench study used len 70 for c80; 64 is the same class
+and, by mimalloc's bin table (hypothesis, not measured), puts the four legs in
+four distinct mimalloc bins (64/80/96/112); jaq's global allocator is
+mimalloc, so for jaq the glibc class only labels the legs and the hypothesis
+is generic length sensitivity, not the hintbench map. zopfli uses glibc.
+
+**Commands** (sequential, never concurrent; `--dry-run` each first):
+    scripts/target_aa_classes.sh zopfli   # holdout cases (Stage 0 set), CPU 2,
+        # gap 0, stdout pipe, warmup 3, runs 18, shuffle 20260926, ~9.7 min
+    scripts/target_aa_classes.sh jaq      # training cases, CPU 4, gap 250 ms,
+        # stdout devnull, warmup 3, runs 35, shuffle 20260925, ~9.6 min
+Each is one `bench.py run --argv0-raw` panel (4 labels x 3 cases), then
+`bench.py stats --base c96 --resamples 10000`, then
+`scripts/target_aa_classes_readout.py` → `artifacts/<t>-aa-classes/
+{paths.tsv,panel.txt,cmd.txt,samples.json,stats.json,stats.md,readout.txt}`.
+Budget: 3.78 s/label-round for jaq (oracle-A2 round-01, 54 label-rounds in
+204 s), 6.94 s for zopfli (24 A/A, 36 in 250 s). bench.py's multi-class
+WARNING is expected. zopfli writes `hold-*.dat.gz` beside its inputs; the four
+legs overwrite the same three files in turn, as in Stage 0.
+
+**Readout rules** (ratio = t_c96 / t_leg, > 1 = leg faster):
+  per case w, leg L != c96:
+    med_ratio = median(c96 runs) / median(L runs)
+    boot ratio + 95% CI = stats.json per_workload[L][w] (mean-based, paired)
+    spread = max(IQR/median of L's runs, IQR/median of c96's runs) / 2
+    SIGNIFICANT iff the CI excludes 1 AND |med_ratio - 1| > spread
+    LARGE iff SIGNIFICANT AND |med_ratio - 1| >= M
+      (M = 3% on jaq, its frozen MDE and the top of its 2-4% A/A; 1% on zopfli)
+  Rule 1  leg aggregate (geomean) outside [0.995, 1.005] -> flag.
+  Rule 2  (broad effect) a leg with every case SIGNIFICANT, one sign, and Rule 1.
+  Rule 3  (case-local effect, the hintbench k5 shape) a case in which at least
+          two legs are LARGE with the same sign.
+  Verdict: CLASS EFFECT if Rule 2 or Rule 3 holds somewhere; otherwise
+  FLAG, NOT CLAIMED if Rule 1 flags a leg or any case/leg is LARGE (one leg
+  alone is not claimed); otherwise NULL. Reported, not a gate: per case the
+  sign of each SIGNIFICANT leg and whether it matches hintbench's map read
+  against c96 (c80 and c112 shifted the same way, c128 not shifted).
+
+**Target-specific status of a verdict.**
+- zopfli (A/A 0.14% aggregate, 0.29% worst case, 24): one panel decides.
+- jaq: same-binary legs move 2-4% within a batch (e.g. oracle-A2 round-01
+  objsearch aa 1055.5 vs base 1008.4 ms, both c96), and decision 80 says a
+  within-batch CI beyond the MDE needs an independent batch. So (a) Rule 1
+  is expected to fire by noise alone: FLAG, NOT CLAIMED is the expected jaq
+  null outcome; (b) a jaq CLASS EFFECT from this panel is provisional and
+  becomes a result only if a second panel with another seed (~10 min, the
+  owner's call) reproduces Rule 2 or Rule 3 in the same case(s) with the same
+  signs; (c) a jaq NULL or FLAG means "no length effect >= max(spread, 3%) at
+  lengths 64/80/96/112", not "no length effect" (readout prints the panel's
+  largest spread threshold).
+
+**Archive classes** (from `header.labels`; every archived batch predates the
+decision-97 alias, so the exec path was the label path):
+- jaq, `artifacts/jaq-search/**/samples.json`: 167 batches, 505 legs, lengths
+  73-87, all c96, none mixed. Pre-search jaq: `jaq-aa` c64, `jaq-plain` c64,
+  `jaq-exp1`/`jaq-exp2` holdout c64 (T0) and c80, `jaq-headroom` c80 baseline
+  (len 65) with configs mixed c80/c96 in one batch (c96: g1-tailfold-prefer,
+  g1-tfstyle-data-and-control, g2-unroll-thr300, g2-unroll-thr1000,
+  g2-unroll-runtime, g3-loop-distribute).
+- zopfli: `zopfli-aa` c64 (both legs); `zopfli-headroom` headroom/confirm and
+  `zopfli-unroll`: c80 baseline (len 65) with configs mixed c80/c96 in one
+  batch.
+
+**Consequences.** Either way, every new batch stays pinned to len 80 / class
+96 (decision 97); nothing in bench.py changes.
+- NULL / FLAG, NOT CLAIMED: recorded as such; no footnotes; campaigns proceed.
+- CLASS EFFECT on zopfli: the Stage 0 cross-class ratios (26, 31: c96 configs
+  against the c80 baseline; the c64 A/A of 24) get a footnote in the style of
+  161's table; zopfli campaigns use class 96 only.
+- CLASS EFFECT on jaq, once confirmed: the search/oracle archive is
+  single-class (c96) and needs no footnote; the pre-search jaq batches above
+  (Stage 0 A/A, headroom, Exp1/Exp2) are cross-class relative to it and get a
+  footnote. Headlines are not recomputed here.
