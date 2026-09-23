@@ -1187,6 +1187,37 @@ so a reader of the one-line-per-request format is not disturbed by it.
 `artifacts/` is git-ignored: a run's output is evidence for `results.md`, not
 a tracked artifact.
 
+## argv[0] length and the timing alias (decision 97)
+
+On hintbench the k5 kernel's timing mode (~358 vs ~326 ms, k8 co-moving ~2%)
+is keyed to the byte length of argv[0], the absolute path of the timed
+binary, through the glibc chunk class `c = max(32, (len + 23) & ~15)`: c=96
+slow, c=80/112 fast (results.md 160). Before this, every batch exec'd
+`<outdir>/timing/<label>`, so `aa` was two bytes shorter than `base` and
+round, confirm, holdout and panel directories all had different lengths.
+
+`scripts/bench.py run` now hard-links (copy if the link fails) every label's
+binary into a fresh `artifacts/timing-run/<8 hex>/` under a name
+`NN-<label>` padded with `_` or truncated so that the **absolute exec path is
+exactly 80 bytes (class 96)**, execs that alias, and removes the directory
+when the run ends. It exits before timing if any alias is not 80 bytes or the
+classes differ, and names the length the repository path would need if 80 is
+impossible. `--argv0-raw` execs the paths as given and warns when their
+classes differ; it exists for studies that vary the length on purpose
+(`scripts/hintbench_aa_study/run.sh`; `BENCH_ARGV0_RAW=1` for
+`scripts/bench_panel.sh`).
+
+Recorded: `samples.json` header `argv0: {label: {path, len, class}}` (the
+exec'd path), `argv0_mode` (`pinned`/`raw`), `argv0_len_pinned` (80 or null);
+`labels` still maps each label to the path it was given. `stats.json` copies
+`argv0` and adds `argv0_class` (null when the classes differ or the run
+predates this). `jev_search.py` treats a batch whose `argv0_class` is not 96
+as `measure-failed`, writes `argv0: {len, class}` into each round, confirm
+and holdout record, and `argv0: {len: 80, class: 96, root}` into
+`run-manifest.json`. Batches from before decision 97 are not comparable
+with pinned ones on hintbench unless their `base` path was also class 96;
+comparisons across batches are made within class 96 only.
+
 ## Known limits
 
 * `basis` is checked by the driver, not by the plugin, and within one round

@@ -26,6 +26,9 @@ STUDY="$REPO/artifacts/hintbench-aa-study"
 SRC="$REPO/artifacts/hintbench-sites/baseline/bin"
 BENCH="$REPO/scripts/bench.py"
 export TARGET=hintbench
+# Decision 97: bench.py now pins argv[0] to 80 bytes; this study varies the
+# length on purpose, so every run (direct and via bench_panel.sh) is raw.
+export BENCH_ARGV0_RAW=1
 export PYTHONUNBUFFERED=1
 RUNS=15
 WARMUP=3
@@ -87,7 +90,7 @@ direct_panel() {
   local out="$STUDY/$id"
   paths_tsv "$out/paths.tsv" "${paths[@]}"
   python3 -u "$BENCH" run --cpu "$cpu" --warmup "$WARMUP" --runs "$RUNS" \
-    --stdout pipe --gap-ms 0 --shuffle "$seed" \
+    --stdout pipe --gap-ms 0 --shuffle "$seed" --argv0-raw \
     "${labels[@]}" "${wls[@]}" --out "$out/samples.json" || return $?
   python3 -u "$BENCH" stats "$out/samples.json" --base "$base" --seed "$seed" \
     --resamples 10000 --json "$out/stats.json" > "$out/stats.md" || return $?

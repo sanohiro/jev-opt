@@ -26,6 +26,11 @@
 #
 # The FIRST label is the base of the ratios. CPU, settle gap and stdout policy
 # come from target_common.sh; nothing about the recipe is named here.
+#
+# bench.py execs every label through an 80-byte argv[0] alias (decision 97).
+# BENCH_ARGV0_RAW=1 passes --argv0-raw, so the copies under $OUT/timing are
+# exec'd as named (for studies that vary the path length on purpose). Each
+# label's exec-path length and chunk class is appended to panel.txt.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/target_common.sh"
@@ -55,11 +60,21 @@ done
 
 WL=()
 for w in "${WORKLOADS[@]}"; do WL+=(--workload "$w"); done
+RAW=()
+[ "${BENCH_ARGV0_RAW:-}" = "1" ] && RAW=(--argv0-raw)
 
 "$REPO/scripts/bench.py" run \
   --cpu "$BENCH_CPU" --warmup "$WARMUP" --runs "$RUNS" \
   --stdout "$BENCH_STDOUT" --gap-ms "$BENCH_GAP_MS" --shuffle "$SEED" \
-  "${LABELS[@]}" "${WL[@]}" --out "$OUT/samples.json"
+  ${RAW[@]+"${RAW[@]}"} "${LABELS[@]}" "${WL[@]}" --out "$OUT/samples.json"
+
+python3 -c '
+import json, sys
+h = json.load(open(sys.argv[1]))["header"]
+print("argv0 mode %s" % h.get("argv0_mode"))
+for n, d in (h.get("argv0") or {}).items():
+    print("argv0 %s len %d class %d %s" % (n, d["len"], d["class"], d["path"]))
+' "$OUT/samples.json" | tee -a "$OUT/panel.txt"
 
 "$REPO/scripts/bench.py" stats "$OUT/samples.json" --base "$BASE" \
   --seed "$SEED" --resamples 10000 --json "$OUT/stats.json" \

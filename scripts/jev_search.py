@@ -67,6 +67,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import jev_vocab as V          # noqa: E402
 import plugin_report           # noqa: E402
+import bench as B              # noqa: E402  (argv[0] pin, decision 97)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH = os.path.join(REPO, "scripts", "bench.py")
@@ -3869,7 +3870,25 @@ def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples):
         return None, "bench.py stats failed: %s" % p.stderr[-2000:]
     with open(os.path.join(out_dir, "stats.md"), "w") as f:
         f.write(p.stdout)
-    return json.load(open(stats_json)), None
+    stats = json.load(open(stats_json))
+    # Decision 97: a batch whose exec paths are not all in the pinned argv[0]
+    # class reads a different k5 mode on hintbench; it is not a measurement.
+    want = B.chunk(B.ARGV0_LEN)
+    if stats.get("argv0_class") != want:
+        return None, ("argv0 class check failed (want len %d class %d for "
+                      "every label): %s" % (B.ARGV0_LEN, want, ", ".join(
+                          "%s len %s class %s" % (n, d.get("len"), d.get("class"))
+                          for n, d in (stats.get("argv0") or {}).items())
+                          or "no argv0 in stats.json"))
+    return stats, None
+
+
+def argv0_record(stats):
+    """The batch's argv[0] length and class, for rounds.jsonl (decision 97)."""
+    a0 = stats.get("argv0") or {}
+    lens = sorted({d["len"] for d in a0.values()})
+    return {"len": lens[0] if len(lens) == 1 else lens,
+            "class": stats.get("argv0_class")}
 
 
 def nm_table(binary):
@@ -4418,6 +4437,7 @@ class Search:
                         "ratio": agg["cand"]["ratio"], "ci95": agg["cand"]["ci95"],
                         "aa": {"ratio": agg["aa"]["ratio"],
                                "halfwidth": agg["aa"]["halfwidth"]},
+                        "argv0": argv0_record(stats),
                         "mde": stats["mde"]}
         with open(os.path.join(hdir, "holdout.json"), "w") as f:
             json.dump(self.holdout, f, indent=1)
@@ -4800,6 +4820,7 @@ class Search:
     def record_batch(into, stats, own_wl, key=None):
         """Copy one batch's aggregate and own-kernel readings into a record."""
         agg = stats["aggregate"]
+        into["argv0"] = argv0_record(stats)
         into["ratio"] = agg["cand"]["ratio"]
         into["ci95"] = agg["cand"]["ci95"]
         into["aa"] = {"ratio": agg["aa"]["ratio"], "ci95": agg["aa"]["ci95"],
@@ -5020,6 +5041,9 @@ class Search:
             "gap_ms": self.shell["bench_gap_ms"],
             "repetitions": self.reps, "warmup": self.warmup,
             "seed": self.seed,
+            # Decision 97: every timed exec path is an alias of this length.
+            "argv0": {"len": B.ARGV0_LEN, "class": B.chunk(B.ARGV0_LEN),
+                      "root": B.ALIAS_ROOT},
             "rustc": subprocess.run(["rustc", "-vV"], text=True,
                                     capture_output=True).stdout,
             "lscpu_e": subprocess.run(["lscpu", "-e"], text=True,

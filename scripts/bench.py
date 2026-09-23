@@ -25,6 +25,16 @@ Conventions fixed here and quoted in results.md:
     opposite ends of the round (results.md "Experiment 1 (jaq)" section 69).
     Shuffling gives every pair the same distribution of separations, so the
     A/A prices the whole round. The default is unchanged.
+  * argv[0] is pinned (decision 97, results.md 160). On hintbench the k5
+    kernel's timing mode is keyed to the byte length of argv[0] through the
+    glibc chunk class `max(32, (len + 23) & ~15)` of the argv string the
+    program copies onto its heap first: the same binary read ~10% apart when
+    exec'd from paths of different length. `run` therefore hard-links (or
+    copies) every label's binary to an alias under ALIAS_ROOT whose absolute
+    path is exactly ARGV0_LEN = 80 bytes (class 96), execs the alias, and
+    removes the alias directory afterwards. `--argv0-raw` execs the paths as
+    given (for studies that vary the length on purpose). samples.json records
+    `argv0: {label: {path, len, class}}`, `argv0_mode`, `argv0_len_pinned`.
   * speed ratio = t_base / t_config. Greater than 1 means the config is
     FASTER than the base.
   * The bootstrap resamples round indices with replacement, jointly across
@@ -40,11 +50,91 @@ import math
 import os
 import platform
 import random
+import secrets
 import shlex
+import shutil
 import statistics
 import subprocess
 import sys
 import time
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Decision 97: every timed exec path is exactly this many bytes.
+ARGV0_LEN = 80
+ALIAS_ROOT = os.path.join(REPO, "artifacts", "timing-run")
+
+
+def chunk(n):
+    """glibc malloc chunk size of an n-byte request (x86-64): the class."""
+    return max(32, (n + 23) & ~15)
+
+
+def plan_aliases(names, alias_dir, length=ARGV0_LEN):
+    """Alias paths, one per label, each exactly `length` bytes long.
+
+    The name is "%02d-<label>" padded with '_' or truncated; the index prefix
+    keeps names unique after truncation. Exits if the directory leaves no room.
+    """
+    avail = length - len(os.fsencode(alias_dir)) - 1
+    out = []
+    for i, name in enumerate(names):
+        prefix = "%02d-" % i
+        if avail < len(prefix) + 1:
+            sys.exit("argv0 pinning: alias directory %s is %d bytes; a %d-byte "
+                     "exec path needs it to be at most %d bytes (REPO %s is too "
+                     "long; use --argv0-raw or move the repository)"
+                     % (alias_dir, len(os.fsencode(alias_dir)), length,
+                        length - 1 - (len(prefix) + 1), REPO))
+        base = (prefix + name)[:avail]
+        base = base + "_" * (avail - len(os.fsencode(base)))
+        path = os.path.join(alias_dir, base)
+        if len(os.fsencode(path)) != length:
+            sys.exit("argv0 pinning: alias for %r is %d bytes, not %d: %s"
+                     % (name, len(os.fsencode(path)), length, path))
+        out.append(path)
+    return out
+
+
+def argv0_info(labels):
+    """{label: {path, len, class}} for the paths that will be exec'd."""
+    return {n: {"path": p, "len": len(os.fsencode(p)),
+                "class": chunk(len(os.fsencode(p)))} for n, p in labels}
+
+
+def make_aliases(labels):
+    """Create ALIAS_ROOT/<8 hex>/ and link every label's binary into it."""
+    os.makedirs(ALIAS_ROOT, exist_ok=True)
+    for _ in range(5):
+        alias_dir = os.path.join(ALIAS_ROOT, secrets.token_hex(4))
+        try:
+            os.mkdir(alias_dir)
+            break
+        except FileExistsError:
+            continue
+    else:
+        sys.exit("argv0 pinning: could not create a fresh directory under %s"
+                 % ALIAS_ROOT)
+    try:
+        paths = plan_aliases([n for n, _ in labels], alias_dir)
+        aliased = []
+        for (name, src), dst in zip(labels, paths):
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)
+            aliased.append((name, dst))
+        info = argv0_info(aliased)
+        bad = {n: d for n, d in info.items() if d["len"] != ARGV0_LEN}
+        if bad or len({d["class"] for d in info.values()}) != 1:
+            sys.exit("argv0 pinning failed:\n" + "\n".join(
+                "  %s %s len %d class %d" % (n, d["path"], d["len"], d["class"])
+                for n, d in info.items()))
+    except BaseException:
+        shutil.rmtree(alias_dir, ignore_errors=True)
+        raise
+    return alias_dir, aliased
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +169,26 @@ def cmd_run(args):
     # sha256 of stdout, taken outside the timing run.
     sink = subprocess.PIPE if args.stdout == "pipe" else subprocess.DEVNULL
 
+    alias_dir = None
+    if args.argv0_raw:
+        exec_labels = list(labels)
+    else:
+        alias_dir, exec_labels = make_aliases(labels)
+    try:
+        run_timed(args, labels, exec_labels, workloads, pin, sink, alias_dir)
+    finally:
+        if alias_dir:
+            shutil.rmtree(alias_dir, ignore_errors=True)
+
+
+def run_timed(args, labels, exec_labels, workloads, pin, sink, alias_dir):
+    argv0 = argv0_info(exec_labels)
+    classes = sorted({d["class"] for d in argv0.values()})
+    if args.argv0_raw and len(classes) > 1:
+        print("WARNING: --argv0-raw and the exec paths fall in different "
+              "argv[0] chunk classes: " + ", ".join(
+                  "%s len %d class %d" % (n, d["len"], d["class"])
+                  for n, d in argv0.items()), file=sys.stderr)
     header = {
         "schema_version": 1,
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -86,6 +196,10 @@ def cmd_run(args):
         "warmup": args.warmup,
         "runs": args.runs,
         "labels": {n: p for n, p in labels},
+        "argv0": argv0,
+        "argv0_mode": "raw" if args.argv0_raw else "pinned",
+        "argv0_len_pinned": None if args.argv0_raw else ARGV0_LEN,
+        "argv0_alias_dir": alias_dir,
         "workloads": {n: a for n, a in workloads},
         "uname": platform.uname()._asdict(),
         "aslr": read_file("/proc/sys/kernel/randomize_va_space"),
@@ -115,7 +229,7 @@ def cmd_run(args):
                 # round share a permutation.
                 random.Random(f"{args.shuffle}:{r}:{wname}").shuffle(order)
             for i in order:
-                lname, path = labels[i]
+                lname, path = exec_labels[i]
                 argv = pin + [path] + wargs
                 t0 = time.perf_counter_ns()
                 proc = subprocess.run(argv, stdout=sink,
@@ -150,7 +264,8 @@ def cmd_run(args):
     with open(args.out, "w") as f:
         json.dump(doc, f, indent=1)
     print(f"{args.out}: {len(samples)} timed samples, "
-          f"{len(labels)} labels x {len(workloads)} workloads x {args.runs} rounds")
+          f"{len(labels)} labels x {len(workloads)} workloads x {args.runs} rounds, "
+          f"argv0 {header['argv0_mode']} class {'/'.join(map(str, classes))}")
     if digest_mismatches:
         print(f"WARNING: stdout differs between labels: {digest_mismatches}")
 
@@ -234,6 +349,15 @@ def cmd_stats(args):
     out["noise_floor_halfwidth_worst"] = worst
     out["mde"] = max(2 * worst, 0.03)
 
+    # Decision 97: carry the exec paths' argv[0] length/class, so a consumer
+    # can refuse a batch outside the pinned class. Old runs have none (null).
+    a0 = doc["header"].get("argv0")
+    out["argv0"] = a0
+    out["argv0_mode"] = doc["header"].get("argv0_mode")
+    cls = sorted({d["class"] for d in a0.values()}) if a0 else []
+    out["argv0_classes"] = cls
+    out["argv0_class"] = cls[0] if len(cls) == 1 else None
+
     if args.mde is not None:
         out["frozen_mde"] = args.mde
     if args.json:
@@ -288,7 +412,10 @@ def markdown(out, doc):
     lines.append(f"pin `{h['taskset']}`, warmup {h['warmup']}, "
                  f"{out['rounds']} timed rounds, base `{base}`, "
                  f"bootstrap {out['resamples']} resamples seed {out['seed']}, "
-                 f"ASLR randomize_va_space={h.get('aslr')}")
+                 f"ASLR randomize_va_space={h.get('aslr')}"
+                 + (f", argv0 {out.get('argv0_mode')} class "
+                    f"{'/'.join(map(str, out.get('argv0_classes') or []))}"
+                    if out.get("argv0") else ""))
     lines.append("")
     lines.append("| label | workload | mean ms | median ms | min ms | "
                  "ratio vs base | 95% CI | half-width |")
@@ -379,6 +506,10 @@ def main():
                         "captures it and cross-checks it between labels; "
                         "'devnull' discards it, for targets whose output is "
                         "large enough to distort the measurement")
+    r.add_argument("--argv0-raw", action="store_true",
+                   help="exec the label paths as given instead of an 80-byte "
+                        "alias (decision 97); warns when their argv[0] chunk "
+                        "classes differ. For studies that vary the length.")
     r.set_defaults(func=cmd_run)
 
     s = sub.add_parser("stats", help="paired bootstrap over a run's JSON")
