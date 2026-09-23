@@ -9618,7 +9618,7 @@ candidate whose confirmed arms point in both directions:
 | `write_until` | 6 | 1.0153 | [1.0042, 1.0265] | 1.0215 | [1.0122, 1.0312] | no | 5 | 12.00% |
 | `reserve_rehash` | 1 | 1.0104 | [1.0047, 1.0162] | 1.0096 | [1.0036, 1.0162] | no | 17 | 11.73% |
 | `jaq_json::read::parse` | 6 | 0.9741 | [0.9513, 0.9956] | 0.9739 | [0.9675, 0.9802] | no | 29 | 21.54% |
-| `<alloc::rc::Rc<IndexMap>>::drop_slow` | 1 | 0.9525 | [0.9475, 0.9572] | 0.9848 | [0.9773, 0.9922] | **yes (−)** | 45 | 14.46% |
+| `<alloc::rc::Rc<IndexMap>>::drop_slow` | 1 | 0.9525 | [0.9475, 0.9572] | 0.9848 | [0.9773, 0.9922] | batch 1 only | 45 | 14.46% |
 | `jaq_json::write::write` | 1 | 0.9445 | [0.9397, 0.9494] | 0.9337 | [0.9267, 0.9409] | **yes (−)** | 10 | 1.81% |
 
 The other nine: six built the **baseline** (`Lex::seq`, `str_fold`,
@@ -9628,10 +9628,15 @@ site left to inline into), and three moved inside their own noise
 (`path::run` 1.0116 with a confirmation of 1.0060, `Adapter::write_str`
 0.9914, `String::fmt` 0.9957).
 
-So: **`inline(always)` is live on jaq, it is the only candidate that is, and
-it cuts both ways.** One arm gains 4.3--4.8% in two batches; two lose 4.8%
-and 5.5--6.6% in two batches. It is also the only candidate in either jaq
-sweep that ever produced a **positive** arm above the MDE.
+So: **`inline(always)` cuts both ways, and it is the only candidate in
+either jaq sweep that ever produced a *positive* arm above the MDE.** One
+arm gains 4.3--4.8% in two batches; `write::write` loses 5.5--6.6% in two
+batches and `Rc<IndexMap>::drop_slow` loses 4.8% in the first and 1.5% in
+the confirmation. It is **not** the only live candidate: `inline_never` has
+four confirmed arms of its own and two of them clear the MDE in **both**
+batches (139). What is true of both is that they are the same knob ---
+forced inlining, in one direction or the other --- and that nothing else on
+jaq moves the clock at all.
 
 `Val::hash` is the interesting one and the mechanism is visible in the
 normalized diff: 250 symbols changed at 12.47% of the profile, and the
@@ -9643,21 +9648,26 @@ per-case split says what for. On training, `objsearch` +4.71% / +4.01% and
 ### 139. The MDE gate: one positive arm, four negative
 
 Thirteen arms were confirmed (both batches exclude 1.0 with the same sign).
-**Five clear the 3% MDE, and four of those five are losses:**
+**Five clear the 3% MDE on their first batch, four of them in both batches,
+and only one of the five is a gain:**
 
-| arm | mark | candidate | batch 1 | batch 2 | in-run A/A |
-|---:|---|---|--:|--:|--:|
-| 66 | `Val::hash` | `inline_always` | **1.0426** | **1.0484** | 1.0032 |
-| 17 | `write_until` | `inline_never` | 0.9625 | 0.9678 | 0.9854 |
-| 51 | `Rc<IndexMap>::drop_slow` | `inline_always` | 0.9525 | 0.9848 | 0.9781 |
-| 26 | `write::write` | `inline_always` | 0.9445 | 0.9337 | 1.0180 |
-| 7 | `Lex::seq` | `inline_never` | **0.9061** | 0.9426 | 0.9882 |
+| arm | mark | candidate | batch 1 | batch 2 | clears MDE | in-run A/A |
+|---:|---|---|--:|--:|---|--:|
+| 66 | `Val::hash` | `inline_always` | **1.0426** | **1.0484** | both batches | 1.0032 |
+| 7 | `Lex::seq` | `inline_never` | **0.9061** | 0.9426 | both batches | 0.9882 |
+| 26 | `write::write` | `inline_always` | 0.9445 | 0.9337 | both batches | 1.0180 |
+| 17 | `write_until` | `inline_never` | 0.9625 | 0.9678 | both batches | 0.9854 |
+| 51 | `Rc<IndexMap>::drop_slow` | `inline_always` | 0.9525 | 0.9848 | **batch 1 only** | 0.9781 |
 
-The three ways to lose 4--9% are all on the read/write path and all of them
-are a forced inlining decision in one direction or the other --- the same
+(`arms.md` computes its "clears MDE" column from the first batch alone; the
+column above is the stricter reading and is what the text uses. The per-mark
+best-of-five table is in `arms.md` as well and is not repeated here.)
+
+The four ways to lose 4--9% are all on the read/write path and every one of
+them is a forced inlining decision in one direction or the other --- the same
 shape Oracle A found (section 115: "three ways to lose 3--5%, all of them
 `inline_never`/`cold` on the read path"), now with `inline(always)` supplying
-two of them.
+two of them and `inline_never` the other two.
 
 **The in-run A/A of this run is the same broken instrument Oracle A had.**
 Over the 60 timed batches (37 first, 23 confirmations) the third label --- a
@@ -9745,11 +9755,13 @@ Oracle A's holdout showed a **sign reversal** (best arm 0.9909, combination
 * **`align` is furniture on jaq too**, for the second sweep running: 15 of 15
   `align_16` arms are the baseline, and 17 of the 18 arms `align_32` and
   `align_64` move are pure layout with zero changed symbols.
-* **`inline(always)` is the only live candidate, and it is dangerous.** Six
-  of fifteen arms confirmed: three up (one above MDE), three down (two above
-  MDE, the worst −5.5%/−6.6% at `write::write`). A proposer that likes to try
-  `inline(always)` on jaq is as likely to find a 5% loss as a 4% gain, which
-  is what the speed gate exists for.
+* **Forced inlining is the only live knob on jaq, in either direction, and
+  it is dangerous.** `inline(always)`: six of fifteen arms confirmed, three
+  up (one above MDE) and three down (`write::write` −5.5%/−6.6% in both
+  batches). `inline_never`: four confirmed, two of them above MDE in both
+  batches (`Lex::seq` −9.4%/−5.7%, `write_until` −3.8%/−3.2%), none
+  positive. A proposer that likes to try either on jaq is as likely to find
+  a 5--9% loss as a 4% gain, which is what the speed gate exists for.
 * **The `Jev / oracle` ratio of SPEC.ja.md 2 has a denominator now, and it is
   small**: +4.26% on training, one site of fifteen. It still waits on the
   loop half (176 arms, not run).
