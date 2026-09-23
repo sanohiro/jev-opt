@@ -10663,3 +10663,247 @@ appears at k5 or k8 here (`aa`/k5 0.9974, `aa`/k8 1.0010, both within
 §152's training ratio (1.0742), confirm (1.0776) and original holdout
 (1.0735) on the same round-02 binary. §152 stays as written; this section
 records only the retake, as required by rule 1.
+
+### 155. exp6-pv
+
+Command run (the §150 template with the pv arm's two flags filled in):
+
+```
+export TARGET=hintbench
+scripts/jev_search.py --target hintbench \
+    --marks targets/hintbench/jev-marks.txt \
+    --sites artifacts/hintbench-sites/sites.json \
+    --site-set oracle.selected_keys_loop_hint_kernels \
+    --proposer jev --rounds 5 --vocab v5 --readout forced_top1 \
+    --source-comments strip --explore 2 --explore-revisit 0 --pv-untried on \
+    -n 15 --warmup 3 \
+    --baseline-dir artifacts/hintbench-sites/baseline \
+    --measure-holdout --out artifacts/hintbench-search/exp6-pv
+scripts/bench_panel.sh artifacts/hintbench-search/exp6-pv/holdout-batch2 15 3 20260927 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-search/exp6-pv/round-02/bin \
+    aa=artifacts/hintbench-sites/baseline/bin
+scripts/hintbench_exp4_score.py run artifacts/hintbench-search/exp6-pv
+```
+
+`run-manifest.json`: `exploration.revisit: 0`, `exploration.pv_untried: "on"`,
+`vocab_version: "v5-2026-09-23"`, `state_format: "state-v5.1-2026-09-23"`,
+`baseline_bin_sha256` `07498197…`, matching §150's frozen baseline (byte
+identical to exp6-ctl's and exp6-rev's, §152/§153). Wall clock: Jev requests
+span 17:07:58–17:30:23 JST (`jev-log/exp6-pv.log`); the full run including
+holdout, `wall_s` in `run-manifest.json`, **1806.0 s (30.1 min)**.
+
+**The rounds** (`rounds.jsonl`; `phase_a`/`phase_b.choices` for the picks
+columns; `phase_a`/`phase_b.exploration.eligible_new`/`.pick_detail` for the
+explored column; `exp6-pv-run.log` for the forced/direct wording):
+
+| round | phase A picks | phase B picks | explored this round | ratio | 95% CI | confirm | A/A (in-run) | accepted |
+|---|---|---|---|--:|---|--:|--:|---|
+| 1 | k2, k4, k5, k6 `inline(always)` (k4, k5 via explore) | k4 loop `vectorize.width=16` (`forced_top1`, all-`KEEP` phase, 1−P(KEEP)=0.540, P(hint)=0.400), k5 loop `unroll.count=8` (explore), k8 loop `interleave.count=1` (explore) | A: k4, k5 fn; B: k5, k8 loop | 0.9681 | [0.9611, 0.9754] | 1.0147 [1.0038, 1.0271] | 1.0011 ±0.0030 | no |
+| **2** | k2, k3, k6, k8 `inline(always)` (k8, k3 via explore) | k8 loop `interleave.count=1` (`forced_top1`, all-`KEEP` phase, 1−P(KEEP)=0.420, P(hint)=0.110), k3 loop `unroll.count=4` (explore) | A: k8, k3 fn; B: k3 loop | **1.0518** | [1.0427, 1.0607] | **1.0598** [1.0511, 1.0684] | 0.9998 ±0.0022 | **yes** |
+| 3 | k1, k2, k6, k7 `inline(always)` (k1, k7 via explore) | k8 loop `interleave.count=1` (direct pick, not forced — P(KEEP_DEFAULT) 0.17), k3 loop `unroll.count=4` (direct pick, not forced — P(KEEP_DEFAULT) 0.04) | A: k1, k7 fn | 1.0500 | [1.0431, 1.0567] | 1.0630 [1.0544, 1.0712] | 0.9963 ±0.0039 | no |
+| 4 | k2, k6 `inline(always)` | k8 loop `interleave.count=1` (direct pick, not forced — P(KEEP_DEFAULT) 0.19), k3 loop `unroll.count=4` (direct pick, not forced — P(KEEP_DEFAULT) 0.06) | none eligible | 1.0485 | [1.0392, 1.0579] | 1.0599 [1.0489, 1.0700] | 0.9991 ±0.0026 | no |
+| 5 | k2, k6 `inline(always)` | k8 loop `interleave.count=1` (direct pick, not forced — P(KEEP_DEFAULT) 0.28), k3 loop `unroll.count=4` (direct pick, not forced — P(KEEP_DEFAULT) 0.05) | none eligible | 1.0496 | [1.0422, 1.0570] | 1.0583 [1.0493, 1.0672] | 1.0001 ±0.0018 | no |
+
+Every round: output correct, every plan entry applied, no `ambiguous`, no
+`vanished`, no `unmatched` (`rounds.jsonl`, `apply` fields; `exp6-pv-run.log`
+prints `[B] correctness: OK` for all five rounds). `exp6-pv-run.log` prints
+`[accept]` exactly once: `round 2 is the new best (1.0518)`. Unlike
+exp6-ctl (§152) and exp6-rev (§153), rounds 3–5's own point ratios (1.0500,
+1.0485, 1.0496) sit **below** round 2's point estimate (1.0518) already, so
+the acceptance rule's CI-lower-bound test is not even reached; `rounds.jsonl`
+records `accepted: false`, `same_plan_as_best: false` for all three, and
+`exp6-pv-run.log` never prints a second `[accept]` line.
+
+**Best plan (round 2), per case** (`rounds.jsonl` round 2 `per_workload`):
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| ratio | 1.0049 | **1.6983** | 1.0507 | 1.0046 | 1.0019 | 1.0029 | 1.0020 | **0.8259** |
+
+Plan (`best-plan.json`): k2, k6 fn `inline(always)` (`jev_readout: argmax`,
+`answer_ref exp6-pv.jsonl#5`); k3, k8 fn `inline(always)` (`jev_readout:
+exploration`, `exploration: true`, `#6`); k8 loop `interleave.count=1`
+(`jev_readout: forced_top1`, `#7`); k3 loop `unroll.count=4` (`jev_readout:
+exploration`, `exploration: true`, `#8`). Basis sha256 `c03c73f8…`.
+
+**Holdout**: ratio **1.0525**, 95% CI [1.0428, 1.0616], in-run A/A 0.9986
+±0.0030, MDE 0.1081 (`run-manifest.json` `holdout` block; `exp6-pv-run.log`
+`[holdout] ratio 1.0525 CI [1.0428, 1.0616]`, measured once on round 2 after
+it was frozen as best).
+
+**Batch 2** (`artifacts/hintbench-search/exp6-pv-holdout-batch2.log`, seed
+20260927, produced by `bench_panel.sh` after this write-up started, finished
+before it did):
+
+| label | aggregate ratio (geomean) | 95% CI | half-width |
+|---|--:|---|--:|
+| base | 1.0000 | [1.0000, 1.0000] | 0.00% |
+| **aa** | **0.9846** | [0.9818, 0.9876] | 0.29% |
+| cand | 1.0551 | [1.0452, 1.0642] | 0.95% |
+
+Per case, cand vs aa (`exp6-pv-holdout-batch2.log`):
+
+| | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| cand | 1.0029 | **1.6947** | 1.0415 | 1.0036 | 1.0008 | 1.0009 | 1.0073 | **0.8568** |
+| aa | 0.9989 | 0.9961 | 0.9965 | 1.0015 | **0.9236** | 1.0019 | 0.9960 | **0.9652** |
+
+**The ±0.5% rule (§151 rule 1) did not hold, the same way it did not hold
+for exp6-ctl's and exp6-rev's original batch 2 (§152/§153).** The A/A leg
+reads 0.9846, a −1.54% deviation, 95% CI [0.9818, 0.9876] excluding 1.0000.
+As in both earlier batches, the deviation concentrates on `aa`/k5 (0.9236,
+−7.64%) and `aa`/k8 (0.9652, −3.48%), the same two cases and the same
+direction as ctl's (0.9146, 0.9829, §152) and rev's (0.9187, 0.9747, §153),
+while the other six `aa` cases deviate at most 0.40% (k7: 0.9960). Per rule 1 this
+batch is owed a retake with both reported. That retake was not run for this
+section (out of this write-up's scope, which excludes running
+`bench_panel.sh`); per the task instructions this is recorded as **retake
+pending**, not waited on. `cand`'s number (1.0551) is not to be used
+anywhere as confirmed until a retake is taken.
+
+**Gateway** (`run-manifest.json` `gateway.attempts_by_phase`; per-phase
+seconds waiting summed from each round's `phase_a.gate` / `phase_b.gate`
+/ `.exploration.gate` in `rounds.jsonl`, which foot to the manifest's
+total):
+
+| phase | requests | attempts | landed | mean body bytes | seconds waiting |
+|---|--:|--:|--:|--:|--:|
+| A | 5 | 22 | 5 | 70657.6 | 35.276 |
+| B | 5 | 14 | 5 | 49962.8 | 18.365 |
+| explore | 5 | 8 | 5 | 20633.2 | 6.694 |
+| **total** | **15** | **44** | **15** | — | **60.335** |
+
+`lost_phases: 0`, `lost_rounds: 0` (`run-manifest.json`) — **0 of 10 phase
+requests lost** (A+B ×5 rounds), same as exp6-ctl (§152) and exp6-rev
+(§153). Rule 5's threshold (>2 of 10 lost invalidates the arm) is not
+approached; no re-run under `-b` is needed. `exp6-pv-run.log` shows every
+503 absorbed by the round's own resend/backoff inside the 600 s wall
+budget (e.g. round 5 phase A: 1 failed attempt, 2.3 s waited, then HTTP
+200).
+
+**k8 mechanism check (§151 rule 4).** k8's loop was asked **twice** in
+round 1 phase B: the main (non-explore) request (`jev-log/exp6-pv.jsonl`
+line 3, phase `B`, site `q2` = `hbkernels::k8_scale_add@range.rs:1103:12#d2`)
+and the exploration sub-request (`jev-log/exp6-pv.jsonl` line 4, phase
+`B.explore`, site `e1` = the same site).
+
+* **Main phase (q2, line 3)**: `choice: "KEEP_DEFAULT"`, confidence 0.78,
+  `probabilities.vectorize_width_16: 0.00` (`KEEP_DEFAULT` 0.80). This
+  request's state text is byte-identical to exp6-ctl's own main-phase-B
+  round-1 request except the header's state-format string (verified by diff,
+  both 13359 bytes on the k8-loop's B.explore twin, and 8-line/header-only
+  diffs on rounds.jsonl-level state text for round 1's A, A.explore, B and
+  B.explore phases); exp6-ctl's own main-phase q2 answer
+  (`jev-log/exp6-ctl.jsonl` line 3) is `KEEP_DEFAULT` at confidence 0.78,
+  `vectorize_width_16: 0.00` (`KEEP_DEFAULT` 0.80) — matching pv's to two
+  decimals, as expected on byte-identical input.
+* **Exploration sub-request (e1, line 4, the request whose answer is what
+  the driver actually applies at k8, since k8 became newly eligible for
+  exploration this round)**: `choice: "interleave_count_1"`, confidence
+  0.13, **`probabilities.vectorize_width_16: 0.02`**. exp6-ctl's matching
+  request (`jev-log/exp6-ctl.jsonl` line 4, same site) answered
+  `choice: "unroll_count_2"` with `vectorize_width_16: 0.01` (§152); Exp5's
+  was also 0.01 (§145). pv's 0.02 is one hundredth above ctl's 0.01.
+
+  Full probability vector, side by side (`probabilities` field of each
+  response, `e1`/round 1/`B.explore`):
+
+  | candidate | exp6-pv P | exp6-ctl P |
+  |---|--:|--:|
+  | interleave_count_1 | **0.22** (chosen) | 0.12 |
+  | unroll_count_2 | 0.16 | **0.23** (chosen) |
+  | unroll_count_8 | 0.15 | 0.21 |
+  | vectorize_width_4 | 0.14 | 0.05 |
+  | interleave_count_2 | 0.14 | 0.11 |
+  | unroll_count_4 | 0.08 | 0.09 |
+  | vectorize_width_8 | 0.07 | 0.16 |
+  | vectorize_width_16 | 0.02 | 0.01 |
+  | vectorize_width_2 | 0.01 | 0.01 |
+  | interleave_count_4 | 0.01 | 0.01 |
+
+* **The exact pv line never appeared.** `--pv-untried on`'s mechanical
+  sentence (`docs/search-driver.md` §"v5.1: the post_vectorize untried
+  line", the one grep would find via `cost model picked`) is added only
+  after a vectorized loop's `post_vectorize` width/interleave-count lines.
+  A grep for `cost model picked` across the `state` field of **all 15**
+  request bodies in `jev-log/exp6-pv.jsonl` returns **zero** matches; so do
+  greps for `what LLVM did with this loop` and `vectorisation legality`
+  (the `post_vectorize` block's own lead-in lines). Every one of this
+  site set's four loops — including k8 — instead carries the pre-existing
+  shared-source-line fallback in every request that asks about it. The k8
+  state (`jev-log/exp6-pv.jsonl` line 4, request `state`, site `e1`) reads:
+
+  > what LLVM said at range.rs:1103:12 in the baseline build --- CAUTION:
+  > 18 different loops of this program were compiled at that one
+  > location, so the lines below are their remarks pooled together and
+  > none of them can be assigned to this loop:
+  >   range.rs:1103: advising against unrolling the loop because it
+  > contains a call
+  >   range.rs:1103: loop not vectorized
+  >   range.rs:1103: vectorized loop (vectorization width: 8, interleaved
+  > count: 4)
+  >   [... 6 more pooled remark lines ...]
+
+  i.e. k8 (and the other three loops in this site set) has no
+  plugin-recorded `post_vectorize` fact at this key, so the `--pv-untried
+  on` sentence has nothing to attach to and never renders for this site
+  set, this run. This is confirmed structurally, not just by the grep: a
+  byte-for-byte diff of round 1's four phase requests (A, A.explore, B,
+  B.explore) between exp6-pv and exp6-ctl shows the *only* difference is
+  the header's state-format version string (`state-v5.1-2026-09-23` vs
+  `state-v5.0-2026-09-23`) — the two arms' round-1 states are otherwise
+  identical. The 0.01→0.02 shift in P(vectorize_width_16) at k8 is
+  therefore not attributable to the pv-untried mechanism; it is
+  run-to-run sampling variation on input the mechanism did not change.
+
+* **Was `vectorize.width=16` picked at k8 in any round? No.** `k8 loop`'s
+  answer in `phase_b.choices` is `interleave_count_1` in every round it is
+  asked (1–5, `rounds.jsonl`); it never changes.
+* **Is it in the best plan? No.** `best-plan.json`'s `loop_md` entry for
+  `hbkernels::k8_scale_add@range.rs:1103:12#d2` is `interleave_count_1`
+  (`jev_readout: "forced_top1"`, `answer_ref: "exp6-pv.jsonl#7"`).
+
+**Score** (`scripts/hintbench_exp4_score.py run artifacts/hintbench-search/exp6-pv`,
+context per §151 rule 7, not headline):
+
+| round | exact | same-family | miss | harmful | ratio | share of the combination (training) |
+|---|--:|--:|--:|--:|--:|--:|
+| 1 | 5 | 0 | 7 | 2 | 0.9681 | −36.25% |
+| **2** | **8** | **0** | **4** | **1** | **1.0518** | **58.82%** |
+| 3 | 8 | 0 | 4 | 1 | 1.0500 | 56.71% |
+| 4 | 10 | 0 | 2 | 1 | 1.0485 | 55.06% |
+| 5 | 10 | 0 | 2 | 1 | 1.0496 | 56.30% |
+
+Combination's own training ratio, for scale: **1.0881** (`combination_training`
+in the score output, identical to exp6-ctl's and exp6-rev's, §152/§153).
+Round 2's (accepted) four misses are `inline(always)` at k3, k6, k8 fn
+(truth `KEEP_DEFAULT` at all three) and `interleave.count=1` at the k8 loop
+(truth `vectorize_width_16`, the +8.8%, `pick_ratio` 0.8033 [0.7600, 0.8464]
+on k8's own workload against `truth_ratio` 1.0881 — the one `harmful` entry,
+same as exp6-ctl's round 2). Unlike exp6-ctl, this round's k3-loop pick
+(`unroll_count_4`) is an **exact** match to the truth, not a same-family
+miss — no `same-family` entries appear in any pv round's score.
+
+**What this arm establishes (§151 rule 2, pv − ctl on the headline; and
+the rule-4 answer above).** Against exp6-ctl (§152: training 1.0742,
+confirm 1.0776, holdout 1.0735):
+
+| metric | exp6-ctl | exp6-pv | pv − ctl (points) | exceeds 0.5 pt noise bar? |
+|---|--:|--:|--:|---|
+| training (best round) | 1.0742 | 1.0518 | −2.24 | yes |
+| confirm | 1.0776 | 1.0598 | −1.78 | yes |
+| holdout | 1.0735 | 1.0525 | −2.09 | yes |
+
+All three deltas exceed the oracle's 0.5 pt null-panel bar, and all three
+are negative: exp6-pv's headline sits below exp6-ctl's on training,
+confirm and holdout alike. The rule-4 mechanism check above establishes
+why the two arms differ here: not because `--pv-untried on` changed
+anything at k8 (it did not — the pv line never rendered anywhere in this
+run, and round 1's states are otherwise byte-identical to exp6-ctl's), but
+because independent sampling at the k8-loop `B.explore` request happened
+to draw `interleave_count_1` (harmful, `pick_ratio` 0.8033) in exp6-pv
+instead of `unroll_count_2` (near-neutral, exp6-ctl's pick, §152) — a
+difference in which non-`KEEP_DEFAULT` candidate the model's sampling
+landed on at an equally-uninformed site, not a difference the
+post_vectorize-untried sentence produced.

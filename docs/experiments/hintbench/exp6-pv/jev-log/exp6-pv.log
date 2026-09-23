@@ -1,0 +1,73 @@
+# jev-opt request log, run exp6-pv
+# ts round phase questions http_status latency_ms input_tokens output_tokens cost_usd
+2026-09-23T17:07:58.268367+09:00 r1 A         8 200    986.8   23630    341 0.00000000  (after 1 failed attempt(s): HTTP 503)
+#   request 65317 bytes sha256 0b51187b33454725, 2 attempt(s), 2.2 s waited
+#   attempt 1 2026-09-23T17:07:54.126522+09:00 http 503 985.6 ms gen gen_01M36MX5J2CEVJVVHHK53S6502 then sleep 2.2 s
+#   attempt 2 2026-09-23T17:07:57.281524+09:00 http 200 986.8 ms gen gen_01M36MX8KKCGQ30XJH14TBW8MP
+2026-09-23T17:07:59.060704+09:00 r1 A.explore   2 200    790.2    7153     73 0.00000000
+2026-09-23T17:08:03.711053+09:00 r1 B         4 200    968.6   14618    571 0.00000000
+2026-09-23T17:08:12.727212+09:00 r1 B.explore   2 200    521.4    8121    278 0.00000000  (after 3 failed attempt(s): HTTP 503, HTTP 503, HTTP 503)
+#   request 26265 bytes sha256 51ae368a3de4694f, 4 attempt(s), 6.7 s waited
+#   attempt 1 2026-09-23T17:08:03.714037+09:00 http 503 560.0 ms gen gen_01M36MXEPVK4W42N13JTNEGV9Q then sleep 2.4 s
+#   attempt 2 2026-09-23T17:08:06.637147+09:00 http 503 602.0 ms gen gen_01M36MXHJVVJXE60RV24HVYCV7 then sleep 2.3 s
+#   attempt 3 2026-09-23T17:08:09.490592+09:00 http 503 636.9 ms gen gen_01M36MXMCPNXZ2GDMGKRR09CQV then sleep 2.1 s
+#   attempt 4 2026-09-23T17:08:12.205771+09:00 http 200 521.4 ms gen gen_01M36MXPWYVR8680RA0NTKQ89K
+2026-09-23T17:13:53.320697+09:00 r2 A         8 200   1021.6   25026    341 0.00000000  (after 8 failed attempt(s): HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503)
+#   request 68738 bytes sha256 7e1663f54ba275de, 9 attempt(s), 16.4 s waited
+#   attempt 1 2026-09-23T17:13:29.683630+09:00 http 503 881.9 ms gen gen_01M36N7D79K004R4DCW2JEFYY7 then sleep 1.6 s
+#   attempt 2 2026-09-23T17:13:32.192324+09:00 http 503 791.9 ms gen gen_01M36N7FNVYN2FJE1RBYMZ6YE1 then sleep 2.1 s
+#   attempt 3 2026-09-23T17:13:35.058221+09:00 http 503 711.8 ms gen gen_01M36N7JF2QHW9M2NH0V2CBXHD then sleep 2.1 s
+#   attempt 4 2026-09-23T17:13:37.856264+09:00 http 503 623.3 ms gen gen_01M36N7N2HHJZ2XFD1KR65WDF1 then sleep 1.9 s
+#   attempt 5 2026-09-23T17:13:40.382952+09:00 http 503 785.4 ms gen gen_01M36N7QNYC3FWDXS1SJCKY0FP then sleep 2.2 s
+#   attempt 6 2026-09-23T17:13:43.329632+09:00 http 503 885.3 ms gen gen_01M36N7TN6HA2018J466SKHFRB then sleep 2.3 s
+#   attempt 7 2026-09-23T17:13:46.510028+09:00 http 503 743.9 ms gen gen_01M36N7XFZSBX04ADVA944W41Y then sleep 2.2 s
+#   attempt 8 2026-09-23T17:13:49.442325+09:00 http 503 753.7 ms gen gen_01M36N80G4Q32PNC6ZKMHY9MZJ then sleep 2.1 s
+#   attempt 9 2026-09-23T17:13:52.299014+09:00 http 200 1021.6 ms gen gen_01M36N83A083YXVQBX39NY34MJ
+2026-09-23T17:13:54.022045+09:00 r2 A.explore   2 200    699.9    6885     73 0.00000000
+2026-09-23T17:14:07.370009+09:00 r2 B         4 200    978.6   15652    571 0.00000000  (after 3 failed attempt(s): HTTP 503, HTTP 503, HTTP 503)
+#   request 49376 bytes sha256 8b33c77c6845f953, 4 attempt(s), 7.0 s waited
+#   attempt 1 2026-09-23T17:13:57.410121+09:00 http 503 799.3 ms gen gen_01M36N88AT9EC7E9HYDMHGTBPV then sleep 2.4 s
+#   attempt 2 2026-09-23T17:14:00.563487+09:00 http 503 601.6 ms gen gen_01M36N8B8X70RMAR2KABM66AWV then sleep 2.3 s
+#   attempt 3 2026-09-23T17:14:03.496042+09:00 http 503 619.6 ms gen gen_01M36N8E37R9X34PJPP0WN50ZC then sleep 2.3 s
+#   attempt 4 2026-09-23T17:14:06.391389+09:00 http 200 978.6 ms gen gen_01M36N8H4M8H8Z91Z0QDEE2ZSQ
+2026-09-23T17:14:08.051723+09:00 r2 B.explore   1 200    680.3    5198    140 0.00000000
+2026-09-23T17:19:29.680568+09:00 r3 A         8 200    903.2   26017    341 0.00000000  (after 5 failed attempt(s): HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503)
+#   request 71083 bytes sha256 8efb39463a60a43a, 6 attempt(s), 10.0 s waited
+#   attempt 1 2026-09-23T17:19:15.170062+09:00 http 503 951.6 ms gen gen_01M36NHYFVZ375JFVNZTBVHKMG then sleep 1.8 s
+#   attempt 2 2026-09-23T17:19:17.907025+09:00 http 503 731.5 ms gen gen_01M36NJ1953JJ6TE1CB3YNMN91 then sleep 2.3 s
+#   attempt 3 2026-09-23T17:19:20.943827+09:00 http 503 734.3 ms gen gen_01M36NJ47QMGFPBDQ4C1A7S67G then sleep 2.0 s
+#   attempt 4 2026-09-23T17:19:23.682767+09:00 http 503 594.1 ms gen gen_01M36NJ6SABM6XJTKEJM333JFX then sleep 2.0 s
+#   attempt 5 2026-09-23T17:19:26.233638+09:00 http 503 610.0 ms gen gen_01M36NJ98JTWT33XS02S1SGE0Y then sleep 1.9 s
+#   attempt 6 2026-09-23T17:19:28.777355+09:00 http 200 903.2 ms gen gen_01M36NJBVBA1D7VDGZ01RHFMTF
+2026-09-23T17:19:30.211372+09:00 r3 A.explore   2 200    529.4    7710     73 0.00000000
+2026-09-23T17:19:45.040984+09:00 r3 B         4 200    869.0   16207    578 0.00000000  (after 4 failed attempt(s): HTTP 503, HTTP 503, HTTP 503, HTTP 503)
+#   request 50615 bytes sha256 d315595d50125c91, 5 attempt(s), 7.4 s waited
+#   attempt 1 2026-09-23T17:19:33.537863+09:00 http 503 768.8 ms gen gen_01M36NJGHHSB9D3286RVSWQ4JK then sleep 2.0 s
+#   attempt 2 2026-09-23T17:19:36.290361+09:00 http 503 944.7 ms gen gen_01M36NJKCHSWQA479QMWEYD5AT then sleep 1.9 s
+#   attempt 3 2026-09-23T17:19:39.145741+09:00 http 503 723.5 ms gen gen_01M36NJP0MEDGDEAG3N7Q5CZ4E then sleep 1.7 s
+#   attempt 4 2026-09-23T17:19:41.612898+09:00 http 503 836.2 ms gen gen_01M36NJRH6YWMGJXG10VBHQX26 then sleep 1.7 s
+#   attempt 5 2026-09-23T17:19:44.171891+09:00 http 200 869.0 ms gen gen_01M36NJTYRN7H5TR3CT5N2222E
+2026-09-23T17:24:58.114691+09:00 r4 A         8 200    931.0   26984    341 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+#   request 73335 bytes sha256 0599e1902eaecd6f, 3 attempt(s), 4.3 s waited
+#   attempt 1 2026-09-23T17:24:51.213528+09:00 http 503 897.0 ms gen gen_01M36NW6V1RJRTY491VDDCV7H6 then sleep 2.3 s
+#   attempt 2 2026-09-23T17:24:54.438859+09:00 http 503 733.8 ms gen gen_01M36NW9YA4E8AAPN1C9DVYH24 then sleep 2.0 s
+#   attempt 3 2026-09-23T17:24:57.183635+09:00 http 200 931.0 ms gen gen_01M36NWCK3NB0RCA3MSK7YMHH8
+2026-09-23T17:25:07.991379+09:00 r4 B         4 200    941.4   16503    578 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+#   request 51106 bytes sha256 4b56d08cca8ec0c4, 3 attempt(s), 4.0 s waited
+#   attempt 1 2026-09-23T17:25:01.443292+09:00 http 503 809.6 ms gen gen_01M36NWGTCPRP24FZ6HBCHV5PS then sleep 1.9 s
+#   attempt 2 2026-09-23T17:25:04.109886+09:00 http 503 752.8 ms gen gen_01M36NWKC7040D5GJG3C9P8PX1 then sleep 2.2 s
+#   attempt 3 2026-09-23T17:25:07.049900+09:00 http 200 941.4 ms gen gen_01M36NWP7WSB6M0ESJ44YKHEEF
+2026-09-23T17:30:19.325358+09:00 r5 A         8 200   1086.2   27651    341 0.00000000  (after 1 failed attempt(s): HTTP 503)
+#   request 74815 bytes sha256 e7af5b40f7ac5fda, 2 attempt(s), 2.3 s waited
+#   attempt 1 2026-09-23T17:30:14.606380+09:00 http 503 1287.2 ms gen gen_01M36P62RCGFD40AEDX41DNADY then sleep 2.3 s
+#   attempt 2 2026-09-23T17:30:18.239036+09:00 http 200 1086.2 ms gen gen_01M36P667SCVJCDA8XGQFSNBG1
+2026-09-23T17:30:23.477997+09:00 r5 B         4 200    798.1   16899    578 0.00000000
+
+# totals for run exp6-pv
+# http requests      15
+# choice questions   69
+# latency total/avg/max ms  12705.6 / 847.0 / 1086.2
+# tokens in/out      244254 / 5218
+# cost usd           0.00000000
+# wall clock of the run s   1806.0
+# jev share of the run      0.7035%
