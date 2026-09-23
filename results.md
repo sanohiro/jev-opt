@@ -10117,3 +10117,105 @@ Deviations and what is not established:
   is that it was offered, taken, measured and kept.
 * Nothing here says anything about a target other than hintbench. The jaq
   run with exploration has not been done.
+
+## Experiment 6 (hintbench): revisit budget, the post_vectorize untried line, and a gateway that lands
+
+Exp5 (§143–149) reached +7.4% (84–86% of the oracle's +8.8% combination) but
+k8's `vectorize.width=16` was offered once (P 0.01, ranked 11th) and never
+again, and 5 of 10 phase requests were lost to 503. Decision 92 (b)(c)(d)
+asked for a revisit budget, a mechanical state line, and a retry policy.
+Commits af01508 (vocabulary v5), b489e5d (503 policy + round gate), 366a35f
+(revisit budget + pv line). Write-up will be `docs/experiments/hintbench/exp6.md`.
+
+### 150. What will be run (pre-registration)
+
+Four arms, run **in this order**, one at a time, control first because it
+validates the retry policy before treatment arms spend time:
+
+| arm | run id | `--explore-revisit` | `--pv-untried` |
+|---|---|---|---|
+| control | exp6-ctl | 0 | off |
+| revisit | exp6-rev | 1 | off |
+| pv | exp6-pv | 0 | on |
+| both | exp6-both | 1 | on |
+
+Command template (fill the two flags per arm):
+
+```
+export TARGET=hintbench
+scripts/jev_search.py --target hintbench \
+    --marks targets/hintbench/jev-marks.txt \
+    --sites artifacts/hintbench-sites/sites.json \
+    --site-set oracle.selected_keys_loop_hint_kernels \
+    --proposer jev --rounds 5 --vocab v5 --readout forced_top1 \
+    --source-comments strip --explore 2 --explore-revisit R --pv-untried X \
+    -n 15 --warmup 3 \
+    --baseline-dir artifacts/hintbench-sites/baseline \
+    --measure-holdout --out artifacts/hintbench-search/<run id>
+scripts/bench_panel.sh artifacts/hintbench-search/<run id>/holdout-batch2 15 3 20260927 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-search/<run id>/<best round>/bin \
+    aa=artifacts/hintbench-sites/baseline/bin
+scripts/hintbench_exp4_score.py run artifacts/hintbench-search/<run id>
+```
+
+**Frozen and identical to Exp5**: marks, the site set (8 functions + 4 loops,
+`oracle.selected_keys_loop_hint_kernels`), k1..k8, n=15, warmup 3, shuffle
+seed 20260921 + round, `taskset -c 8`, gap 0 ms, bootstrap 10000,
+`--readout forced_top1`, `--source-comments strip`, `--explore 2`, no-op
+skip on, and the baseline binary --- `.text` sha256 `df5968bc…`, whole
+binary `07498197…`, byte-identical to Experiment 4's and Experiment 5's
+manifests. The plugin is unchanged since Exp5, so the baseline is reused
+from `artifacts/hintbench-sites/baseline`, not rebuilt.
+
+**Differs from Exp5 in EVERY arm**: vocabulary v5 (= v4 minus the three
+`align` candidates and `unroll_disable`, all measured dead or duplicate in
+the oracle sweep, §118–128 --- so the oracle reference +8.8% combination
+stays the comparison point); the state format --- `state-v5.0-2026-09-23`
+(v4.2's template, unchanged, af01508) for the `--pv-untried off` arms
+(ctl, rev) and `state-v5.1-2026-09-23` (366a35f) for the `on` arms (pv,
+both); `off` renders byte-identical state to v5.0, which is what makes
+pv − ctl a clean single-factor comparison; the 503 retry policy and round
+gate (decision 92 d, commit b489e5d, `[jev]` keys `request_timeout_s`
+(20 s), `retries` (200), `retry_wall_budget_s` (600 s), `backoff_cap_s`
+(5.0 s), `phase_resend_max` (2)). Therefore **exp6-ctl vs Exp5 is not a
+clean comparison** (vocabulary, state format and gateway all changed
+between them); the comparisons that are attributable are within Exp6 (arm
+vs exp6-ctl) and against the oracle.
+
+### 151. Rules, stated before the numbers
+
+1. Headline per arm: the best accepted plan's training ratio
+   (holdout-as-search, as Exp4/5) plus the driver's confirmation batch, plus
+   one `bench_panel.sh` batch (seed 20260927). The A/A leg of that batch
+   must lie within ±0.5%; otherwise the batch is retaken once and both are
+   reported (Exp5 §147 precedent).
+2. Per-feature effects (non-negotiable 4): rev − ctl, pv − ctl, both − ctl,
+   and the interaction (both − rev − pv + ctl), on the headline ratio. The
+   oracle's batch-to-batch null panel is 0.17 pt; a difference under 0.5 pt
+   is reported as within noise, not as an effect.
+3. Mechanism checks for the revisit arms (recorded from `rounds.jsonl`,
+   pass/fail): (a) the k8 loop is asked at least twice by round 4;
+   (b) `vectorize.width=16` is chosen at k8 in some round; (c) it is kept
+   in the final plan. (a) without (b) means the budget works and Jev does
+   not re-rank; (b) without (c) means the speed gate or a later round
+   dropped it.
+4. Mechanism check for the pv arms: at k8, the P assigned to
+   `vectorize_width_16` in the round-1 phase-B answer versus Exp5's 0.01
+   and exp6-ctl's value.
+5. Gateway rule: an arm in which more than 2 of its 10 phase requests
+   (A and B × 5 rounds) end `lost` is invalid and re-run once under the
+   same run id suffix `-b`; both are recorded. Lost explore requests are
+   recorded and do not invalidate. Attempts, landed, and mean body bytes
+   per phase are reported from the manifest's `gateway.attempts_by_phase`.
+6. Correctness gate as always: any plan whose output differs from baseline
+   is rejected; every arm carries `-Cllvm-args=-hints-allow-reordering=false`.
+7. The 12-site score (`hintbench_exp4_score.py`) is context, not headline
+   (8 of 12 truths are `KEEP_DEFAULT`; §148).
+8. Random control: not re-run; Exp4's 0% stands (random already draws
+   non-`KEEP_DEFAULT` candidates; the revisit budget applies to
+   `--proposer jev` only).
+9. Nothing in this section is edited after the first arm starts;
+   corrections go in later sections.
+
+### 152. exp6-ctl
