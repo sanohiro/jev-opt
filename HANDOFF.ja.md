@@ -1,6 +1,6 @@
 # HANDOFF — jev-opt の引き継ぎ(2026-09-23)
 
-この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(92 項目、番号で参照)、数値は `results.md`(章番号で参照)。この 3 つが正本で、本文書はそこへの案内図。
+この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(95 項目、番号で参照)、数値は `results.md`(章番号で参照、§159 まで)。この 3 つが正本で、本文書はそこへの案内図。
 
 ---
 
@@ -48,7 +48,10 @@
 - **4 つの実プログラム(toy / zopfli / oxipng / jaq)は、グローバルなヒントの掃引ではフラット(0〜2%)**(決定 37)。jaq の関数属性 oracle(v1)もフラット(決定 79)。v4 での再実行が進行中(§4)。
 - **ループヒントの state は帰属が弱かった**(共有 std 行の remark を誤帰属)。plugin にベクトル化後の VF / IC / 存否を記録させる改修を実装済み(決定 90)、hintbench で検証中(§4)。
 - **フィードバックはフィルタとして機能し、探索としては機能しない**(試したヒントについてしか語れない)。探索機構(未試行の site 上位 K に未試行候補だけの Choice)を実装済み(決定 89・90)、検証中。
-- **測定**: jaq は同一バイナリでも 2〜4% 動く(A/A)。バッチ内 bootstrap の CI は較正が壊れており、MDE 超えは独立バッチで確認してから採用(決定 80)。hintbench はバッチ間 0.17 pt と静か。
+- **再訪予算の適格条件が衝突する**: 再訪は「このラウンドの argmax が `KEEP_DEFAULT`」の site にしか働かない。これは「argmax を上書きしない」という不変条件と同じ規則なので、Jev が誤った非 KEEP ヒントを選び続ける site(Exp6 rev の k8 ループ、`unroll_count_2` に固定)は一度も再訪の対象にならない。設計は変えず記録のみ(決定 93)。
+- **同一入力でも Jev の答えは揺れ、n=1 の arm では 0.5 pt の機能効果は解像できない**: バイト一致の要求でも確率は最大 0.10 動き、拮抗した argmax が入れ替わった例もある(Exp6 ctl/rev の k4 ループ)。SystemOne の API に seed / temperature などの決定性パラメータは無い(https://docs.typesafe.ai/api.md、https://docs.typesafe.ai/sdk/python/api/clients/sync.md)。機能ごとの効果を語るには arm ごとに反復(n≥3)が要る(決定 94)。
+- **hintbench の k5 は同一バイナリでも 2 つの計測モードを持ち、A/A はこれを捕まえられない**: 基準の k5 は約 358〜362 ms(遅いモード)と約 326〜333 ms(速いモード)の間を、原因不明のまま切り替わる。cand と base が同じモードに揃えば A/A は合格するので、モードの食い違いが混入しても検出できない。初回パネルは信用しない(決定 95)。
+- **測定**: jaq は同一バイナリでも 2〜4% 動く(A/A)。バッチ内 bootstrap の CI は較正が壊れており、MDE 超えは独立バッチで確認してから採用(決定 80)。hintbench はバッチ内では静か(oracle のヌルパネル 0.17 pt)だが、上記の k5/k8 モード切替はバッチ間で最大 26 pt 動くことがあり、バッチ間の一致だけでは足りない(決定 95)。
 
 ### 3.3 進行中だったもの(3.4 で完了)
 
@@ -61,7 +64,8 @@
 
 - **jaq 関数属性 oracle v4(決定 91)**: 実プログラムで初めて、確認済み・MDE 超・正方向の関数属性が 1 本(`Val::hash` に `inline(always)`、objsearch で +4.5%)。ただし 3 ケース集計は +1.7%、組み合わせは +0.2% で、jaq の見出しは依然フラット。jaq で時計を動かす関数属性は強制インライン(両方向)だけ。`results.md` §135〜§142。
 - **hintbench 探索付き Jev(決定 92)**: **+7.4%(oracle の 84〜86%)**、Exp4 の +6.7%(77%)から前進。探索は k3 の unroll 4 を見つけたが、k8 の幅 16 は 1 回の探索で外して二度と聞かれず取り残し。API の 503 で 5 ラウンド中 3 ラウンドのどちらかのフェーズが落ちた。`results.md` §143〜§149。
-- **次にやること(§4 の表の 3〜)**: 語彙 v5、探索の予算(同一 site の再訪 / Score で順位付け)、`post_vectorize` の判定行の改善、503 対策(再送上限)、jaq ループ oracle、zopfli。
+- **Experiment 6(hintbench、4 arm、決定 93〜95)**: 語彙 v5 を採用。3 arm(ctl / rev / both)が訓練 +7.4〜7.8%(oracle の組み合わせ 1.0881 の 84〜88%)、pv だけ +5.2%(k8 ループで有害な選択を引いた)。再訪予算の機構は動く(both は再訪に成功)が、幅 16(k8)には一度も届かず、`post_vectorize` の未試行判定行も null(k8 の P は 0.01 → 0.02 止まり)。試行回数ベースの 503 対策で 4 arm 合計 40 フェーズ中 0 喪失(Exp5 は 10 中 5)。rev の +11% 台の読みは k5 の計測モードであって plan の効果ではなく、見出しは 1.0780 のまま。ドライバに新フラグ: `--vocab v5`、`--explore-revisit R`、`--pv-untried on|off`、設定キー `retries=200`、`retry_wall_budget_s=600`、`backoff_cap_s=5`、`phase_resend_max=2`。`results.md` §150〜§159、`docs/experiments/hintbench/exp6.md`。
+- **次にやること(§4 の表の 3a〜)**: 探索の適格条件の見直し、arm ごとの反復(n≥3)、hintbench の A/A のみパネル調査(k5 のモード)、`inline(never)` でループが site 集合から落ちる件の理解、jaq ループ oracle、zopfli。
 
 ## 4. 今後の計画(Claude の提案。オーナー未承認の部分は「提案」)
 
@@ -71,7 +75,11 @@
 |---|---|---|---|---|
 | 1 | hintbench 探索付き Jev(Exp5) | 探索が k8 / k3 を拾い、oracle の組み合わせにどこまで届くか | 1.5 h | **済**(+7.4%、84〜86%。k3 は拾い k8 は取り残し。決定 92) |
 | 2 | jaq 関数属性 oracle v4(A2) | `inline(always)` とクロージャ修正でフラットが変わるか | — | **済**(`Val::hash inline(always)` +4.5% が 1 本。見出しはフラット。決定 91) |
-| 3 | **語彙 v5**: `align` を外す、`unroll.disable` を `interleave.count=1` と統合(決定 85)。**探索の予算**(同一 site の再訪、または未試行候補を Score で順位付け)、`post_vectorize` 判定行に「LLVM の選択であって隣に未試行の幅がある」を明記、503 の再送上限を増やす(決定 92) | oracle の無駄を減らし、k8 型の取り残しと API 落ちを潰す | 1 日 | 提案 |
+| 3 | **語彙 v5**: `align` を外す、`unroll.disable` を `interleave.count=1` と統合(決定 85)。**探索の予算**(同一 site の再訪、または未試行候補を Score で順位付け)、`post_vectorize` 判定行に「LLVM の選択であって隣に未試行の幅がある」を明記、503 の再送上限を増やす(決定 92) | oracle の無駄を減らし、k8 型の取り残しと API 落ちを潰す | 1 日 | **済**(v5、再訪予算、判定行、503 対策。Exp6 で評価。決定 93〜95) |
+| 3a | 探索の適格条件の見直し: argmax が非 KEEP に固定された site(rev の k8 型)をどう再訪するか | 再訪予算が届かない site を無くす | — | 提案(設計は未着手) |
+| 3b | arm ごとの反復(n≥3)で per-feature 効果を測る。または API 側に決定性が無いことを前提に規則を書き直す | 0.5 pt の機能効果を提案側の揺れと区別する(決定 94) | 3 倍の時間 | 提案 |
+| 3c | hintbench の A/A のみのパネル調査(基準のコピー数本、複数 seed、k5・k8 の mean_s を報告して計測モードの原因を探る) | 初回パネルを信用してよい条件を作る(決定 95) | jaq の前に、約 30 分 | 提案 |
+| 3d | `inline(never)` を付けたカーネルのループが同ラウンドの phase B の site 集合から落ちる件の理解 | 未調査のバグを潰す(exp6.md §7) | — | 提案 |
 | 4 | jaq ループ oracle(重複除去、post_vectorize の事実で state を埋める) | jaq でループヒントの正解を得る | 約 9 h(夜間) | 提案 |
 | 5 | jaq で探索付き Jev 5〜8 ラウンド + ランダム | 記事の主数字。ノイズ 4% なので集計でのみ語る | 2 h | 提案 |
 | 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | 提案 |
@@ -91,6 +99,8 @@
 - **凍結物**: `scripts/jev_vocab.py` の文言、state テンプレート、`targets/*/sites.json` の site 集合、`jev-marks.txt`、`EXPECTED.md` §1〜§4。変えるときは新バージョンを足す(v1〜v4 が共存している理由)。
 - **並行作業**: 計測は同時に 1 つ。実行中の bash スクリプトを編集しない。API だけの作業(prompt study、一発回答)は計測と並行してよい。
 - **止まった担当の見つけ方**(2 度起きた): サブエージェントが「バックグラウンド作業待ち」を繰り返しているのに `ps -eo cmd | grep -E 'bench.py|jev_search|cargo'` に何も無く、成果物ディレクトリの更新が 15 分以上止まっていたら、後処理で固まっている。計測は `rounds.jsonl` に残っているので、担当を止めて別の担当に「成果物から記録とコミットを仕上げる」だけを頼めばよい(計測のやり直しは不要)。長い掃引は「計測」と「記録・コミット」を別の担当に分けると安全。
+- **長い計測は `setsid nohup … &` で起動する**。待機ループで `pgrep -f` を使うときはパターンを `'[j]ev_search'` のように括弧書きにする(そのままだと待機ループを起動したシェル自身のコマンド行に自己一致し、30 分ほど止まったことがある)。
+- **Jev ログを grep するときは JSONL の `.request.questions[].instructions` を見る。** 質問文は `state` にも `.log`(人間可読の要約)にも入らないので、そこを grep しても「送られていない」という誤読になる(results.md §156)。
 
 ## 6. 環境と落とし穴(実測で確認したもの。決定ログの番号付き)
 
@@ -105,6 +115,7 @@
 - jaq のノイズは A/A で 2〜4%、ページ配置のドリフトあり。入力を小さくして反復、`--gap-ms 250`、`taskset -c 4`(33)。hintbench / zopfli は 0.3% 以下。
 - Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`、`model: typesafe-ai/jev`、Choice の `criteria` はオブジェクト、Score は配列(19)。503 がバーストで来る。
 - site key は jaq では一意でない(13 key が 2〜9 ループに解決)。plan のエントリは「key への指示」(64)。
+- Vercel/TypeSafe の 503 はその日の提供側の状態として要求サイズに単調依存する(固定の閾値ではない): phase A 85 KB は 0/6、B 51 KB は 4/18、探索 24 KB は 5/6 だったが、jaq の phase A(約 104 KB)は前日 5/5 だった。待ち時間ではなく試行回数で吸収する(2 s 固定 ±20% のバックオフ、上限 200 回 / 600 s、フェーズが落ちたら丸ごと再送し半分の plan は組まない。決定 92・95)。
 
 ## 7. ファイル地図
 
@@ -113,15 +124,15 @@ SPEC.ja.md                 仕様(v0.5 + 決定 66〜89 反映)
 AGENTS.md                  規約(英語)
 HANDOFF.ja.md              この文書
 results.md                 全計測(追記のみ、18 章超)
-docs/decisions.ja.md       知見と判断(90 項目)
-docs/search-driver.md      探索ドライバの説明(語彙 v1〜v4、state、読み出し、採用、探索)
-docs/experiments/          実験ごとの記録(jaq-exp3, jaq-oracle-A/A2, hintbench/, jev-prompt-study/)
+docs/decisions.ja.md       知見と判断(95 項目)
+docs/search-driver.md      探索ドライバの説明(語彙 v1〜v5、state、読み出し、採用、探索、再訪、503)
+docs/experiments/          実験ごとの記録(jaq-exp3, jaq-oracle-A/A2, hintbench/exp5.md, exp6.md, jev-prompt-study/)
 docs/fp-reassoc-target-scouting.md  FP 再結合の調査(主線外)
 docs/jev-samples/          手で送った Jev の request/response の見本
 plugin/jev/jev.cpp, plugin/README.md   LLVM plugin(off/dump/apply/apply-dump、post_vectorize)
 plugin/probe/              EP の発火を調べる probe plugin
-scripts/jev_search.py      探索ドライバ(proposer: jev|random|oracle、--vocab、--explore、--readout)
-scripts/jev_vocab.py       語彙と説明文(v1〜v4、凍結)
+scripts/jev_search.py      探索ドライバ(proposer: jev|random|oracle、--vocab、--explore、--explore-revisit、--pv-untried、--readout)
+scripts/jev_vocab.py       語彙と説明文(v1〜v5、凍結)
 scripts/jev_oneshot.py     API だけで一発回答を取る
 scripts/target_common.sh   対象ごとのビルドレシピ(toy/zopfli/oxipng/jaq/hintbench)
 scripts/target_pgo_baseline.sh, target_aa.sh, target_headroom.sh   PGO 基準、A/A、掃引
@@ -135,6 +146,7 @@ targets/hintbench/         正解のある 8 カーネル(EXPECTED.md = Claude �
 targets/jaq/               本命(submodule v3.1.1、jev-marks.txt 15 本、sites.json)
 targets/zopfli/, oxipng/   Stage 0 のみ(フラット)。zopfli は転移先候補
 jev-opt.toml               設定。.env に AI_GATEWAY_API_KEY(git 管理外)
+artifacts/hintbench-search/exp6-{ctl,rev,pv,both}/  Experiment 6 の成果物(rounds.jsonl、jev-log/、holdout-batch2{,b}/)
 work/                      凍結(旧 spec、レビュー、カタログ、zenn 草稿)
 ```
 
