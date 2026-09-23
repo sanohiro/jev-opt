@@ -11615,3 +11615,168 @@ batch records `len(argv0)` and class. (c) k5/k8 ground truth is per class:
 the oracle's k5 numbers (unroll 8 = 1.0194, combination 1.0881) are class-96,
 rev's 1.28 is class-112. Measuring arms in both classes is proposed to the
 owner, not done.
+
+### 161. A/A-only panel study (hintbench k5 mode): results
+
+Run by `scripts/hintbench_aa_study/run.sh` (no arguments: p1 p2 p3 p4 p5a
+p5b p5c in that order), 2026-09-23 19:41–19:58 JST, all seven panels
+completed (`artifacts/hintbench-aa-study-run.log`); none dropped. Readout
+`python3 scripts/hintbench_aa_study/readout.py artifacts/hintbench-aa-study`
+→ `artifacts/hintbench-aa-study/readout.txt`. Every binary is a stripped
+copy (or hard link) of the frozen baseline, stripped sha256 a84b7c0dfe37e4f6
+(`p1/panel.txt`, `p4/panel.txt`, `<panel>/paths.tsv`). `len` = byte length
+of the absolute path passed as argv[0]; class `c = max(32, (len+23) & ~15)`.
+Mode F/S = k5 leg median below/above the panel's largest-gap split (all
+seven splits were relative, 343.8–348.0 ms, the 12 ms gap test never fell
+back). Medians in ms over 15 runs (warmup 3, CPU 8 unless noted, gap 0,
+stdout pipe).
+
+**p1** (`p1/stats.md`, `bench_panel.sh`, 8 kernels, seed 20260927) and
+**p4** (`p4/stats.md`, same, seed 20360922):
+
+| leg | len | class | p1 k5 | p1 k8 | p1 mode | p4 k5 | p4 k8 | p4 mode | H6 pred |
+|---|--:|--:|--:|--:|:-:|--:|--:|:-:|:-:|
+| c112 (base) | 96 | 112 | 329.9 | 334.7 | F | 329.3 | 333.4 | F | F |
+| c80 | 70 | 80 | 330.5 | 336.8 | F | 327.1 | 339.2 | F | F |
+| c96 | 80 | 96 | 358.9 | 341.2 | S | 358.8 | 342.8 | S | S |
+| c128 | 112 | 128 | 358.5 | 342.2 | S | 358.3 | 343.1 | S | S |
+| c144 | 128 | 144 | 331.5 | 341.1 | F | 328.1 | 337.6 | F | F |
+| c160 | 144 | 160 | 359.0 | 355.7 | S | 359.2 | 350.6 | S | S |
+
+Other kernels (k1–k4, k6, k7) in p1/p4: every 95% CI contains 1.0 except
+p1 c128 k7 0.9902 [0.9840, 0.9966] and p4 k3 at c144/c80/c96
+(1.0072/1.0068/1.0056, lower bounds 1.0006–1.0017); neither reproduces in
+the other panel. Aggregate A/A (geomean, `stats.md`): p1 c80 0.9975, c96
+0.9862, c128 0.9832, c144 0.9965, c160 0.9825; p4 c80 0.9992, c96 0.9864,
+c128 0.9855, c144 1.0001, c160 0.9848. Under rule 1 (±0.5%) every class-0
+(mod 32) leg fails and every class-16 leg passes, in both panels.
+
+**p2** (`p2/stats.md`, `bench.py` k5+k8, seed 20260922; inodes from
+`p2/paths.tsv`):
+
+| leg | len | class | k5 | k8 | mode | note |
+|---|--:|--:|--:|--:|:-:|---|
+| L091 (base) | 91 | 112 | 329.0 | 334.6 | F | |
+| L085 | 85 | 96 | 360.9 | 342.4 | S | |
+| L086 | 86 | 96 | 360.7 | 342.1 | S | |
+| L087 | 87 | 96 | 359.7 | 341.8 | S | |
+| L088 | 88 | 96 | 359.6 | 342.5 | S | |
+| L089 | 89 | 112 | 332.6 | 334.6 | F | |
+| L090 | 90 | 112 | 329.7 | 334.5 | F | |
+| L092 | 92 | 112 | 330.1 | 334.8 | F | 1 run > 345 (348) |
+| L093 | 93 | 112 | 331.8 | 334.3 | F | |
+| L094 | 94 | 112 | 330.5 | 334.2 | F | 1 run > 345 (356) |
+| Q089 | 89 | 112 | 331.4 | 333.8 | F | separate copy, twin of L089 |
+| H088 | 88 | 96 | 360.3 | 344.1 | S | hard link, inode 1426930 |
+| H089 | 89 | 112 | 329.4 | 336.4 | F | hard link, inode 1426930 |
+
+**p3** (`p3/stats.md`, `bench.py`, seed 20360924): two fixed paths, S112
+(len 96, class 112) and S096 (len 80, class 96); workload `k5` or `k5
+<3800000 zero-padded to 7/25/41/57 chars>` (3800000 = `REP_K5`, same work),
+`k8`, `k8 920000` (= `REP_K8`), `k8 <920000 padded to 25>`.
+
+| workload | S112 median | S112 mode | S096 median | S096 mode |
+|---|--:|:-:|--:|:-:|
+| k5 (a0) | 330.7 | F | 360.7 | S |
+| k5 a7 | 361.3 | S | 331.8 | F |
+| k5 a25 | 362.1 | S | 333.2 | F (1 run 373) |
+| k5 a41 | 362.5 | S | 330.4 | F |
+| k5 a57 | 331.9 | F | 359.9 | S |
+| k8 (a0) | 335.4 | | 352.9 | |
+| k8 a6 | 342.1 | | 338.7 | |
+| k8 a25 | 343.3 | | 333.9 | |
+
+**p5a** (CPU 10), **p5b** (CPU 8, extra 4096-byte env variable `AA_ENV_PAD`,
+cwd `/`), **p5c** (CPU 8, `while :; do :; done` pinned to SMT sibling CPU 9),
+all seed 20260921 (`p5a/stats.md`, `p5b/stats.md`, `p5c/stats.md`):
+
+| panel | leg | len | class | k5 | k8 | mode |
+|---|---|--:|--:|--:|--:|:-:|
+| p5a | c112 (base) | 96 | 112 | 330.9 | 333.1 | F |
+| p5a | c80 | 70 | 80 | 328.3 | 337.0 | F |
+| p5a | c96 | 80 | 96 | 358.3 | 341.7 | S |
+| p5b | c112 (base) | 96 | 112 | 330.5 | 333.5 | F |
+| p5b | c80 | 70 | 80 | 330.4 | 346.4 | F |
+| p5b | c96 | 80 | 96 | 359.4 | 341.8 | S |
+| p5c | c112 (base) | 96 | 112 | 332.9 | 337.0 | F |
+| p5c | c80 | 70 | 80 | 335.1 | 342.1 | F (runs 346, 501 > 345) |
+| p5c | c96 | 80 | 96 | 360.9 | 354.5 | S |
+
+**Verdicts, in the order of the §160 rules.**
+
+1. **H6 (length key): confirmed.** Pre-registered legs p1 + p2 + p4 + p5a +
+   p5b = 6 + 13 + 6 + 3 + 3 = **31 legs, 0 misses** (readout's total "ok 36,
+   miss 0, unassigned 0" additionally counts p3's two `k5` a0 legs and p5c's
+   three). Map: **c80 F, c96 S, c112 F, c128 S, c144 F, c160 S**, identical
+   in p1 and p4 → the period is **32 bytes** (c128 behaves like c96; period
+   64 is excluded). No leg misses in both p1 and p4, so the mod-32 map is
+   not refuted. p2 steps exactly at **88|89** (L088 359.6 S → L089 332.6 F).
+   Mode gap ~29 ms (329.9 vs 358.9 in p1, ~8.8%).
+2. **Mechanism (heap offset): not confirmed — "length key confirmed,
+   mechanism unknown".** p3 does not alternate at either path: S112 reads
+   a0/a7/a25/a41/a57 = F/S/S/S/F, S096 = S/F/F/F/S (readout: "alternation
+   … NO" at both). Measured facts only: an extra argv argument changes the
+   mode at both paths; at every one of the five argument lengths the two
+   paths (16 bytes apart in argv[0] class) are in opposite modes; k8 moves
+   with it (S112/S096: a0 335.4/352.9, a25 343.3/333.9). The predicted
+   `a7 = a41, a25 = a57, a7 ≠ a25` pattern is not what happens; no new
+   pattern is fitted after the fact. Consequences (a) and (b) of §160 still
+   apply.
+3. **H2 (file / page-cache placement): refuted.** One inode (1426930) at
+   two lengths: H088 360.3 S, H089 329.4 F. Twins at 89 (L089 332.6, Q089
+   331.4, different inodes 1426924/1426929) are equal.
+4. **H1 (per-run bimodality): not reopened.** Most runs on the far side of
+   345 ms in any leg: **2 of 15** (p5c c80, 346 and 501 ms, under SMT load).
+   1 of 15 in p2 L092, p2 L094, p3 S096 k5a25; 0 in every other leg.
+5. **H3: p1 and p4 agree** leg for leg (6/6 same mode, k5 medians within
+   3.4 ms). Not reopened.
+6. **H5: p5a map unchanged** on CPU 10 (c80 F, c96 S, c112 F).
+7. **p5b: unchanged** with the stack moved (4 KiB env + cwd `/`) and the
+   heap not: consistent with a heap-side key, not a proof of it.
+8. **p5c: unchanged** with the SMT sibling busy. Level shift: k5 +0.4–1.4%
+   against p5b (c112 332.9 vs 330.5, c96 360.9 vs 359.4, c80 335.1 vs
+   330.4 with one 501 ms spike); k8 c96 354.5 vs 341.8 (+3.7%).
+9. **k8: ~2% co-movement confirmed in direction.** Median of k8 leg medians,
+   class mod 32 = 0 vs 16: p1 342.2 / 336.8 (+1.6%), p2 342.4 / 334.5
+   (+2.4%), p4 343.1 / 337.6 (+1.6%), p5a 341.7 / 335.0 (+2.0%), p5b 341.8 /
+   339.9 (+0.6%), p5c 354.5 / 339.5 (+4.4%). Always higher at mod 0, but
+   legs overlap (p5b c80 346.4 at mod 16); k8 has no clean mode. c160 k8 is
+   high in both p1/p4 (355.7/350.6).
+
+**Existing cross-class results (footnote table).** Classes read from every
+hintbench `samples.json` `header.labels` (170 files, the same set as
+§160's archive; class formula as above; the designer's dump
+`scripts/hintbench_aa_study/chunk.py` groups the same legs). "Round" =
+driver round batch, "confirm" = its confirm batch, "holdout-batch2{,b}" =
+the `bench_panel.sh` panels.
+
+| result | lengths (base / cand / aa) | classes | consequence |
+|---|---|---|---|
+| Oracle rounds (46), confirms (39), null panels 1–2 | 75/75/73, 83/83/81, 76 | all c96 | fine: one class |
+| Oracle holdout (`hintbench-oracle-holdout`) | base 74, comb 74, best1f 76, aa 72 | base/comb/best1f c96, **aa c80** | its A/A is cross-class (aa k5 320.7 vs base 350.5, the "1.0938 at k5" of `oracle.md`); the combination **1.0881 is same-class c96** |
+| Exp4–6 round batches (`jev-v4-r5`, `random-r5`, `jev-v42-r5`, `exp6-*`) | 83–86 / same / 81–84 | all c96 | same class as the oracle |
+| Exp4–6 first holdouts (`*/holdout`) | 82–85 / same / 80–83 | all c96 | same class as the oracle |
+| Exp4–6 confirm batches (`*/round-N/confirm`, 32) | 91–94 / same / 89–92 | all **c112** | internally fine, but the confirm rule compared a c96 round ratio with a c112 confirm ratio; rev's **1.28 at k5** (round-3 binary, `unroll.count=8`) is c112, its 1.02 is c96 |
+| Exp5 §147 batch 1 (rejected) / batch 2 (used), `jev-v42-r5/holdout{,-batch2}` | 85/85/83 ; 92/92/90 | c96 ; **c112** | batch 2's 1.0724 and its "85.5% of the oracle" are scored against c96 references (cross-class) |
+| Exp6 `exp6-ctl`, `exp6-rev` `holdout-batch2` | 90/90/88 | base/cand c112, **aa c96** | the §152/§153 A/A failures (0.9875, 0.9864) |
+| Exp6 `exp6-pv` `holdout-batch2` | 89/89/87 | base/cand c112, **aa c96** | the §155 A/A failure (0.9846) |
+| Exp6 `exp6-pv` `holdout-batch2b` | 90/90/88 | base/cand c112, **aa c96** (mixed) | the §158 A/A failure (0.9864) |
+| Exp6 `exp6-ctl`, `exp6-rev` `holdout-batch2b`; `exp6-both` `holdout-batch2` | 91/91/89 | all c112 | A/A passed (1.0002, 1.0012, 1.0010), but the panel is c112 while the holdouts, rounds and oracle are c96 |
+
+This reproduces decision 95's split exactly: the 20 Exp6 round batches and
+4 first holdouts (slow, c96) against the 18 confirm batches and 7 panel base
+legs (fast, c112), and all 4 A/A failures of the "aa k5/k8 slow" shape are
+the 4 panels whose aa leg alone is c96 (lengths 88/87/88 against base
+90/89/90). **Which Exp6 numbers are same-class with the oracle:** the
+training (round) ratios (1.0742 / 1.0780 / 1.0518 / 1.0754) and the first
+holdout ratios — yes (c96). The confirm ratios and every panel
+(holdout-batch2/2b) number — no (c112, or mixed). The headlines are not
+recomputed here; whether to re-measure the confirms/panels in class 96 is
+the owner's call. Only the baseline binary's map is measured; a candidate
+binary's k5 may map differently (rev's round-3 binary: 1.02 in c96, 1.28 in
+c112).
+
+The fix — every label of a timing batch executed from a path of the same
+length, 80 bytes (class 96, the oracle's and every round batch's class) —
+is being implemented in `scripts/bench.py` under decision 97; paths are
+fixed-length names, no content hash is needed.
