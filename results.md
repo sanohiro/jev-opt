@@ -10287,11 +10287,10 @@ prints `[accept] round 2 is the new best (1.0742)` once and never again.
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
 | ratio | 0.9996 | **1.6920** | 1.0338 | 1.0095 | 1.0046 | 1.0014 | 0.9968 | 1.0020 |
 
-Plan (`best-plan.json`): `inline(always)` at k3, k6, k8 fn and k2 fn
-(argmax, non-explore), `unroll.count=2` at the k3 loop (`forced_top1`,
-`exploration: true` on the k3/k8 fn entries and the k3 loop's readout is
-`exploration` per `answer_ref exp6-ctl.jsonl#7` — see `best-plan.json`
-above). Basis sha256 `b7262c6e…`.
+Plan (`best-plan.json`): k2, k6 fn `inline(always)` (`jev_readout: argmax`,
+`answer_ref exp6-ctl.jsonl#5`); k3, k8 fn `inline(always)` (`jev_readout:
+exploration`, `exploration: true`, `#6`); k3 loop `unroll.count=2`
+(`jev_readout: forced_top1`, `#7`). Basis sha256 `b7262c6e…`.
 
 **Holdout**: ratio **1.0735**, 95% CI [1.0709, 1.0759], in-run A/A 0.9998
 ±0.0032, MDE 0.0300 (`run-manifest.json` `holdout` block; `summary.md`
@@ -10391,18 +10390,17 @@ retry/round-gate policy (decision 92 d). The gateway fix is confirmed
 working on its own terms: 14 of 14 requests landed, 0 phases lost, where
 Exp5 lost 5 of 10. The best accepted plan (round 2, ratio 1.0742, confirm
 1.0776, holdout 1.0735) is close to Exp5's accepted plan's numbers
-(1.0741 / 1.0740 / — training), but **that comparison is not attributable**
-per §150's pre-registered caveat: vocabulary v5, state format
-`state-v5.0-2026-09-23`, and the gateway policy all changed between Exp5
-and every arm of Exp6, so exp6-ctl vs Exp5 conflates those three changes
-and is not a clean before/after. What is attributable is *within* Exp6:
-exp6-ctl is the baseline the revisit and pv arms (§150) are measured
-against, and it reproduces the two load-bearing facts from Exp5 under the
-new gateway and vocabulary — the k4-loop harmful pick at round 1 (0.5813
-vs Exp5's 0.5823) and the k8-loop `vectorize_width_16` exploration P of
-0.01 (identical to Exp5's 0.01, §145) — meaning neither of those findings
-was an artifact of the old gateway's lost phases or the old vocabulary's
-`align`/`unroll.disable` candidates. Rounds 3–5 had nominally higher point
+(training 1.0741, confirm 1.0740, third batch 1.0724, §144/§147), but
+**that comparison is not attributable** per §150's pre-registered caveat:
+vocabulary v5, state format `state-v5.0-2026-09-23`, and the gateway
+policy all changed between Exp5 and every arm of Exp6, so exp6-ctl vs
+Exp5 conflates those three changes and is not a clean before/after. What
+is attributable is *within* Exp6: exp6-ctl is the baseline the revisit and
+pv arms (§150) are measured against, and it reproduces the two
+load-bearing facts from Exp5 under the new gateway and vocabulary — the
+k4-loop harmful pick at round 1 (0.5813 vs Exp5's 0.5823) and the
+k8-loop `vectorize_width_16` exploration P of 0.01 (identical to Exp5's
+0.01, §145). Rounds 3–5 had nominally higher point
 ratios than round 2 but none was accepted, because none cleared the
 pre-registered CI-lower-above-incumbent-point bar (all three CI lower
 bounds sit below round 2's 1.07424); this is the driver's acceptance rule
