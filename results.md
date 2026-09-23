@@ -11425,3 +11425,132 @@ as a confirmed headline figure.
 batch2 A/A ok, no retake`); no `holdout-batch2b/` directory exists for
 exp6-both. §157's batch-2 `cand` (1.0769) stands as confirmed without a
 retake.
+
+### 159. Experiment 6 across the four arms
+
+Write-up: `docs/experiments/hintbench/exp6.md`. No new measurement in this
+section; every number is read from existing artifacts under
+`artifacts/hintbench-search/`, with the file named next to it. Per-case
+tables were printed with a read-only script over each batch's
+`stats.json` (`per_workload.<label>.<k>.ratio_vs_base` and `.mean_s`);
+rule-2 arithmetic uses the unrounded ratios in `rounds.jsonl` (`ratio`,
+`confirm.ratio`) and `holdout/stats.json` (`aggregate.cand.ratio`), so it
+can differ from §153/§157's rounded arithmetic in the second decimal.
+
+**Cross-arm table.**
+
+| | exp6-ctl | exp6-rev | exp6-pv | exp6-both |
+|---|--:|--:|--:|--:|
+| best round (`rounds.jsonl` `accepted`) | 2 | 3 | 2 | 4 |
+| training ratio (`rounds.jsonl` `ratio`) | **1.0742** | **1.0780** | **1.0518** | **1.0754** |
+| share of combination 1.0881 (`hintbench_exp4_score.py run`) | 84.27% | 88.48% | 58.82% | 85.61% |
+| confirm (`round-NN/confirm/stats.json`) | 1.0776 | 1.1082 (k5 mode, below) | 1.0598 | 1.0722 |
+| holdout (`holdout/stats.json`) | 1.0735 | 1.0812 | 1.0525 | 1.0725 |
+| panel b2, cand / A/A (`holdout-batch2/stats.json`) | 1.0751 / 0.9875 fail | 1.1083 / 0.9864 fail | 1.0551 / 0.9846 fail | 1.0769 / 1.0010 pass |
+| panel b2b, cand / A/A (`holdout-batch2b/stats.json`) | 1.0743 / 1.0002 pass | 1.1107 / 1.0012 pass | 1.0661 / 0.9864 fail | not owed |
+| lost phases of 10 (`run-manifest.json` `gateway.lost_phases`) | 0 | 0 | 0 | 0 |
+| rule 3 (a)/(b)/(c) (§153, §157) | n/a | fail/fail/fail | n/a | pass/fail/fail |
+| rule 4: P(`vectorize_width_16`), k8, r1 `B.explore` (`jev-log/<arm>.jsonl` line 4, `e1`) | 0.01 | 0.01 | 0.02 | 0.02 |
+
+**Headline**: three arms +7.4% to +7.8% on training (84–89% of the oracle
+combination's training ratio), pv +5.2% (59%); 0 of 40 phase requests
+lost. exp6-rev's headline is its training ratio, **1.0780**.
+
+**exp6-rev round-03, the same binary in five batches, per case**
+(cand `ratio_vs_base`):
+
+| batch (file under `exp6-rev/`) | k1 | k2 | k3 | k4 | k5 | k6 | k7 | k8 | aggregate |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| training (`round-03/stats.json`) | 0.9991 | 1.6997 | 1.0368 | 1.0095 | **1.0226** | 1.0047 | 1.0026 | 0.9958 | 1.0780 |
+| holdout (`holdout/stats.json`) | 1.0031 | 1.6974 | 1.0420 | 1.0155 | **1.0213** | 1.0020 | 1.0066 | 1.0060 | 1.0812 |
+| confirm (`round-03/confirm/stats.json`) | 1.0053 | 1.6893 | 1.0391 | 1.0134 | **1.2835** | 1.0019 | 1.0080 | 0.9813 | 1.1082 |
+| panel b2 (`holdout-batch2/stats.json`) | 1.0009 | 1.6959 | 1.0342 | 1.0159 | **1.2857** | 1.0000 | 0.9986 | 0.9941 | 1.1083 |
+| panel b2b (`holdout-batch2b/stats.json`) | 1.0015 | 1.6981 | 1.0396 | 1.0079 | **1.2879** | 0.9997 | 1.0092 | 1.0007 | 1.1107 |
+
+k5 mean_s, same files (base / cand / aa): training 361.8 / 353.8 / 360.7 ms;
+holdout 359.0 / 351.5 / 357.0; confirm 329.4 / 256.6 / 329.1; b2 330.6 /
+257.1 / 359.8; b2b 330.7 / 256.8 / 330.0.
+
+Only k5 flips. Both binaries have two k5 modes (base ~358–362 or ~326–333
+ms; this cand ~352 or ~257 ms); the ratio is ~1.02 when both are slow and
+~1.28 when both are fast. The discrepancy is in the measurement, not the
+plan; the A/A leg cannot catch it because base and cand shared a mode in
+every batch, including the ones whose A/A passed (confirm 1.0001, b2b
+1.0012). Across all four arms, the baseline's k5 was slow in every round
+batch (20) and holdout batch (4) and fast in every confirm batch (18) and
+every panel base leg (7) (`stats.json` `per_workload.base.k5.mean_s`);
+Exp4/Exp5 (`jev-v4-r5`, `jev-v42-r5`) show the same split, but the oracle
+sweep does not: all 85 of its batches, confirm seeds included, read base k5
+slow (349.8–366.5 ms, `artifacts/hintbench-oracle/**/stats.json`), and
+rev's holdout batch, started the second its round-5 confirm ended, flipped
+from 326.9 to 359.0 ms — so neither the seed nor what ran before explains
+the mode; cause not investigated. Of the seven Exp6 plans with k5 loop
+`unroll.count=8`, six read k5 1.019–1.024 in their round batch (both round
+1: 0.9593) and all six with a confirm batch read 1.275–1.295 there
+(`rounds.jsonl` `per_workload.k5.ratio`, `confirm.per_workload.k5.ratio`).
+The oracle's k5 `unroll.count=8` (1.0194, `hintbench-oracle/round-43`) and
+combination (1.0881) are slow-mode numbers.
+**The 8% vs 11% discrepancy is unresolved**; the 11% readings are not a
+result against the oracle.
+
+The other three arms' five-way per-case tables are in exp6.md 2.1; their
+aggregate spreads across batches are ctl 0.41 pt, both 0.47 pt, pv 1.43 pt
+(all of it pv's k8 cell, 0.826–0.930).
+
+**Rule 2, arithmetic** (points; unrounded ratios as above):
+
+| difference | training | confirm | holdout |
+|---|--:|--:|--:|
+| rev − ctl | +0.37 | +3.06 | +0.77 |
+| pv − ctl | −2.24 | −1.78 | −2.09 |
+| both − ctl | +0.12 | −0.54 | −0.10 |
+| interaction (both − rev − pv + ctl) | +1.99 | −1.82 | +1.22 |
+
+**Verdict: not resolved at n=1, for every row.** Reasons, from the
+artifacts:
+
+* Jev's answers vary on byte-identical input. Round-1 requests with equal
+  `request_sha256` (`jev-log/<arm>.jsonl`; ctl ≡ rev and pv ≡ both in all
+  four phases; after normalizing the state-format header string, A and
+  A.explore are identical in all four arms) gave probabilities differing by
+  up to 0.10, and one argmax flipped: ctl/rev phase B `q1` (k4 loop),
+  `vectorize_width_16` 0.49 vs `KEEP_DEFAULT` 0.49.
+* One pick at one site moved a headline by ~2 pt (pv's k8 loop
+  `interleave.count=1`, k8 0.8259).
+* The same binary in two arms' round-1 batches read 0.9978 vs 1.0029
+  (`bin_sha256 f45bf61f…`, ctl/rev) and 0.9681 vs 0.9533 (`9ca85087…`,
+  pv/both) — 0.51 and 1.48 pt.
+* rev − ctl on confirm (+3.06) is the k5 mode above.
+
+The binary mechanism checks stand: rule 3 as tabled, and rule 4 (width 16
+never chosen at k8 in any arm).
+
+**Correction to §151 rule 2** (per rule 9, §151 is not edited): the 0.5 pt
+bar was derived from the oracle's null panel (0.17 pt) and bounds
+measurement noise between byte-identical binaries in a quiet batch only. It
+does not bound proposer sampling (not measured when the rule was written)
+and not the k5 mode, so a single-run difference above 0.5 pt is **not** an
+effect under this design. §153's "confirm and holdout deltas exceed the
+bar" and §155's "all three deltas exceed the bar" should be read with this
+correction.
+
+**Correction to §155/§156 on the k8 pick.** §156's closing note says
+"byte-identical inputs (ctl's and pv's phase A / A.explore) … produced
+different picks across arms". Phase A and A.explore choices were identical
+in all four arms; only probabilities differed. The k8 `B.explore` pick
+that differs between ctl (`unroll_count_2`) and pv (`interleave_count_1`)
+was made on inputs that differ by the untried line, and it agreed within
+each byte-identical pair (ctl/rev `unroll_count_2` 0.23/0.23; pv/both
+`interleave_count_1` 0.22/0.24; `interleave_count_1` P 0.12/0.14 off vs
+0.22/0.24 on). §155's attribution of that pick to sampling variation is
+therefore not supported; at n=2 per cell neither attribution is
+established.
+
+**Determinism control.** None found in the documentation: the SystemOne
+request documents `state`, `model`, `questions` and per question `type`,
+`instructions`, `criteria` (https://docs.typesafe.ai/api.md); the Python
+SDK's `system_one()` has no seed/temperature parameter
+(https://docs.typesafe.ai/sdk/python/api/clients/sync.md); the
+consistency cookbook reports that picked labels can flip across repeats
+(https://docs.typesafe.ai/cookbooks/consistency_choice_cookbook.md).
+Checked 2026-09-23, documentation only.
