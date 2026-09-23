@@ -125,8 +125,15 @@ PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 # not part of the state template; the candidate lists, descriptions, question
 # wordings, verdict rules and source excerpts are v3.2's and v4.1's to the
 # byte.
+#
+# v5 (decision 85) reuses v4.2's state template as-is: the candidate table
+# just has fewer rows (jev_vocab.py v5), and nothing about how a site's
+# evidence is rendered changes. A separate change will add the v5
+# post_vectorize line the plugin now records; until then "v5" and "v4" render
+# byte-identical state for any site whose picks avoid the removed candidates.
 STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
-                 "v3": "state-v3.3-2026-09-22", "v4": "state-v4.2-2026-09-22"}
+                 "v3": "state-v3.3-2026-09-22", "v4": "state-v4.2-2026-09-22",
+                 "v5": "state-v5.0-2026-09-23"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -2010,10 +2017,10 @@ def evidence_fixes(ctx=None):
          site, which separates nothing.
 
     v1 and v2 must stay byte-replayable (`jev_vocab.py` freezing rule), so
-    the fixes are rendered for v3 and v4 only. They change no candidate, no
-    description and no question: only what the state says it knows.
+    the fixes are rendered for v3, v4 and v5 only. They change no candidate,
+    no description and no question: only what the state says it knows.
     """
-    return V.active_version() in ("v3", "v4")
+    return V.active_version() in ("v3", "v4", "v5")
 
 
 def classify(value, table):
@@ -2153,7 +2160,7 @@ def fn_verdict_lines(item, ctx):
                     ("%.1fx, i.e. the body fits inside that budget" % r)
                     if r < 1 else "%.0fx over" % r))
     L.append("attributes already on it: %s" % attr_text)
-    if V.active_version() in ("v3", "v4"):
+    if V.active_version() in ("v3", "v4", "v5"):
         # Decision 77. The same sentence at every function site: it is a
         # property of the recipe, not of this site, and it names nothing.
         # Without it the `inlinehint` an attribute list may carry reads as
@@ -3548,7 +3555,7 @@ class Search:
         # v3's state template is v2's (see STATE_FORMATS): the verdict block,
         # the platform block and the V2 wording are shared, only the function
         # candidates and one verdict line differ.
-        self.state_v2 = (args.vocab in ("v2", "v3", "v4"))
+        self.state_v2 = (args.vocab in ("v2", "v3", "v4", "v5"))
         V.set_version(args.vocab)
         set_state_format(args.vocab)
         self.demangler = Demangler()
@@ -4666,7 +4673,7 @@ def main():
     p.add_argument("--proposer", required=True,
                    choices=("jev", "random", "oracle"))
     p.add_argument("--vocab", default="v3",
-                   choices=("v1", "v2", "v3", "v4"),
+                   choices=("v1", "v2", "v3", "v4", "v5"),
                    help="the frozen vocabulary AND state template: v1 is "
                         "Experiment 3's, v2 is decision 73 --- the prompt "
                         "study's W7, i.e. the mechanical verdict block in "
@@ -4682,7 +4689,10 @@ def main():
                         "share). v4 (decision 84) is v3 with the function "
                         "descriptions rebalanced so that no candidate is "
                         "described at greater length or strength than "
-                        "another")
+                        "another. v5 (decision 85): v4 minus the three "
+                        "`align` candidates and minus `unroll.disable`, "
+                        "both measured dead or duplicate in the hintbench "
+                        "oracle")
     p.add_argument("--readout", default="forced_top1",
                    choices=("forced_top1", "argmax"),
                    help="how a phase's answers become plan entries "

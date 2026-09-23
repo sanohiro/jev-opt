@@ -13,7 +13,7 @@ comparison with earlier runs. `VOCAB_VERSION` is written into the run
 manifest and into every Jev request log line so a changed vocabulary is
 visible after the fact instead of being silently mixed in.
 
-There are now four frozen vocabularies, selected by `set_version()` and by
+There are now five frozen vocabularies, selected by `set_version()` and by
 the driver's `--vocab` flag:
 
   v1   what Experiment 3 was run with. Frozen; nothing below it may change.
@@ -49,6 +49,15 @@ the driver's `--vocab` flag:
        sentence and one "It hurts where" sentence, so that the difference
        between two sites has to come from the state's per-site readings
        rather than from how long a candidate's paragraph is.
+  v5   decision 85 (a), (b). v4 minus two candidates the hintbench oracle (85
+       arms) measured dead or duplicate: the three `align_*` function
+       candidates (none moved the clock at any oracle function site) and the
+       loop candidate `unroll_disable` (identical machine code to
+       `interleave_count_1` on a vectorized loop; 8 of the oracle's 44 arms
+       were that duplicate). Everything that survives --- ids, descriptions,
+       plan fragments, questions --- is v4's to the byte; see the v5 section
+       below for the removal and the caveat that the unroll/interleave
+       equivalence is about vectorized loops, not a general claim.
 
 Every string of v2 is copied verbatim from
 `docs/experiments/jev-prompt-study/` (`scripts/jev_state_variants.py`
@@ -515,6 +524,16 @@ LOOP_INSTRUCTIONS_V3 = LOOP_INSTRUCTIONS_V2
 # `align_16` is a near no-op on x86-64 and says so, in the same shape and at
 # the same length as the others: the fix is to stop describing candidates at
 # unequal length, not to talk each of them up to the strongest one.
+#
+# v5 (decision 85 (a), (b)) removes two candidates from what v4 established
+# above, once the hintbench oracle (85 arms, one-factor sweeps) had measured
+# them: none of the three `align_*` function candidates moved the clock at
+# any oracle function site (85 a), and `unroll_disable` produced the same
+# machine code as `interleave_count_1` on every vectorized oracle loop, 8 of
+# 44 arms being that exact duplicate (85 b) --- true only where the loop is
+# vectorized; the merge below is a decision about this recipe's loops, not a
+# claim that the two hints are identical everywhere. v5 is defined further
+# down, built from the v4 dicts below so the two cannot drift.
 
 FN_CANDIDATES_V4 = {
     KEEP_DEFAULT: (
@@ -589,6 +608,32 @@ LOOP_INSTRUCTIONS_V4 = LOOP_INSTRUCTIONS_V3
 
 
 # ---------------------------------------------------------------------------
+# v5 (decision 85 (a), (b)): drop the align candidates and unroll_disable
+# ---------------------------------------------------------------------------
+#
+# Same recipe as v2 -> v3 -> v4: build the new version's tables out of the
+# previous version's dicts, never by copying text, so the two cannot drift.
+# Nothing else changes: the surviving candidates keep v4's ids, descriptions
+# and plan fragments to the byte, and the instructions/questions are v4's
+# unchanged (checked below: neither text names a candidate by id, so removing
+# candidates from the table needs no change to the question that is asked
+# about whatever remains).
+
+FN_CANDIDATES_V5 = {cid: (desc, dict(frag))
+                    for cid, (desc, frag) in FN_CANDIDATES_V4.items()
+                    if cid not in ("align_16", "align_32", "align_64")}
+
+LOOP_CANDIDATES_V5 = {cid: (desc, dict(frag))
+                      for cid, (desc, frag) in LOOP_CANDIDATES_V4.items()
+                      if cid != "unroll_disable"}
+
+# v4's instructions name no candidate by id ("Which single hint from the
+# list is most likely..."), so v5 keeps them unchanged.
+FN_INSTRUCTIONS_V5 = FN_INSTRUCTIONS_V4
+LOOP_INSTRUCTIONS_V5 = LOOP_INSTRUCTIONS_V4
+
+
+# ---------------------------------------------------------------------------
 # frozen question wording
 # ---------------------------------------------------------------------------
 
@@ -614,13 +659,15 @@ BUILD_INSTRUCTIONS = (
 
 
 VOCAB_VERSIONS = {"v1": "v1-2026-09-22", "v2": "v2-2026-09-22",
-                  "v3": "v3-2026-09-22", "v4": "v4-2026-09-22"}
+                  "v3": "v3-2026-09-22", "v4": "v4-2026-09-22",
+                  "v5": "v5-2026-09-23"}
 
 _TABLES = {
     "v1": {"fn": FN_CANDIDATES, "loop": LOOP_CANDIDATES},
     "v2": {"fn": FN_CANDIDATES_V2, "loop": LOOP_CANDIDATES_V2},
     "v3": {"fn": FN_CANDIDATES_V3, "loop": LOOP_CANDIDATES_V3},
     "v4": {"fn": FN_CANDIDATES_V4, "loop": LOOP_CANDIDATES_V4},
+    "v5": {"fn": FN_CANDIDATES_V5, "loop": LOOP_CANDIDATES_V5},
 }
 
 _INSTRUCTIONS = {
@@ -634,6 +681,8 @@ _INSTRUCTIONS = {
     "v3": {"fn": FN_INSTRUCTIONS_V3, "loop": LOOP_INSTRUCTIONS_V3,
            "build": BUILD_INSTRUCTIONS},
     "v4": {"fn": FN_INSTRUCTIONS_V4, "loop": LOOP_INSTRUCTIONS_V4,
+           "build": BUILD_INSTRUCTIONS},
+    "v5": {"fn": FN_INSTRUCTIONS_V5, "loop": LOOP_INSTRUCTIONS_V5,
            "build": BUILD_INSTRUCTIONS},
 }
 
