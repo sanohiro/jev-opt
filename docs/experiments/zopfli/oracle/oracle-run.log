@@ -1,0 +1,607 @@
+[baseline] reusing /home/hiro/prj/jev-optimize/artifacts/zopfli-sites/baseline
+[sites] sites.json caps the loop sweep at 5 of 36 sites
+[oracle] phase all: 67 one-factor arms + 1 combination arm (+1 baseline build already done)
+
+=== round 1 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 3
+[B] 0/3 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (5 symbols changed, symbol table moved)
+[B] ratio 0.9932  CI [0.9901, 0.9963]  (in-run A/A 1.0014 +-0.0036)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360922
+[B] confirm: ratio 0.9909 CI [0.9878, 0.9939]
+
+=== round 2 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 0/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 3 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 3
+[B] 0/3 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (6 symbols changed, symbol table moved)
+[B] ratio 0.9874  CI [0.9846, 0.9902]  (in-run A/A 1.0008 +-0.0022)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360924
+[B] confirm: ratio 0.9876 CI [0.9851, 0.9902]
+
+=== round 4 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 0/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 5 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 0/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 6 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 3
+[B] 0/3 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (9 symbols changed, symbol table moved)
+[B] ratio 0.9799  CI [0.9764, 0.9832]  (in-run A/A 1.0000 +-0.0042)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360927
+[B] confirm: ratio 0.9783 CI [0.9755, 0.9812]
+
+=== round 7 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 0/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 8 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 3
+[B] 0/3 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (8 symbols changed, symbol table moved)
+[B] ratio 0.9779  CI [0.9718, 0.9842]  (in-run A/A 0.9995 +-0.0060)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360929
+[B] confirm: ratio 0.9817 CI [0.9773, 0.9863]
+
+=== round 9 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 0/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (4 symbols changed, symbol table moved)
+[B] ratio 0.9999  CI [0.9958, 1.0041]  (in-run A/A 1.0021 +-0.0035)
+
+=== round 10 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 0/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (3 symbols changed, symbol table moved)
+[B] ratio 0.9914  CI [0.9894, 0.9936]  (in-run A/A 0.9985 +-0.0030)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360931
+[B] confirm: ratio 0.9967 CI [0.9944, 0.9992]
+
+=== round 11 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 4
+[B] 0/4 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (8 symbols changed, symbol table moved)
+[B] ratio 0.9799  CI [0.9754, 0.9851]  (in-run A/A 1.0025 +-0.0048)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360932
+[B] confirm: ratio 0.9796 CI [0.9770, 0.9822]
+
+=== round 12 (oracle) ===
+[A] 1/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 0/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (9 symbols changed, symbol table moved)
+[B] ratio 0.9777  CI [0.9753, 0.9803]  (in-run A/A 1.0011 +-0.0032)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360933
+[B] confirm: ratio 0.9732 CI [0.9706, 0.9760]
+
+=== round 13 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9856  CI [0.9836, 0.9876]  (in-run A/A 0.9976 +-0.0037)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360934
+[B] confirm: ratio 0.9879 CI [0.9854, 0.9904]
+
+=== round 14 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9943  CI [0.9886, 0.9998]  (in-run A/A 1.0029 +-0.0059)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360935
+[B] confirm: ratio 0.9914 CI [0.9881, 0.9946]
+
+=== round 15 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9906  CI [0.9865, 0.9942]  (in-run A/A 0.9990 +-0.0041)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360936
+[B] confirm: ratio 0.9939 CI [0.9902, 0.9981]
+
+=== round 16 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 17 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 18 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 19 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 20 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 21 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 22 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 23 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 24 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9843  CI [0.9827, 0.9860]  (in-run A/A 1.0009 +-0.0016)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360945
+[B] confirm: ratio 0.9868 CI [0.9842, 0.9896]
+
+=== round 25 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9639  CI [0.9595, 0.9677]  (in-run A/A 0.9984 +-0.0029)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360946
+[B] confirm: ratio 0.9668 CI [0.9647, 0.9689]
+
+=== round 26 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9169  CI [0.9149, 0.9189]  (in-run A/A 1.0005 +-0.0029)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360947
+[B] confirm: ratio 0.9156 CI [0.9127, 0.9185]
+
+=== round 27 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 28 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 29 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 30 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 31 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 32 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 33 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 34 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 35 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0095  CI [1.0056, 1.0133]  (in-run A/A 0.9991 +-0.0027)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360956
+[B] confirm: ratio 1.0100 CI [1.0048, 1.0148]
+[accept] round 35 is the new best (1.0095)
+
+=== round 36 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0072  CI [1.0034, 1.0110]  (in-run A/A 1.0013 +-0.0035)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360957
+[B] confirm: ratio 1.0049 CI [1.0013, 1.0086]
+
+=== round 37 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0126  CI [1.0096, 1.0154]  (in-run A/A 1.0006 +-0.0038)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360958
+[B] confirm: ratio 1.0129 CI [1.0099, 1.0158]
+[accept] round 37 is the new best (1.0126)
+
+=== round 38 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 39 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 40 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 41 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 42 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 43 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 44 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 45 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 46 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0041  CI [1.0016, 1.0068]  (in-run A/A 0.9984 +-0.0040)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360967
+[B] confirm: ratio 1.0023 CI [0.9991, 1.0052]
+
+=== round 47 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0044  CI [1.0020, 1.0068]  (in-run A/A 1.0014 +-0.0031)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360968
+[B] confirm: ratio 1.0020 CI [0.9992, 1.0050]
+
+=== round 48 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0050  CI [1.0011, 1.0089]  (in-run A/A 0.9979 +-0.0029)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360969
+[B] confirm: ratio 1.0040 CI [1.0005, 1.0082]
+
+=== round 49 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9997  CI [0.9968, 1.0025]  (in-run A/A 0.9985 +-0.0019)
+
+=== round 50 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9935  CI [0.9850, 1.0000]  (in-run A/A 1.0026 +-0.0083)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360971
+[B] confirm: ratio 1.0013 CI [0.9969, 1.0059]
+
+=== round 51 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9981  CI [0.9947, 1.0014]  (in-run A/A 0.9970 +-0.0045)
+
+=== round 52 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 53 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 1.0010  CI [0.9963, 1.0059]  (in-run A/A 0.9978 +-0.0066)
+
+=== round 54 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9997  CI [0.9946, 1.0045]  (in-run A/A 1.0006 +-0.0051)
+
+=== round 55 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 56 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9980  CI [0.9933, 1.0029]  (in-run A/A 0.9998 +-0.0051)
+
+=== round 57 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9978  CI [0.9926, 1.0031]  (in-run A/A 1.0001 +-0.0068)
+
+=== round 58 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9948  CI [0.9898, 0.9997]  (in-run A/A 0.9997 +-0.0032)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360979
+[B] confirm: ratio 0.9966 CI [0.9916, 1.0013]
+
+=== round 59 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (1 symbols changed, symbol table moved)
+[B] ratio 0.9977  CI [0.9939, 1.0014]  (in-run A/A 0.9996 +-0.0035)
+
+=== round 60 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 61 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 62 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 63 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 64 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 65 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 66 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 67 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 1/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: identical (0 symbols changed, symbol table same)
+[B] identical to the baseline: ratio 1.0 by construction, no timing batch
+
+=== round 68 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 2/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (2 symbols changed, symbol table moved)
+[baseline] reusing /home/hiro/prj/jev-optimize/artifacts/zopfli-sites/baseline
+[sites] sites.json caps the loop sweep at 5 of 36 sites
+[oracle] phase all: 67 one-factor arms + 1 combination arm (+1 baseline build already done)
+[resume] 67 rounds already recorded (0 of them lost), best = round-37 (1.0126)
+
+=== round 68 (oracle) ===
+[A] 0/6 functions hinted, build knobs none
+[A] refreshed loop sites: 5
+[B] 2/5 loops hinted
+[B] correctness: OK
+[B] code vs baseline: code (2 symbols changed, symbol table moved)
+[B] ratio 1.0181  CI [1.0159, 1.0203]  (in-run A/A 1.0011 +-0.0019)
+[B] confirmation batch (aggregate excluded 1), fresh seed 20360989
+[B] confirm: ratio 1.0206 CI [1.0155, 1.0287]
+[accept] round 68 is the new best (1.0181)
+
+wrote /home/hiro/prj/jev-optimize/artifacts/zopfli-search/oracle/summary.md

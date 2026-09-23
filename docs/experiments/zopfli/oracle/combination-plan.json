@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "plan_id": "r68-b",
+  "vocab_version": "v6-2026-09-23",
+  "basis": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "fn_attrs": [],
+  "loop_md": [
+    {
+      "key": "b5ea95b28efd82f1-find_longest_match_loop-lz77.rs-563",
+      "stage": "lto",
+      "unroll_count": 8,
+      "jev_site_id": "zopfli::lz77::find_longest_match_loop@lz77.rs:563:21#d2",
+      "jev_choice": "unroll_count_8",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "key": "bab3292ec12294cd--squeeze.rs-325",
+      "stage": "lto",
+      "unroll_count": 8,
+      "jev_site_id": "zopfli::squeeze::lz77_optimal@squeeze.rs:325:9#d3",
+      "jev_choice": "unroll_count_8",
+      "jev_readout": null,
+      "answer_ref": null
+    }
+  ]
+}

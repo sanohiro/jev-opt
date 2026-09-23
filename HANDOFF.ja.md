@@ -1,6 +1,6 @@
 # HANDOFF — jev-opt の引き継ぎ(2026-09-23)
 
-この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(99 項目、番号で参照)、数値は `results.md`(章番号で参照、§164 まで)。この 3 つが正本で、本文書はそこへの案内図。
+この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(100 項目、番号で参照)、数値は `results.md`(章番号で参照、§168 まで)。この 3 つが正本で、本文書はそこへの案内図。
 
 ---
 
@@ -68,6 +68,7 @@
 - **hintbench の A/A のみパネル調査(決定 97)**: 7 パネル約 17 分、基準バイナリのコピーだけ。k5 のモードは argv[0] の長さのクラスで決まる(周期 32 バイト、31/31 脚、len 88|89 で段差)。ファイル配置・seed・CPU・スタック位置・SMT 負荷では変わらない。機構(ヒープのオフセット)は未確定。Exp6 の訓練比と holdout 比は oracle と同クラス(c96)、confirm とパネルは c112 か混在。`results.md` §161(クラスをまたぐ既存結果の脚注表)、`docs/experiments/hintbench/aa-study.md`。修正後の 3 脚 A/A で検証済み(§162)。
 - **次にやること(§4 の表の 3a〜)**: 探索の適格条件の見直し、`inline(never)` でループが site 集合から落ちる件の理解、jaq / zopfli の 2 クラス A/A 確認、jaq ループ oracle、zopfli。
 - **zopfli キャンペーン開始(2026-09-23 夜)**: 準備完了(決定 98・99、`results.md` §165〜166): 探索用訓練セット(search-*.dat、896 KiB × 3)、plugin off 基準は Stage 0 と `.text` 同一、A/A 訓練 0.2% / holdout 0.05%(geomean)、MDE 3%、マーク 6 本(93.4%)、site 5 本(`oracle.selected_keys_top6`)、語彙 v6。oracle 68 arm(6 マーク × 関数属性 12 + 5 site × ループ候補 55 + 組み合わせ 1)を 22:1x に起動、成果物 `artifacts/zopfli-search/oracle/`、ログ `artifacts/zopfli-search/oracle-run.log`。見込み最悪 10 h、期待はそれより短い(§166「4. Oracle command」「Cost estimate」)。記録(結果の書き起こし)は測定担当とは別のエージェントが oracle 完了後に行う。§167(`results.md`)に Jev vs ランダム(n=3 ずつ、6 走行)の事前登録を追記済み --- oracle の後、oracle と同じ 6 マーク / 5 site / 語彙 v6 の上で走らせる。
+- **zopfli の oracle 結果(決定 100、2026-09-24 朝)**: 68 arm、正しさ 68/68、基準と同一 38(未計測)。**「良い」arm は 0/67**、有害 2(`squeeze.rs:275` の unroll 4 / 8、−3.6% / −8.3%)。関数属性 12 本は no-op 4、コード変化 8 のうち 7 が確認済みの負方向(−0.3〜−2.7%、MDE 未満)で、正は 1 本も無い。最良は `squeeze.rs:325` の `unroll.count=8`(訓練 +1.26% / +1.29%、holdout +1.33%)、組み合わせ(325 と 563 の unroll 8)は訓練 +1.81% / +2.06%、holdout +1.77%。いずれも MDE 3% 未満で「良い」ではない。Stage 0 の `-unroll-max-count=1`(+1.6%、`cache.rs:108`)に対応する arm は無い(`cache.rs:108` は上限規則で site 集合外、`unroll.disable` は届いた site で no-op)。WSL 再起動(05:53)でラウンド 68 が途切れ、`--resume` でラウンド 68 だけ再計測。`results.md` §168、`docs/experiments/zopfli/oracle.md`。§167 の 6 走行はこの後そのまま計測中。
 
 ## 4. 今後の計画(Claude の提案。オーナー未承認の部分は「提案」)
 
@@ -85,8 +86,8 @@
 | 3d | `inline(never)` を付けたカーネルのループが同ラウンドの phase B の site 集合から落ちる件の理解 | 未調査のバグを潰す(exp6.md §7) | — | 提案 |
 | 4 | jaq ループ oracle(重複除去、post_vectorize の事実で state を埋める) | jaq でループヒントの正解を得る | 約 9 h(夜間) | 提案 |
 | 5 | jaq で探索付き Jev 5〜8 ラウンド + ランダム | 記事の主数字。ノイズ 4% なので集計でのみ語る | jaq では jev n=3 + ランダム n=3 の 6 走行だけを回し、機能ごとのアブレーションは 1 走行 30 分の hintbench で行う。費用は 1 走行 5 ラウンドとして、Exp3 の実測(約 5 分/ラウンド、確認バッチ無し、`results.md` §102)なら約 3〜4 h、確認バッチ込み(未測定)なら数倍。最初の走行で壁時計を測ってから事前登録を確定する。 | 提案 |
-| 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | **進行中(oracle 計測中)**: perf マーク済み(決定 98、6 本・93.4%)、site 済み(5 本、決定 98)、baseline・A/A 済み(§165)。oracle 68 arm を 22:1x に起動(§166、`artifacts/zopfli-search/oracle/`)。Jev vs ランダム(n=3、§167)は事前登録済みで oracle の後に着手。 |
-| 7 | jaq が薄ければ記事の主対象を zopfli に(オーナー判断) | 「効果が出る対象を探して回る」のではなく、既に測った 2 対象からの選択 | — | 要判断 |
+| 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | **oracle 済(決定 100)、Jev/ランダム 6 走行 計測中**: oracle は「良い」0/67、最良 +1.3%(`squeeze.rs:325` unroll 8)、組み合わせ +1.8%(holdout +1.77%)、いずれも MDE 未満(`results.md` §168)。Jev vs ランダム(n=3、§167)を `artifacts/zopfli-search/zopfli-{jev,rand}-r{0,1,2}` に計測中。 |
+| 7 | jaq が薄ければ記事の主対象を zopfli に(オーナー判断) | 「効果が出る対象を探して回る」のではなく、既に測った 2 対象からの選択 | — | 要判断。zopfli も oracle で MDE 未満(決定 100)。主対象の選択はオーナー判断 |
 | 8 | 記事の骨格: hintbench で機構、実プログラムで転移、PGO 下で死ぬヒントの発見、測定の教訓 | zenn 記事(オーナーが書く)の素材 | — | 提案 |
 | 9 | 英語版 `SPEC.md` の生成、`work/` の zenn 草稿の破棄または更新 | 英語記事の参照先 | 半日 | 提案 |
 
@@ -131,7 +132,7 @@ SPEC.ja.md                 仕様(v0.5 + 決定 66〜97 反映)
 AGENTS.md                  規約(英語)
 HANDOFF.ja.md              この文書
 results.md                 全計測(追記のみ、18 章超)
-docs/decisions.ja.md       知見と判断(99 項目)
+docs/decisions.ja.md       知見と判断(100 項目)
 docs/search-driver.md      探索ドライバの説明(語彙 v1〜v5、state、読み出し、採用、探索、再訪、503)
 docs/experiments/          実験ごとの記録(jaq-exp3, jaq-oracle-A/A2, hintbench/exp5.md, exp6.md, aa-study.md, jev-prompt-study/)
 docs/fp-reassoc-target-scouting.md  FP 再結合の調査(主線外)

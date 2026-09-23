@@ -1,0 +1,84 @@
+{
+ "run_id": "oracle",
+ "target": "zopfli",
+ "proposer": "oracle",
+ "oracle_phase": "all",
+ "ts": "2026-09-24T06:06:54.088700+09:00",
+ "smoke": false,
+ "vocab_version": "v6-2026-09-23",
+ "state_format": "state-v6.0-2026-09-23",
+ "source_comments": "strip",
+ "readout": "forced_top1",
+ "explore": 2,
+ "exploration": {
+  "k": 2,
+  "revisit": 0,
+  "max_visits": 2,
+  "revisit_text": null,
+  "pv_untried": "off"
+ },
+ "platform_block": "/home/hiro/prj/jev-optimize/artifacts/zopfli-search/oracle/platform.json",
+ "config": "/home/hiro/prj/jev-optimize/jev-opt.toml",
+ "config_sha256": "25274b5b61eff4e71e504a769e85b5be6d7ebbef8c1570aae890be592acbab64",
+ "marks": "/home/hiro/prj/jev-optimize/targets/zopfli/jev-marks.txt",
+ "marks_sha256": "5bfd79adddc6fbe70081a873fcde97515007629d4c94ca133ebb5f3a2cbc77bd",
+ "sites": "/home/hiro/prj/jev-optimize/targets/zopfli/sites.json",
+ "plugin_sha256": "ca4a6625f2bdea45b69db4b7a23e2ca8ce54661835b1085328f74c05fdcfcff7",
+ "profdata_sha256": "f066f5072627b070f19acfe1bfa4772b25cf5babc7752799931f579036e0ace8",
+ "baseline_bin_sha256": "8b0ba235be9bf45c167f7cbf39edb096668e0f2eb1d320dcbd1718d1f97ea8a4",
+ "case_set": "training",
+ "workloads": [
+  "text=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/search-text.dat",
+  "binary=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/search-binary.dat",
+  "json=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/search-json.dat"
+ ],
+ "taskset_cpu": "2",
+ "gap_ms": "0",
+ "repetitions": 15,
+ "warmup": 3,
+ "seed": 20260921,
+ "seed_offset": 0,
+ "argv0": {
+  "len": 80,
+  "class": 96,
+  "root": "/home/hiro/prj/jev-optimize/artifacts/timing-run"
+ },
+ "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)\nbinary: rustc\ncommit-hash: bba531001d4de6d7f49693e0836a2668ca063282\ncommit-date: 2026-09-20\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1\n",
+ "lscpu_e": "CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE\n  0    0      0    0 0:0:0:0          yes\n  1    0      0    0 0:0:0:0          yes\n  2    0      0    1 1:1:1:0          yes\n  3    0      0    1 1:1:1:0          yes\n  4    0      0    2 2:2:2:0          yes\n  5    0      0    2 2:2:2:0          yes\n  6    0      0    3 3:3:3:0          yes\n  7    0      0    3 3:3:3:0          yes\n  8    0      0    4 4:4:4:0          yes\n  9    0      0    4 4:4:4:0          yes\n 10    0      0    5 5:5:5:0          yes\n 11    0      0    5 5:5:5:0          yes\n 12    0      0    6 6:6:6:0          yes\n 13    0      0    6 6:6:6:0          yes\n 14    0      0    7 7:7:7:0          yes\n 15    0      0    7 7:7:7:0          yes\n 16    0      0    8 8:8:8:0          yes\n 17    0      0    8 8:8:8:0          yes\n 18    0      0    9 9:9:9:0          yes\n 19    0      0    9 9:9:9:0          yes\n 20    0      0   10 10:10:10:0       yes\n 21    0      0   10 10:10:10:0       yes\n 22    0      0   11 11:11:11:0       yes\n 23    0      0   11 11:11:11:0       yes\n 24    0      0   12 12:12:12:0       yes\n 25    0      0   12 12:12:12:0       yes\n 26    0      0   13 13:13:13:0       yes\n 27    0      0   13 13:13:13:0       yes\n 28    0      0   14 14:14:14:0       yes\n 29    0      0   14 14:14:14:0       yes\n 30    0      0   15 15:15:15:0       yes\n 31    0      0   15 15:15:15:0       yes\n",
+ "best": {
+  "round": 68,
+  "ratio": 1.018108246770822,
+  "ci95": [
+   1.0158851541411038,
+   1.0203401796721596
+  ],
+  "plan": "/home/hiro/prj/jev-optimize/artifacts/zopfli-search/oracle/round-68/plan-b.json",
+  "label": "round-68",
+  "plan_sig": "c905f2b9950550a78f54cdb76270793eade9819810904f0a2d456b4cf1b15ec8",
+  "batches": [
+   {
+    "round": 68,
+    "ratio": 1.018108246770822,
+    "ci95": [
+     1.0158851541411038,
+     1.0203401796721596
+    ],
+    "batch": "round"
+   },
+   {
+    "round": 68,
+    "ratio": 1.0206300945523807,
+    "ci95": [
+     1.0154962809330284,
+     1.0287200559665786
+    ],
+    "batch": "confirmation"
+   }
+  ]
+ },
+ "holdout": null,
+ "jev_totals": null,
+ "retry_policy": null,
+ "gateway": null,
+ "wall_s": 573.8
+}

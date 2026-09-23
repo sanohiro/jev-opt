@@ -12694,3 +12694,413 @@ bullet, decision 96).**
   one arm's later runs.
 - Measuring agent and write-up agent are separate (HANDOFF.ja.md §5).
   Nothing in this section is edited once `zopfli-jev-r0` starts.
+
+### 168. Oracle (zopfli): results
+
+Written from artifacts only, by a write-up agent separate from the measuring
+agent (HANDOFF.ja.md §5), while the §167 Jev/random chain runs on the same
+machine; nothing below was re-measured for this section. The rules applied
+are §166 "5. Rules before numbers", unchanged, in the order §166 states them.
+
+**What was run.** Exactly §166's "4. Oracle command"
+(`scripts/jev_search.py --target zopfli ... --proposer oracle --oracle-phase
+all --vocab v6 -n 15 --warmup 3 --baseline-dir artifacts/zopfli-sites/baseline
+--out artifacts/zopfli-search/oracle`), 68 rounds = 12 function arms + 55 loop
+arms + 1 combination, as the dry run said. Provenance
+(`artifacts/zopfli-search/oracle/run-manifest.json`): vocabulary
+`v6-2026-09-23`, state `state-v6.0-2026-09-23`, case set `training`
+(= `search-{text,binary,json}.dat`, decision 98), CPU 2, gap 0 ms, seed
+20260921, baseline binary `8b0ba235...`, profdata `f066f507...`, plugin
+`ca4a6625...`, marks `5bfd79ad...`, config `25274b5b...`, argv0 len 80 /
+class 96. Rounds, per-arm records: `rounds.jsonl` (68 rows); human table
+`summary.md`; logs `artifacts/zopfli-search/oracle-run.part1.log` (rounds
+1-67) and `oracle-run.log` (part 1 + the resumed round 68). Copies in
+`docs/experiments/zopfli/oracle/`; write-up `docs/experiments/zopfli/oracle.md`.
+
+**A field-name warning, before any number.** In `rounds.jsonl` the field
+`confirmed` is the **own-kernel** confirmation (`scripts/jev_search.py`
+builds it from `rec["kernel"]["ci95"]`, lines 4872-4873). zopfli's
+workloads are not per-site kernels (`own_workload: null` on every row;
+`summary.md`'s "own kernel" column is `-` throughout), so `confirmed` is
+`false` on all 68 rows, including arms that lost 8% in both batches. The
+two-batch sign confirmation of decision 80 (a) --- both batches' aggregate
+95% CI exclude 1 with the same sign --- is `confirmed_aggregate` /
+`confirmed_aggregate_sign`. That is the field used below. The MDE gate is
+not a field; it is applied here from `ratio`, `confirm.ratio` and each
+batch's own `mde`.
+
+#### 168.1 Correctness (all arms)
+
+**68 of 68 rounds `correct: true`**: every arm's nine `.gz` sha256 lines
+(three cases x train/hold/search) match
+`artifacts/zopfli-sites/baseline`'s, including the combination
+(`round-68/correctness.txt`, checked line by line against the baseline's nine
+hashes, e.g. `search-json.dat b764ae1f...`). Every plan entry was applied
+(`apply problems: none` in all 68 rows of `summary.md`). No arm is rejected
+by non-negotiable 5.
+
+#### 168.2 No-op skips: 38 of 67 one-factor arms built the baseline
+
+Classified `identical` (normalised instructions and symbol table both match
+the baseline) and therefore not timed, ratio 1.0 by construction, `ci95:
+null` (decision 80 (b)):
+
+| site | identical arms | count |
+|---|---|--:|
+| `lz77::find_longest_match_loop` (fn) | `inline_never` (r2) | 1 |
+| `squeeze::lz77_optimal` (fn) | `inline_never` (r4) | 1 |
+| `squeeze::get_best_lengths` (fn) | `inline_always` (r5) | 1 |
+| `squeeze::lz77_optimal_run` (fn) | `inline_always` (r7) | 1 |
+| `lz77.rs:530` (unvectorized) | `vectorize_width_{2,4,8,16}`, `interleave_count_{1,2,4}`, `unroll_disable` (r16-23) | 8 |
+| `squeeze.rs:275` (unvectorized) | same eight (r27-34) | 8 |
+| `squeeze.rs:325` (unvectorized) | same eight (r38-45) | 8 |
+| `index.rs:184` (unvectorized) | same eight (r60-67) | 8 |
+| `lz77.rs:563` (vectorized, VF 16 / IC 4 at baseline) | `vectorize_width_16` (r52), `interleave_count_4` (r55) | 2 |
+| **total** | | **38** |
+
+What this says about the baseline, read off the compiler and not guessed:
+
+* The four function no-ops are the attribute the baseline already has in
+  effect. `find_longest_match_loop` and `lz77_optimal` keep their own
+  post-LTO symbols (they are not inlined, so `inline(never)` changes
+  nothing); `get_best_lengths` and `lz77_optimal_run` have no symbol of their
+  own at all (§166 table rows 3-4, self 0.00: already fully inlined, so
+  `inline(always)` changes nothing).
+* On the four unvectorized loops, **no width, no interleave count and not
+  `unroll.disable` changes a single instruction.** The vectorizer does not
+  take these loops at any forced width (§166's `vectorized: -`), and
+  `unroll.disable` is a no-op because LLVM is not unrolling them in the
+  first place. The only loop candidates that reach code there are
+  `unroll.count=2/4/8` --- i.e. *more* unrolling.
+* On `lz77.rs:563`, the one vectorized loop, the two no-ops are exactly the
+  baseline's own choice (`post_vectorize`: VF 16, IC 4, `sites.json`).
+
+Cost: a skipped arm took 29.4 s on average (two builds, correctness, code
+comparison; 38 arms, 1117 s in total) against 562 s for a measured arm with a
+confirmation batch and 295 s without one.
+
+#### 168.3 The 29 measured one-factor arms
+
+`two-batch sign` = `confirmed_aggregate_sign` (decision 80 (a)); `n/a` = the
+first batch's CI included 1, so no confirmation batch was triggered. Verdict
+per §166: **good** = sign-confirmed positive and the gain exceeds the batch's
+MDE in both batches; **harmful** = the symmetric rule on the loss side;
+everything else is **flat** (inside the MDE band), with sign-confirmed
+sub-MDE effects labelled as such rather than lumped with the null arms. Per
+case = the round batch's text/binary/json ratios. Changed syms = the number
+of symbols whose normalised instructions differ from the baseline.
+
+| round | site | candidate | changed syms | ratio | 95% CI | confirm ratio | confirm 95% CI | text | binary | json | two-batch sign | verdict (§166) |
+|--:|---|---|--:|--:|---|--:|---|--:|--:|--:|---|---|
+| 1 | `lz77::find_longest_match_loop` | `inline_always` | 5 | 0.9932 | [0.9901, 0.9963] | 0.9909 | [0.9878, 0.9939] | 0.9896 | 0.9986 | 0.9915 | **-** | flat (confirmed -, below MDE) |
+| 3 | `squeeze::lz77_optimal` | `inline_always` | 6 | 0.9874 | [0.9846, 0.9902] | 0.9876 | [0.9851, 0.9902] | 0.9828 | 0.9867 | 0.9927 | **-** | flat (confirmed -, below MDE) |
+| 6 | `squeeze::get_best_lengths` | `inline_never` | 9 | 0.9799 | [0.9764, 0.9832] | 0.9783 | [0.9755, 0.9812] | 0.9866 | 0.9681 | 0.9851 | **-** | flat (confirmed -, below MDE) |
+| 8 | `squeeze::lz77_optimal_run` | `inline_never` | 8 | 0.9779 | [0.9718, 0.9842] | 0.9817 | [0.9773, 0.9863] | 0.9801 | 0.9824 | 0.9711 | **-** | flat (confirmed -, below MDE) |
+| 9 | `<hash::ZopfliHash>::update` | `inline_always` | 4 | 0.9999 | [0.9958, 1.0041] | not triggered | - | 1.0012 | 0.9996 | 0.9987 | n/a | flat |
+| 10 | `<hash::ZopfliHash>::update` | `inline_never` | 3 | 0.9914 | [0.9894, 0.9936] | 0.9967 | [0.9944, 0.9992] | 0.9980 | 0.9840 | 0.9923 | **-** | flat (confirmed -, below MDE) |
+| 11 | `lz77::find_longest_match` | `inline_always` | 8 | 0.9799 | [0.9754, 0.9851] | 0.9796 | [0.9770, 0.9822] | 0.9862 | 0.9680 | 0.9855 | **-** | flat (confirmed -, below MDE) |
+| 12 | `lz77::find_longest_match` | `inline_never` | 9 | 0.9777 | [0.9753, 0.9803] | 0.9732 | [0.9706, 0.9760] | 0.9842 | 0.9674 | 0.9816 | **-** | flat (confirmed -, below MDE) |
+| 13 | `lz77.rs:530` | `unroll_count_2` | 1 | 0.9856 | [0.9836, 0.9876] | 0.9879 | [0.9854, 0.9904] | 0.9821 | 0.9932 | 0.9816 | **-** | flat (confirmed -, below MDE) |
+| 14 | `lz77.rs:530` | `unroll_count_4` | 1 | 0.9943 | [0.9886, 0.9998] | 0.9914 | [0.9881, 0.9946] | 0.9908 | 0.9990 | 0.9930 | **-** | flat (confirmed -, below MDE) |
+| 15 | `lz77.rs:530` | `unroll_count_8` | 1 | 0.9906 | [0.9865, 0.9942] | 0.9939 | [0.9902, 0.9981] | 0.9913 | 0.9899 | 0.9906 | **-** | flat (confirmed -, below MDE) |
+| 24 | `squeeze.rs:275` | `unroll_count_2` | 1 | 0.9843 | [0.9827, 0.9860] | 0.9868 | [0.9842, 0.9896] | 0.9811 | 0.9878 | 0.9839 | **-** | flat (confirmed -, below MDE) |
+| 25 | `squeeze.rs:275` | `unroll_count_4` | 1 | 0.9639 | [0.9595, 0.9677] | 0.9668 | [0.9647, 0.9689] | 0.9550 | 0.9776 | 0.9591 | **-** | **harmful** |
+| 26 | `squeeze.rs:275` | `unroll_count_8` | 1 | 0.9169 | [0.9149, 0.9189] | 0.9156 | [0.9127, 0.9185] | 0.9000 | 0.9592 | 0.8931 | **-** | **harmful** |
+| 35 | `squeeze.rs:325` | `unroll_count_2` | 1 | 1.0095 | [1.0056, 1.0133] | 1.0100 | [1.0048, 1.0148] | 1.0123 | 1.0056 | 1.0107 | **+** | flat (confirmed +, below MDE) |
+| 36 | `squeeze.rs:325` | `unroll_count_4` | 1 | 1.0072 | [1.0034, 1.0110] | 1.0049 | [1.0013, 1.0086] | 1.0133 | 0.9962 | 1.0121 | **+** | flat (confirmed +, below MDE) |
+| 37 | `squeeze.rs:325` | `unroll_count_8` | 1 | 1.0126 | [1.0096, 1.0154] | 1.0129 | [1.0099, 1.0158] | 1.0176 | 1.0034 | 1.0168 | **+** | flat (confirmed +, below MDE) |
+| 46 | `lz77.rs:563` | `unroll_count_2` | 1 | 1.0041 | [1.0016, 1.0068] | 1.0023 | [0.9991, 1.0052] | 1.0071 | 1.0023 | 1.0029 | no | flat |
+| 47 | `lz77.rs:563` | `unroll_count_4` | 1 | 1.0044 | [1.0020, 1.0068] | 1.0020 | [0.9992, 1.0050] | 1.0039 | 0.9997 | 1.0096 | no | flat |
+| 48 | `lz77.rs:563` | `unroll_count_8` | 1 | 1.0050 | [1.0011, 1.0089] | 1.0040 | [1.0005, 1.0082] | 1.0068 | 0.9983 | 1.0098 | **+** | flat (confirmed +, below MDE) |
+| 49 | `lz77.rs:563` | `vectorize_width_2` | 1 | 0.9997 | [0.9968, 1.0025] | not triggered | - | 0.9987 | 0.9993 | 1.0013 | n/a | flat |
+| 50 | `lz77.rs:563` | `vectorize_width_4` | 1 | 0.9935 | [0.9850, 1.0000] | 1.0013 | [0.9969, 1.0059] | 1.0011 | 0.9942 | 0.9855 | no | flat |
+| 51 | `lz77.rs:563` | `vectorize_width_8` | 1 | 0.9981 | [0.9947, 1.0014] | not triggered | - | 0.9975 | 0.9950 | 1.0018 | n/a | flat |
+| 53 | `lz77.rs:563` | `interleave_count_1` | 1 | 1.0010 | [0.9963, 1.0059] | not triggered | - | 1.0020 | 1.0016 | 0.9995 | n/a | flat |
+| 54 | `lz77.rs:563` | `interleave_count_2` | 1 | 0.9997 | [0.9946, 1.0045] | not triggered | - | 1.0066 | 0.9952 | 0.9973 | n/a | flat |
+| 56 | `lz77.rs:563` | `unroll_disable` | 1 | 0.9980 | [0.9933, 1.0029] | not triggered | - | 0.9969 | 0.9984 | 0.9986 | n/a | flat |
+| 57 | `index.rs:184` | `unroll_count_2` | 1 | 0.9978 | [0.9926, 1.0031] | not triggered | - | 1.0005 | 0.9954 | 0.9976 | n/a | flat |
+| 58 | `index.rs:184` | `unroll_count_4` | 1 | 0.9948 | [0.9898, 0.9997] | 0.9966 | [0.9916, 1.0013] | 0.9997 | 0.9948 | 0.9898 | no | flat |
+| 59 | `index.rs:184` | `unroll_count_8` | 1 | 0.9977 | [0.9939, 1.0014] | not triggered | - | 0.9977 | 0.9982 | 0.9973 | n/a | flat |
+
+Batch MDEs (`max(2 x worst per-workload half-width, 3%)`, recomputed per
+batch by the driver as §166 requires): **3% for every batch except two** ---
+round 50's first batch (`lz77.rs:563 vectorize_width_4`, json half-width
+2.20% -> MDE 4.41%; its confirmation, 1.0013, did not agree in sign, so it is
+flat either way) and round 68's confirmation batch (json half-width 1.86% ->
+MDE 3.73%, see 168.4). No verdict depends on which of the two MDE values is
+used.
+
+In-run A/A (a second stripped copy of the baseline inside every timed batch):
+**0 of 30** round batches and **1 of 22** confirmation batches had an
+aggregate interval excluding 1 (round 15's confirmation, 1.0037 [1.0006,
+1.0066]); worst round-batch A/A half-width 0.83% (round 50, the
+same batch whose json half-width lifted its MDE to 4.41%). On this target
+the within-batch interval is honest at the aggregate, as §165's A/A said it
+would be --- the hintbench shape (§120: 5 of 45), not the jaq shape (§113: 41
+of 90).
+
+**Counts.**
+
+| verdict | arms |
+|---|--:|
+| **good** | **0** |
+| **harmful** (both batches beyond -3%) | **2**: `squeeze.rs:275 unroll_count_8` 0.9169 / 0.9156, `squeeze.rs:275 unroll_count_4` 0.9639 / 0.9668 |
+| flat, sign-confirmed negative below MDE | 11 (7 function arms, 4 loop arms) |
+| flat, sign-confirmed positive below MDE | 4 (`squeeze.rs:325 unroll_count_{2,4,8}`, `lz77.rs:563 unroll_count_8`) |
+| flat, not sign-confirmed | 12 |
+| identical to the baseline (168.2) | 38 |
+| **one-factor total** | **67** |
+
+17 arms were sign-confirmed in two batches (11 - , 4 + , 2 harmful); 21 of the
+29 triggered a confirmation batch.
+
+Where the losses are. The worst arm of the sweep is
+`squeeze.rs:275 unroll_count_8`, **-8.3% / -8.4%**, json 0.8931 and text
+0.9000 in the round batch: `squeeze.rs:275` is `get_best_lengths`' outer
+`while i < inend` loop (inlined into `lz77_optimal`, trip 272644, 680-1092
+body instructions, contains calls, `sites.json`), and forcing an 8x (4x)
+unroll on it is the one thing in the vocabulary that clears the MDE ---
+downwards. `unroll_count_2` at the same loop is -1.6% / -1.3%, so the curve
+is monotone in the count.
+
+The function attributes, all 12 of them: **4 identical, 8 changed code, 7 of
+the 8 sign-confirmed negative, none beyond the MDE, none positive.**
+`inline(always)` costs -0.7% (`find_longest_match_loop`, r1: 0.9932 / 0.9909)
+to -2.0% (`find_longest_match`, r11: 0.9799 / 0.9796); `inline(never)` costs
+-0.9% / -0.3% (`ZopfliHash::update`, r10: 0.9914 / 0.9967) to -2.7%
+(`find_longest_match`, r12: 0.9777 / 0.9732, binary 0.9674). The eighth
+code-changing arm, `ZopfliHash::update inline_always`, is 0.9999 [0.9958,
+1.0041]. The binary case carries the biggest per-case losses (0.9674-0.9681
+on the three -2% arms).
+
+Where the gains are. **Only unrolling the `squeeze.rs:325` loop** --- the
+"Lengths" loop over `sublen` inside `get_best_lengths` (inlined into
+`lz77_optimal`; trip 9.2, 76 body instructions, no calls, FP reduction,
+unvectorized) --- **is positive and sign-confirmed at every count**: 2x
++0.95% / +1.00%, 4x +0.72% / +0.49%, **8x +1.26% / +1.29%** (text +1.76%,
+json +1.68%, binary +0.34%). Best per site among the sign-confirmed positive
+arms: `squeeze.rs:325` -> `unroll_count_8`; `lz77.rs:563` -> `unroll_count_8`
+(+0.50% / +0.40%; its confirmation CI [1.0005, 1.0082] only just excludes 1,
+and `unroll_count_2/4` at the same loop did not confirm). No other site has a
+sign-confirmed positive arm.
+
+#### 168.4 The combination (round 68)
+
+§166's combination rule is "every site whose best candidate was confirmed with
+a ratio > 1, one candidate per site", where *confirmed* is decision 80 (a)'s
+two-batch sign rule, not the MDE-gated "good". Applied as written, it
+selects two sites, both sub-MDE (`round-68/plan-b.json`,
+`arm.selected_by: "confirmed in two batches, ratio > 1"`):
+
+* `squeeze.rs:325` `unroll_count_8` (r37, +1.26% / +1.29%)
+* `lz77.rs:563` `unroll_count_8` (r48, +0.50% / +0.40%)
+
+The one-batch rule and the point-estimate rule (both recorded beside it in
+the round) would have picked the same two. Build: 2 loop entries applied,
+`code`, 2 symbols changed (`find_longest_match_loop`, `lz77_optimal`),
+output identical, bin sha256 `10023110...`.
+
+| batch | aggregate | 95% CI | text | binary | json | A/A | MDE |
+|---|--:|---|--:|--:|--:|---|--:|
+| round | **1.0181** | [1.0159, 1.0203] | 1.0193 | 1.0094 | 1.0257 | 1.0011 +-0.0019 | 3% |
+| confirmation (seed 20360989) | **1.0206** | [1.0155, 1.0287] | 1.0199 | 1.0068 | 1.0354 | 1.0003 +-0.0033 | 3.73% |
+
+Both batches are sign-confirmed positive and **both are below the MDE**:
++1.81% and +2.06% against 3% and 3.73%. **The combination is not "good".**
+The two parts multiply to 1.0126 x 1.0050 = +1.77%; the combination measured
++1.81% / +2.06%, so here, unlike jaq (§140: +6.96% independent, +0.17%
+measured), the parts add up --- they are two different loops in two
+different functions. The driver's acceptance rule promoted round 68 to
+`best` (its CI lower bound 1.0159 beats round 37's 1.0126); acceptance is
+not the §166 verdict and is reported only for completeness.
+
+#### 168.5 The holdout panel
+
+§166: "holdout measured once at the end with `bench_panel.sh`, four labels
+(base, combination, best single function arm, best single loop arm) plus
+`aa`". Run by the measuring agent, 06:28:50-06:37:08 JST 2026-09-24
+(`artifacts/zopfli-search/oracle-holdout-panel.log`, file mtimes):
+
+```
+$ TARGET=zopfli BENCH_SET=holdout scripts/bench_panel.sh \
+    artifacts/zopfli-search/oracle/holdout-panel 15 3 20260924 \
+    base=artifacts/zopfli-sites/baseline/bin aa=artifacts/zopfli-sites/baseline/bin \
+    comb=artifacts/zopfli-search/oracle/round-68/bin \
+    bestloop=artifacts/zopfli-search/oracle/round-37/bin
+```
+
+(argument list from the running process table; `BENCH_SET=holdout` inferred
+from the log header "case set holdout", which is also `bench_panel.sh`'s
+default.) CPU 2, gap 0, warmup 3, 15 rounds, bootstrap 10000 resamples seed
+20260924, argv0 pinned, all four labels len 80 / **class 96**
+(`stats.json` `argv0_class: 96`). Stripped shas: base = aa =
+`79c33226...` (the same stripped baseline hash as §164/§165 and as every
+round's `timing/base`), comb `e67837b3...`, bestloop `636cb74a...`.
+
+**Deviation from §166, with its reason:** there is **no "best single function
+arm" label**. `holdout-picks.json` records `"fn": null` --- no function arm
+was sign-confirmed positive (168.3), so there was nothing to pick --- and
+`"loop": [37, 1.0126], "loop_tier": "positive_below_mde"`, i.e. the loop
+pick is round 37 and the picker itself labels it sub-MDE. Also: the panel
+used 15 timed rounds (the oracle's `-n 15`), not §165's A/A panels' 18.
+
+| label | aggregate (geomean) | 95% CI | half-width | text | binary | json |
+|---|--:|---|--:|--:|--:|--:|
+| base | 1.0000 | --- | --- | 2660.4 ms | 1621.9 ms | 2660.0 ms |
+| aa | 0.9998 | [0.9979, 1.0018] | 0.20% | 0.9993 [0.9963, 1.0022] | 1.0011 [0.9982, 1.0040] | 0.9989 [0.9957, 1.0019] |
+| **comb** (r68) | **1.0177** | [1.0163, 1.0193] | 0.15% | **1.0224** [1.0201, 1.0247] | 1.0033 [1.0003, 1.0065] | **1.0276** [1.0255, 1.0301] |
+| **bestloop** (r37, `squeeze.rs:325 unroll_count_8`) | **1.0133** | [1.0116, 1.0151] | 0.17% | **1.0184** [1.0163, 1.0205] | 1.0025 [0.9997, 1.0055] | **1.0191** [1.0150, 1.0229] |
+
+(base row: median ms.) MDE by §166's rule on this batch: worst per-workload
+half-width 0.40% (bestloop/json) -> `max(0.80%, 3%)` = **3%**. The A/A leg
+is inside +-0.2% everywhere, no interval excluding 1.
+
+**The holdout reproduces the training numbers almost exactly and stays
+under the MDE**: comb +1.77% (training +1.81% / +2.06%), bestloop +1.33%
+(training +1.26% / +1.29%). Per case the effect is text and json (+1.8 to
++2.8%), with binary at +0.3% --- the same shape as training. These are
+real, reproducible, transferring effects of ~1.3-1.8%, and by the
+pre-registered rule they are below what this protocol calls detectable, so
+**neither is "good"**. No per-case holdout ratio reaches 3% either (the
+largest is comb/json, +2.76%).
+
+#### 168.6 Wall clock, and the interruption
+
+Round `ts` 2026-09-23 22:21:48 (round 1) to 02:35:44 (round 67); the part-1
+log ends at 02:36 with round 68 built, correctness OK and "code vs baseline:
+code (2 symbols changed, symbol table moved)", i.e. during round 68's first
+timing batch. **Windows/WSL rebooted at 05:53 JST** (reported by the
+measuring agent; the log simply stops). A stale
+`artifacts/timing-run/8954fa25` argv0-alias directory left by the killed
+batch was removed, and at 05:57 the same command was re-run with
+`--resume`: `[resume] 67 rounds already recorded (0 of them lost), best =
+round-37 (1.0126)`. **Only round 68 was re-run**; rounds 1-67 were neither
+rebuilt nor re-timed. Round 68 rebuilt (05:57:20-05:57:31), passed
+correctness again, and its round batch and confirmation were taken
+05:57:51-06:06:54.
+
+Is the resumed round-68 timing comparable? What can be checked: the plan is
+the same (`plan_sig c905f2b9...`, chosen by the same rule from the same 67
+records), the rebuild reports the same code class and the same symbol
+change as the part-1 log's last line (`code`, 2 symbols), the in-batch
+`timing/base` copy hashes to `79c33226...` like all 52 base copies of the
+run (30 round batches + 22 confirmation batches),
+argv0 is class 96, and the in-run A/A is quiet (1.0011 +-0.0019 round,
+1.0003 +-0.0033 confirmation). What cannot be checked: the pre-reboot
+round-68 binary's sha256 was never logged and its directory was overwritten
+by the resume, so "the same binary" rests on the build being deterministic
+(the §165 identities --- three independent builds of the baseline collapsing
+to one hash --- are the evidence for that, not a direct comparison). No
+pre-reboot round-68 timing exists to compare against: the batch it was in
+never completed. The ratio is within-batch (base, cand and aa timed
+together after the reboot), so a machine-state change across the reboot
+affects all three labels alike.
+
+Timing: sum of `wall_s` over the 68 rounds **15838 s = 4.40 h** (38 skips
+1117 s; 22 measured arms with a confirmation, mean 562 s; 8 without, mean
+295 s). Elapsed: 22:21:48-02:36 plus 05:57-06:07, about 4.4 h of work in
+8.4 h of calendar time. §166's worst case was "order 10 h", its expected
+"well under that".
+
+#### 168.7 Verdict, per the pre-registered rules
+
+* **Good: 0 of 67.** Harmful: **2** (both `squeeze.rs:275`, `unroll_count_4`
+  and `unroll_count_8`). Flat: 27 measured (15 of them sign-confirmed, all
+  below the MDE). Identical: 38.
+* **The combination (+1.81% / +2.06% training, +1.77% holdout) and the best
+  single arm (`squeeze.rs:325 unroll_count_8`, +1.26% / +1.29% training,
+  +1.33% holdout) are below the 3% MDE in every batch.** On zopfli, under
+  `-Copt-level=3 -Ctarget-cpu=native -Clto=fat -Ccodegen-units=1` + PGO,
+  the ceiling of vocabulary v6 on the 6 marks / 5 sites of §166 is under
+  what this protocol can call an effect --- about +1.8%, measured, and it
+  transfers.
+* **The pre-registered prediction did not hold.** The loop dimension,
+  predicted flat, holds every arm that cleared the MDE (both harmful) and
+  every sign-confirmed gain; the inline dimension, predicted as the likely
+  source of a result, produced none. The part that did hold: width,
+  interleave and `unroll.disable` were no-ops on all four unvectorized
+  loops (32 of 32 identical). In detail, §166 predicted "the four unvectorized candidate sites are likely flat
+  under loop-metadata hints" and "`inline(always)`/`inline(never)` ... is
+  where a result, if any, is more likely to appear". Loops: width,
+  interleave and `unroll.disable` were no-ops on all four (32 of 32
+  identical), but `unroll.count` was *not* flat everywhere --- it produced
+  the sweep's only gains (`squeeze.rs:325`, sub-MDE) and its only harmful
+  arms (`squeeze.rs:275`, -3.6% and -8.3%). Inlining: 8 of 12 arms moved
+  code and **none helped** --- 7 are sign-confirmed losses of 0.3-2.7%,
+  both directions of forcing. The dimension the prediction pointed at is
+  the one that is uniformly (mildly) negative; the analogy with jaq's
+  `Val::hash inline(always)` (§138) and hintbench's `k2_mix inline(always)`
+  (§123) did not carry over. The baseline's own inlining decisions on these
+  six functions are, as far as this vocabulary can tell, already the best
+  available.
+* **Stage 0 correspondence.** Stage 0's only global win,
+  `-unroll-max-count=1` (+1.59% [+1.30%, +1.82%], §31.3), worked by
+  *reducing* the baseline's x8 runtime unroll of `cache.rs:108` (615 -> 50
+  instructions). **No v6 arm in this sweep corresponds to it.** The v6
+  candidate added for exactly that case, `unroll_disable` (decision 98), was
+  `identical` at all four unvectorized sites (`lz77.rs:530`,
+  `squeeze.rs:275`, `squeeze.rs:325`, `index.rs:184`; r23/34/45/67) and
+  flat at the vectorized `lz77.rs:563` (r56, 0.9980 [0.9933, 1.0029], not
+  triggered): these loops are not being unrolled, so there is nothing to
+  disable --- consistent with §31.4, where `-unroll-max-count=1` left
+  `find_longest_match_loop` and `ZopfliHash::update` byte-identical. Round
+  37, the best single arm, is `unroll_count_8` at `squeeze.rs:325`: the
+  **opposite** direction (more unrolling, at a different loop).
+  `cache.rs:108`, the one loop where `unroll_disable` would have acted, is
+  outside `oracle.selected_keys_top6` by the cap rule (§166 §3), so decision
+  98's motivation for v6 remains **untested**, not refuted. That the two
+  numbers are about the same size (+1.6% global flag, +1.3% one site / +1.8%
+  combination) is a coincidence of magnitude, not the same effect.
+
+#### 168.8 What this means for §167's k/n checks
+
+Following §167's wording, with the §166 verdicts above:
+
+* **(a) "the run's final plan contains the oracle's best confirmed positive
+  site, if the oracle confirms one at all --- if the oracle's §166 sweep
+  confirms no positive site, (a) is void".** Read strictly against §166's
+  verdict (a confirmed positive = "good"), the sweep has **no** good site,
+  so **(a) is void**, and a Jev run that changes nothing is described as
+  "flat; correct no-ops", not as a failed check. There is an ambiguity in
+  the wording that must be stated rather than resolved after the fact:
+  `squeeze.rs:325 unroll_count_8` *is* sign-confirmed positive in two
+  batches (decision 80 (a)'s sense of "confirmed"), only not above the MDE.
+  The strict reading is the one applied. As a **descriptive line, not a
+  pre-registered check**, the write-up of §167 may additionally report
+  whether each final plan contains `squeeze.rs:325 unroll_count_8` (and
+  `lz77.rs:563 unroll_count_8`); it carries no pass/fail.
+* **(b) "the run's final plan contains no arm the oracle confirmed
+  harmful"**: the harmful set is exactly **`squeeze.rs:275 unroll_count_4`
+  and `squeeze.rs:275 unroll_count_8`** (both batches beyond -3%). The 11
+  sign-confirmed sub-MDE losses are not "harmful" under §166 and are not in
+  the set; they can be reported descriptively (e.g. a final plan carrying
+  `find_longest_match inline_never`, -2.2% / -2.7%).
+* **(c) "Jev's `KEEP_DEFAULT` rate at the sites the oracle measured flat
+  (ratio inside the MDE band both directions)"**: every site except
+  `squeeze.rs:275` has all of its measured arms inside the band --- the six
+  function marks, `lz77.rs:530`, `squeeze.rs:325`, `lz77.rs:563`,
+  `index.rs:184`. `squeeze.rs:275` is flat for its other nine candidates
+  but has two harmful ones, so it is not a "flat site" for (c).
+* The prediction §167's own shape implies: with a ceiling of ~+1.8% and an
+  MDE of 3%, §167's effect rule (ranges non-overlapping **and** median
+  difference > MDE) cannot be met by any Jev-vs-random difference that this
+  oracle could produce, unless random draws a harmful arm that the speed
+  gate fails to stop. The expected headline of §167 is therefore "not
+  resolved at n=3" with (a) void; stated here before any §167 run has been
+  read.
+
+#### 168.9 Deviations, and what is not established
+
+* Holdout panel: no best-function label (none qualified); 15 rounds, not 18
+  (168.5).
+* Round 68 was interrupted by a host reboot and re-run by `--resume`; the
+  pre-reboot binary's sha is not recorded (168.6).
+* `cache.rs:108` (Stage 0's lever) and `try_get` (rank 8 by reach) are not in
+  this sweep, by the frozen cap and marks rules (§166 §3). Adding them is a
+  separate registration by the owner.
+* The sub-MDE effects at `squeeze.rs:325` are reproducible (four batches, two
+  input sets, the same size) and very likely real; this protocol still does
+  not call them effects, and nothing here relabels them after the fact.
+* The per-case readout is the three input cases, not per-site kernels: a
+  site's own contribution is not separated from layout effects elsewhere in
+  the binary (the function arms change 3-9 symbols each).
