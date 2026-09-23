@@ -40,14 +40,14 @@
 - **機構は動く。** LLVM plugin(`plugin/jev/`)は、マークした関数とその中のループに対して、`inline(always)` / `inline(never)` / `align` / `unroll.count` / `vectorize.width` / `interleave.count` を付け、それが LLVM に消費されることを IR・機械語・remark で確認済み。plugin を載せただけでは基準のコード生成が 1 バイトも変わらない(実測)。
 - **hintbench(正解を作った 8 カーネルの小さな対象)で、Jev のヒントで +6.3〜6.8%**(独立 4 バッチ、出力一致)。oracle の組み合わせ(+8.8%)の 71〜77%。同条件のランダムは 0%。Claude の一発予測どおりに付けたら負ける。有害な選択(k4 のループに幅 16 で −42%)はラウンド 1 で出たが速度ゲートが止め、ラウンド 2 で Jev 自身が捨てた(決定 88)。
 - **Jev の一発回答(state 修正後、v4)は、関数属性では正解 7/8**(k2 の `inline(always)` +67.8% を含む)で Claude(3/8)を上回る。ループでは 0/4(決定 87)。
-- **費用と待ち時間**: 1 ラウンド HTTP 2〜3 本、Choice 数十問、待ち時間は実験全体の 1% 前後、Hobby の無料枠で費用 0(定価でも 1 セント未満)。API は 503 のバーストがあるが、指数バックオフと「無改変で再送」で取りこぼし 0。
+- **費用と待ち時間**: 1 ラウンド HTTP 2〜3 本、Choice 数十問、待ち時間は実験全体の 1% 前後、Hobby の無料枠で費用 0(定価でも 1 セント未満)。API は 503 のバーストがあり要求サイズにその日の状態として依存する。現行方針は固定 2 s ±20% のバックオフを試行回数(上限 200 回)と壁時計(600 s)の上限まで無改変で再送し、それでもフェーズが落ちたら半分の plan は組まない。この方針の前の Exp5 は 10 フェーズ中 5 喪失、方針を入れた Exp6 は 4 arm 合計 40 フェーズ中 0 喪失(決定 92・95)。
 
 ### 3.2 分かった限界(この基準の上で)
 
 - **生きているヒントは 3 種だけ**: 強制インライン(`inline(always)`。定数特殊化が解けると桁違いに効く)、ベクトル幅、unroll 回数。`align` 3 種は 1 つも時計を動かさない。`inline`(inlinehint)と `cold` は **PGO 下で inliner が無視する**(LLVM 23.1.1 `InlineCost.cpp` で確認、決定 77)。語彙は v4(決定 84)。
 - **4 つの実プログラム(toy / zopfli / oxipng / jaq)は、グローバルなヒントの掃引ではフラット(0〜2%)**(決定 37)。jaq の関数属性 oracle(v1)もフラット(決定 79)。v4 での再実行が進行中(§4)。
-- **ループヒントの state は帰属が弱かった**(共有 std 行の remark を誤帰属)。plugin にベクトル化後の VF / IC / 存否を記録させる改修を実装済み(決定 90)、hintbench で検証中(§4)。
-- **フィードバックはフィルタとして機能し、探索としては機能しない**(試したヒントについてしか語れない)。探索機構(未試行の site 上位 K に未試行候補だけの Choice)を実装済み(決定 89・90)、検証中。
+- **ループヒントの state は帰属が弱かった**(共有 std 行の remark を誤帰属)。plugin にベクトル化後の VF / IC / 存否を記録させる改修を実装済み(決定 90)、Exp6 で検証済み: `post_vectorize` の事実は判定行としてそのまま Jev に届いた(§156)が、k8 の幅 16 を浮かせる効果は無かった(決定 93)。
+- **フィードバックはフィルタとして機能し、探索としては機能しない**(試したヒントについてしか語れない)。探索機構(未試行の site 上位 K に未試行候補だけの Choice)を実装済み(決定 89・90)、Exp5・Exp6 で検証済み: 探索は k3 の unroll 4 は拾ったが(決定 92)、再訪予算を足した Exp6 でも k8 の幅 16 には一度も届かなかった(決定 93)。
 - **再訪予算の適格条件が衝突する**: 再訪は「このラウンドの argmax が `KEEP_DEFAULT`」の site にしか働かない。これは「argmax を上書きしない」という不変条件と同じ規則なので、Jev が誤った非 KEEP ヒントを選び続ける site(Exp6 rev の k8 ループ、`unroll_count_2` に固定)は一度も再訪の対象にならない。設計は変えず記録のみ(決定 93)。
 - **同一入力でも Jev の答えは揺れ、n=1 の arm では 0.5 pt の機能効果は解像できない**: バイト一致の要求でも確率は最大 0.10 動き、拮抗した argmax が入れ替わった例もある(Exp6 ctl/rev の k4 ループ)。SystemOne の API に seed / temperature などの決定性パラメータは無い(https://docs.typesafe.ai/api.md、https://docs.typesafe.ai/sdk/python/api/clients/sync.md)。機能ごとの効果を語るには arm ごとに反復(n≥3)が要る(決定 94)。
 - **hintbench の k5 は同一バイナリでも 2 つの計測モードを持ち、A/A はこれを捕まえられない**: 基準の k5 は約 358〜362 ms(遅いモード)と約 326〜333 ms(速いモード)の間を、原因不明のまま切り替わる。cand と base が同じモードに揃えば A/A は合格するので、モードの食い違いが混入しても検出できない。初回パネルは信用しない(決定 95)。
@@ -112,7 +112,7 @@
 - jaq は `strip = true` なので `CARGO_PROFILE_RELEASE_STRIP=none`、mimalloc(C)が cycles の 23% で不可視(30・59)。oxipng は 80% が C(28)。hintbench は `-Zcross-crate-inline-threshold=never` が必須(75)。
 - perf は sudo 無しでも `scripts/perf_local.sh setup` で動く(59)。コールチェーンは取れない。
 - `export TARGET=x` が必要(`TARGET=x source …` は効かない。31)。plan のパスは絶対(60)。marks の `#` は行頭のみコメント(63)。
-- jaq のノイズは A/A で 2〜4%、ページ配置のドリフトあり。入力を小さくして反復、`--gap-ms 250`、`taskset -c 4`(33)。hintbench / zopfli は 0.3% 以下。
+- jaq のノイズは A/A で 2〜4%、ページ配置のドリフトあり。入力を小さくして反復、`--gap-ms 250`、`taskset -c 4`(33)。hintbench は A/A が 0.3% 以下で収まる日もあるが、k5 は同一バイナリで 2 つの計測モード(約 358〜362 ms と約 326〜333 ms)を持ち最大 26 pt 動く。A/A は cand と base が同じモードなら合格してしまうため捕まえられない(決定 95、§3.2)。zopfli の 0.3% は Stage 0 時点の値で、同種のモード切替は未確認。
 - Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`、`model: typesafe-ai/jev`、Choice の `criteria` はオブジェクト、Score は配列(19)。503 がバーストで来る。
 - site key は jaq では一意でない(13 key が 2〜9 ループに解決)。plan のエントリは「key への指示」(64)。
 - Vercel/TypeSafe の 503 はその日の提供側の状態として要求サイズに単調依存する(固定の閾値ではない): phase A 85 KB は 0/6、B 51 KB は 4/18、探索 24 KB は 5/6 だったが、jaq の phase A(約 104 KB)は前日 5/5 だった。待ち時間ではなく試行回数で吸収する(2 s 固定 ±20% のバックオフ、上限 200 回 / 600 s、フェーズが落ちたら丸ごと再送し半分の plan は組まない。決定 92・95)。
@@ -157,6 +157,6 @@ Claude Code の記憶ディレクトリ `~/.claude/projects/-home-hiro/memory/` 
 ## 9. 最初にやること(次の担当へ)
 
 1. `git log --oneline | head -20`、`tail -150 docs/decisions.ja.md`、`results.md` の末尾 2 節を読む。
-2. §3.3 の進行中 2 件が終わっているか(`docs/experiments/hintbench/exp5.md`、`docs/experiments/jaq-oracle-A2/` の有無)を確認。終わっていれば決定ログに結果を追記し、§3.4 を埋める。
-3. §4 の表の次の行(語彙 v5 → jaq ループ oracle → jaq Jev ラウンド → zopfli)を、オーナーの承認を得て進める。
+2. §3.3 の進行中 2 件は完了済み(jaq 関数属性 oracle v4 は決定 91・`results.md`「Oracle A2 (jaq)」、hintbench 探索付き Jev は Exp5 決定 92 と Exp6 決定 93〜95、`docs/experiments/hintbench/exp5.md`・`exp6.md`)。新たに「進行中」を残した作業があれば、終わり次第ここと決定ログと §3.4 に追記する。
+3. §4 の表の次の行(3a 探索の適格条件の見直し → 3b arm ごとの反復 n≥3 → 3c hintbench の A/A のみパネル調査 → 3d `inline(never)` の site 落ちの理解 → jaq ループ oracle → zopfli)を、オーナーの承認を得て進める。
 4. 何かを「やらない」と決めたら、その理由を決定ログに書く。
