@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "plan_id": "r76-a",
+  "vocab_version": "v4-2026-09-22",
+  "basis": "2e35c5a4fee6fbf9c0edaf337f9299127322b3a2c5a6903752e8cf8f4976e97c",
+  "fn_attrs": [
+    {
+      "fn": "_RINvMs6_NtCs5nP3PNVTvR7_9hashbrown3rawINtB6_8RawTablejE14reserve_rehashNCINvNtNtCsNuX8N3CaRc_8indexmap3map4core8get_hashNtCslKRKzoMO8pS_8jaq_json3ValB1U_E0EB1W_",
+      "inline": "always",
+      "jev_site_id": "fn:<hashbrown::raw::RawTable<usize>>::reserve_rehash::<indexmap::map::core::get_hash<jaq_json::Val, jaq_json::Val>::{closure#0}>",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNCNvYBy_NtNtB5_3num8LexWrite14num_bytes_with0EB5_",
+      "inline": "always",
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endEB5_",
+      "inline": "always",
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECsJiC9gTn727_8jaq_fmts",
+      "inline": "always",
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECsayvNaZMR3fG_3jaq",
+      "inline": "always",
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECslKRKzoMO8pS_8jaq_json",
+      "inline": "always",
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXNtCs6u2SwoadH4g_8hifijson5writeNtB5_10SliceLexerNtB3_5Write11write_untilNvNvNtNtB5_3str8LexWrite8str_fold10string_endECstofKklK7j5_7jaq_all",
+      "inline": "always",
+      "jev_site_id": "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherEB6_",
+      "inline": "always",
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherECsJiC9gTn727_8jaq_fmts",
+      "inline": "always",
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherECsayvNaZMR3fG_3jaq",
+      "inline": "always",
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    },
+    {
+      "fn": "_RINvXsj_CslKRKzoMO8pS_8jaq_jsonNtB6_3ValNtNtCs2ubz5g4KsBC_4core4hash4Hash4hashNtNtCslj2nQK4LH1K_8foldhash4fast10FoldHasherECstofKklK7j5_7jaq_all",
+      "inline": "always",
+      "jev_site_id": "fn:<jaq_json::Val as core::hash::Hash>::hash",
+      "jev_choice": "inline_always",
+      "jev_readout": null,
+      "answer_ref": null
+    }
+  ],
+  "loop_md": []
+}
