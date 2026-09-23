@@ -459,3 +459,13 @@
 - **知見**: `--explore K`(既定 2)は、各フェーズの通常 Choice の後に、未試行かつ今ラウンド KEEP の site を hotness 上位 K だけ選び、未試行候補のみ(KEEP なし)の Choice を 1 リクエスト追加する。今ラウンド非 KEEP の site は上書きしない。採用は plan が変わったときのみ比較(同一 plan は incumbent のバッチとして蓄積、exp4 の R5 → R2 上書きは消える)。履歴には各ヒントの他ケースでの比(k6 の `inline(always)` が k3 で 0.972 と見える)と、1 ケースを共有する site の明記。plugin は `VectorizerEndEP` の監視パスで site ごとに `isvectorized` / VF / IC(iv_step から復元)/ 存否を記録し、toy の 4 ループで remark と一致。plugin をロードした dump ビルドの `.text` は未ロードと同一(コード生成に影響なし、実測)。`docs/search-driver.md`、`plugin/README.md`。
 - **判断**: (a) hintbench を次に回す前に baseline を新 plugin で作り直す(旧 dump に `post_vectorize` が無い)。(b) 探索が既定 ON になったので、ラウンド 1 は一発回答の対照ではなくなる(対照が要るときは `--explore 0`)。(c) unroll ヒントを載せた apply では IC の復元値が信頼できない(LoopUnroll が VectorizerEnd より先に走る)。dump では信頼できる。
 - **影響**: spec §1(3)、§5、§6。
+
+### 91. jaq の関数属性 oracle(語彙 v4、クロージャ修正): 実プログラムで初めて、確認済み・MDE 超・正方向の関数属性が 1 本出た。見出しは依然フラット
+- **知見**: 75 arm 中 39 が基準と同一、36 を計測。クロージャ修正で 1 arm の entry が 138 → 49。`inline(always)` は 15 arm 中 9 がコードを変え 6 が 2 バッチで確認され、**両方向に効く唯一の候補**: `Val::hash` に付けると訓練 +4.3% / +4.8%(MDE 3% 超)、holdout の objsearch で +4.5%(3 ケース集計では +1.7%、MDE 未満)。`write::write` に付けると −5.5% / −6.6%。`Lex::seq inline(never)` −9.4%、`write_until inline(never)` −3.8%。`align` は依然ゼロ。3 site の組み合わせは holdout +0.2%(訓練バッチは A/A が ±5.6% で使えず、再測定していない)。Oracle A の holdout 符号反転は今回は起きない。`results.md` §135〜§142、`docs/experiments/jaq-oracle-A2/`。
+- **判断**: Oracle A の「jaq のどのマークにも測定可能に速くする関数属性は無い」は字義どおりには成り立たなくなった(`Val::hash inline(always)`)。ただし「jaq がどれだけ速くなるか」の見出しはフラットのまま。jaq で時計を動かす関数属性は強制インライン(どちらの向きでも)だけ。組み合わせは部分の積にならない(独立なら +7%、実測 +0.2%)。
+- **影響**: spec §2、§9。jaq のループ oracle は未実施。
+
+### 92. Experiment 5(hintbench、探索付き Jev v4.2): +7.4%(oracle の組み合わせの 84〜86%)。探索は k3 の unroll 4 を見つけ、k8 の幅 16 は見つけられなかった
+- **知見**: 最終 plan は r3 で訓練 +7.4%、第 3 バッチ +7.2%(A/A ±0.2%)。Exp4 の +6.7%(77%)から前進。探索は r2 で k3 ループを対象にし `unroll.count=4`(P 0.31、`unroll.disable` 0.28)を選び、以後 P 0.95 に固定 → +4.4% を回収。k8 では探索が未試行 11 候補を提示したが Jev は `unroll.count=2`(P 0.32)を選び、幅 16 は 11 番目(P 0.01)。1 回の探索でサイトは「試行済み」になるため二度と聞かれず、+8.8% は取り残し。`post_vectorize` の事実は誤答を殺した(k8 の幅 8 は P 0.60 → 0.01)が正答は生まない(「LLVM は 8 を選んだ」は「8 が正しい」と読まれる)。採点は完全一致 7 / 外し 5 / 有害 0 で Exp4 の 9 より低いが速度は高い(12 site 中 8 の正解が KEEP なので採点は見出しに使えない)。r4 / r5 は API の 503 でフェーズが丸ごと落ちた「半分の plan」。10 フェーズ要求のうち 5 本が最後まで通らず、無改変再送 6 本で通ったのは 1 本。第 3 バッチは 1 回目のコントロールが壊れ(A/A ±1.8%、干渉外れ値 3 本)、規則を先に書いてから 2 回目を取った(89.3% → 85.5% に下がる方向)。費用 0、待ち時間は実時間の 0.9%。`results.md` §143〜§149、`docs/experiments/hintbench/exp5.md`。
+- **判断**: (a) 探索機構は機能する(k3)。(b) 探索の予算は「1 site 1 回」では足りない。同一 site を再訪できる予算、または未試行候補の Score による順位付けを検討。(c) `post_vectorize` の判定行に「LLVM の選択であって、隣に未試行の幅がある」ことを機械的に書く。(d) API の 503 バーストが実験の再現性を脅かしている。フェーズ落ちを「半分の plan」として記録するだけでなく、再送の上限と待ち時間を増やす。
+- **影響**: spec §1(3)、§6、driver。

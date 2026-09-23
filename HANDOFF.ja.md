@@ -1,6 +1,6 @@
 # HANDOFF — jev-opt の引き継ぎ(2026-09-23)
 
-この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(90 項目、番号で参照)、数値は `results.md`(章番号で参照)。この 3 つが正本で、本文書はそこへの案内図。
+この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(92 項目、番号で参照)、数値は `results.md`(章番号で参照)。この 3 つが正本で、本文書はそこへの案内図。
 
 ---
 
@@ -50,16 +50,18 @@
 - **フィードバックはフィルタとして機能し、探索としては機能しない**(試したヒントについてしか語れない)。探索機構(未試行の site 上位 K に未試行候補だけの Choice)を実装済み(決定 89・90)、検証中。
 - **測定**: jaq は同一バイナリでも 2〜4% 動く(A/A)。バッチ内 bootstrap の CI は較正が壊れており、MDE 超えは独立バッチで確認してから採用(決定 80)。hintbench はバッチ間 0.17 pt と静か。
 
-### 3.3 進行中(この文書を書いている時点)
+### 3.3 進行中だったもの(3.4 で完了)
 
 1. **jaq の関数属性 oracle、語彙 v4 での再実行**(`artifacts/jaq-search/oracle-A2/`)。前回は `inline(always)` が語彙に無く、1 Choice が 60 クロージャに波及していた。75 arm の計測は完了、担当が holdout と記録を仕上げている。結果は `results.md`「Oracle A2 (jaq)」と `docs/experiments/jaq-oracle-A2/` に入る。
 2. **hintbench で探索付き Jev の再走**(`artifacts/hintbench-search/jev-v42-r5/`)。新 plugin で baseline を作り直し、`--explore 2` で 5 ラウンド。狙いは取りこぼした k8 の幅 16(+8.8%)と k3 の unroll 4(+4.4%)。結果は `results.md`「Experiment 5 (hintbench)」と `docs/experiments/hintbench/exp5.md`。
 
 **両方の結果は、届いたら本文書 §3.4 と決定ログに追記する。届く前に引き継ぐ場合は、`results.md` の末尾と `docs/decisions.ja.md` の末尾、`git log` を見て最新を確認すること。**
 
-### 3.4 最新結果(追記欄)
+### 3.4 最新結果(2026-09-23 昼、追記済み)
 
-(結果が届いたらここに書く)
+- **jaq 関数属性 oracle v4(決定 91)**: 実プログラムで初めて、確認済み・MDE 超・正方向の関数属性が 1 本(`Val::hash` に `inline(always)`、objsearch で +4.5%)。ただし 3 ケース集計は +1.7%、組み合わせは +0.2% で、jaq の見出しは依然フラット。jaq で時計を動かす関数属性は強制インライン(両方向)だけ。`results.md` §135〜§142。
+- **hintbench 探索付き Jev(決定 92)**: **+7.4%(oracle の 84〜86%)**、Exp4 の +6.7%(77%)から前進。探索は k3 の unroll 4 を見つけたが、k8 の幅 16 は 1 回の探索で外して二度と聞かれず取り残し。API の 503 で 5 ラウンド中 3 ラウンドのどちらかのフェーズが落ちた。`results.md` §143〜§149。
+- **次にやること(§4 の表の 3〜)**: 語彙 v5、探索の予算(同一 site の再訪 / Score で順位付け)、`post_vectorize` の判定行の改善、503 対策(再送上限)、jaq ループ oracle、zopfli。
 
 ## 4. 今後の計画(Claude の提案。オーナー未承認の部分は「提案」)
 
@@ -67,9 +69,9 @@
 
 | # | 作業 | 目的 | 目安 | 状態 |
 |---|---|---|---|---|
-| 1 | hintbench 探索付き Jev(Exp5) | 探索が k8 / k3 を拾い、oracle の組み合わせにどこまで届くか | 1.5 h | 進行中 |
-| 2 | jaq 関数属性 oracle v4(A2) | `inline(always)` とクロージャ修正でフラットが変わるか | 済(仕上げ中) | 進行中 |
-| 3 | **語彙 v5**: `align` を外す、`unroll.disable` を `interleave.count=1` と統合(ベクトル化済みループでは同一命令。決定 85) | oracle の arm 数と無駄な測定を減らす | 半日 | 提案 |
+| 1 | hintbench 探索付き Jev(Exp5) | 探索が k8 / k3 を拾い、oracle の組み合わせにどこまで届くか | 1.5 h | **済**(+7.4%、84〜86%。k3 は拾い k8 は取り残し。決定 92) |
+| 2 | jaq 関数属性 oracle v4(A2) | `inline(always)` とクロージャ修正でフラットが変わるか | — | **済**(`Val::hash inline(always)` +4.5% が 1 本。見出しはフラット。決定 91) |
+| 3 | **語彙 v5**: `align` を外す、`unroll.disable` を `interleave.count=1` と統合(決定 85)。**探索の予算**(同一 site の再訪、または未試行候補を Score で順位付け)、`post_vectorize` 判定行に「LLVM の選択であって隣に未試行の幅がある」を明記、503 の再送上限を増やす(決定 92) | oracle の無駄を減らし、k8 型の取り残しと API 落ちを潰す | 1 日 | 提案 |
 | 4 | jaq ループ oracle(重複除去、post_vectorize の事実で state を埋める) | jaq でループヒントの正解を得る | 約 9 h(夜間) | 提案 |
 | 5 | jaq で探索付き Jev 5〜8 ラウンド + ランダム | 記事の主数字。ノイズ 4% なので集計でのみ語る | 2 h | 提案 |
 | 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | 提案 |
