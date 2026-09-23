@@ -133,7 +133,12 @@ PLUGIN = os.path.join(REPO, "plugin", "build", "libjevplugin.so")
 # byte-identical state for any site whose picks avoid the removed candidates.
 STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
                  "v3": "state-v3.3-2026-09-22", "v4": "state-v4.2-2026-09-22",
-                 "v5": "state-v5.0-2026-09-23"}
+                 "v5": "state-v5.0-2026-09-23",
+                 # v5 + `--pv-untried on` (decision 92 c): the
+                 # post_vectorize width and interleave lines also name the
+                 # vocabulary values not yet tried at the loop. Only legal
+                 # with --vocab v5.
+                 "v5.1": "state-v5.1-2026-09-23"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -2270,16 +2275,56 @@ def post_vectorize_lines(item, ctx):
                % (ic, pv.get("iv_step"))))]
     out.append("vectorisation legality: LEGAL, and already taken --- the "
                "baseline vectorizes this loop with no hint at all.")
+    pv_untried = bool(ctx.get("pv_untried"))
     if vf and "vectorize_width_%d" % vf in candidates_of(item, ctx["knobs"]):
         out.append("no-op check: %d is the width LLVM already uses here, so "
                    "the candidate `vectorize_width_%d` asks for the state "
                    "this site is in and the build it produces can only be "
                    "the baseline's." % (vf, vf))
+    if vf and pv_untried:
+        out.append(pv_untried_line(item, ctx, vf, "vectorize_width_",
+                                   "width"))
     if ic and "interleave_count_%d" % ic in candidates_of(item, ctx["knobs"]):
         out.append("no-op check: %d is the interleave count LLVM already "
                    "uses here, so `interleave_count_%d` asks for the state "
                    "this site is in." % (ic, ic))
+    if ic and pv_untried:
+        out.append(pv_untried_line(item, ctx, ic, "interleave_count_",
+                                   "interleave count"))
     return out
+
+
+PV_UNTRIED_TEMPLATE = (
+    "%d is the %s LLVM's cost model picked for this loop with no hint; it is "
+    "not a measurement of this program, and no other %s has been measured "
+    "at this loop %s. Vocabulary values other than %d not yet tried here: "
+    "%s. None of them is being proposed over another.")
+
+
+def pv_untried_line(item, ctx, observed, prefix, noun):
+    """Decision 92 (c), state v5.1 (`--pv-untried on`).
+
+    Experiment 5: the post_vectorize fact killed a wrong answer (the k8
+    width 8 fell from P 0.60 to 0.01) and produced no right one, because
+    "LLVM picked 8" reads as "8 is right". This line says, mechanically,
+    what that number is and which values of the same kind the vocabulary
+    has that nothing in this run has tried at this loop: ALL of them, in
+    numeric order, with none singled out."""
+    def values(cands):
+        out = set()
+        for c in cands:
+            if c.startswith(prefix) and c[len(prefix):].isdigit():
+                out.add(int(c[len(prefix):]))
+        return out
+    vocab = values(candidates_of(item, ctx["knobs"]))
+    tried = values(tried_at(ctx.get("history") or [], item.id))
+    tried_other = sorted(v for v in tried if v != observed)
+    untried = sorted(v for v in vocab if v != observed and v not in tried)
+    where = ("in this run" if not tried_other else
+             "except %s" % ", ".join(str(v) for v in tried_other))
+    return PV_UNTRIED_TEMPLATE % (
+        observed, noun, noun, where, observed,
+        ", ".join(str(v) for v in untried) or "none")
 
 
 def loop_verdict_lines(item, ctx):
@@ -2664,6 +2709,29 @@ EXPLORE_INSTRUCTIONS = (
 )
 
 
+# Decision 92 (b), revisit text "r1". Used only for the revisit questions of
+# `--explore-revisit R`; EXPLORE_INSTRUCTIONS (v1) is untouched and still
+# asks every never-tried site. It mirrors v1 and, like it, never ranks or
+# recommends: it names what was tried (in the history's own spelling) and
+# says the list below is the mechanical remainder.
+EXPLORE_REVISIT_TEXT_VERSION = "r1"
+EXPLORE_REVISIT_INSTRUCTIONS = (
+    "Section `{qname}` of the state describes this site. Hints already "
+    "tried at this site in this run: {tried}; their measured results are in "
+    "this site's history above. They are not among the candidates below. "
+    "None of the candidates below has been tried at this site, so nothing "
+    "measured here says what any of them would be worth. One of the "
+    "candidates below will be tried at this site in this round's build; "
+    "which of them is most promising? The list is every candidate this site "
+    "has not already been given, filtered mechanically --- KEEP_DEFAULT is "
+    "not among them and nothing was left out on anyone's judgement."
+)
+
+# Decision 92 (b): a site is revisited while fewer than this many distinct
+# hints have been tried there. 2 means "one more try after the first".
+EXPLORE_MAX_VISITS = 2
+
+
 def tried_at(history, site_id):
     """Every non-KEEP_DEFAULT candidate an earlier round put at this site.
 
@@ -2702,7 +2770,7 @@ def hotness_of(item, ctx=None):
     return float(by_mark.get(item.meta.get("mark")) or 0.0)
 
 
-def exploration_sites(items, picks, ctx, knobs, k):
+def exploration_sites(items, picks, ctx, knobs, k, revisit=0, record=None):
     """The sites this round adds an exploration Choice for (decision 89 b).
 
     Experiment 4's finding: feedback works as a filter and not as a search.
@@ -2721,34 +2789,87 @@ def exploration_sites(items, picks, ctx, knobs, k):
     nothing to explore, and no argmax is ever overridden. Eligible sites are
     ordered by hotness and the first `k` are taken.
 
-    Returns [(item, {candidate: description}), ...].
+    Decision 92 (b) adds `revisit` further slots, filled AFTER the `k`
+    new-site slots so that a never-tried site is never starved: a site is
+    eligible for a revisit when this round's answer there is KEEP_DEFAULT
+    (the same clause, no argmax is overridden), 1 <= the number of distinct
+    hints tried there < EXPLORE_MAX_VISITS, and an untried non-KEEP
+    candidate remains. Revisits are ordered by fewest distinct hints tried,
+    then hotness, then list position --- mechanical, and it chooses which
+    site gets a slot, never which hint. With `revisit` 0 the result is the
+    decision-89 result exactly.
+
+    Returns [(item, {candidate: description}), ...], new sites first. When
+    `record` is a dict it is filled with the eligible lists in their order
+    (`eligible_new`, `eligible_revisit`) and a per-site `meta` entry (kind,
+    visit_no, tried, candidates offered).
     """
-    if k <= 0:
+    if k <= 0 and revisit <= 0:
+        if record is not None:
+            record.update({"eligible_new": [], "eligible_revisit": [],
+                           "meta": {}})
         return []
-    rows = []
+    rows, rev = [], []
     for i, it in enumerate(items):
         if it.kind == "build":
             continue
         if picks.get(it.id, V.KEEP_DEFAULT) != V.KEEP_DEFAULT:
             continue
-        tried = set(tried_at(ctx["history"], it.id))
+        tried_l = tried_at(ctx["history"], it.id)
+        tried = set(tried_l)
         cands = {c: d for c, d in candidates_of(it, knobs).items()
                  if c != V.KEEP_DEFAULT and c not in tried}
-        if not cands or tried:
+        if not cands:
             continue
-        rows.append((hotness_of(it, ctx), i, it, cands))
+        if not tried:
+            rows.append((hotness_of(it, ctx), i, it, cands, tried_l))
+        elif len(tried) < EXPLORE_MAX_VISITS:
+            rev.append((len(tried), hotness_of(it, ctx), i, it, cands,
+                        tried_l))
     rows.sort(key=lambda r: (-r[0], r[1]))
-    return [(it, cands) for _h, _i, it, cands in rows[:k]]
+    rev.sort(key=lambda r: (r[0], -r[1], r[2]))
+    new = [(it, cands) for _h, _i, it, cands, _t in rows[:max(0, k)]]
+    again = [(it, cands) for _n, _h, _i, it, cands, _t
+             in rev[:max(0, revisit)]]
+    if record is not None:
+        record["eligible_new"] = [
+            {"site_id": it.id, "hotness": h, "tried": t}
+            for h, _i, it, _c, t in rows]
+        record["eligible_revisit"] = [
+            {"site_id": it.id, "n_tried": n, "hotness": h, "tried": t}
+            for n, h, _i, it, _c, t in rev] if revisit > 0 else []
+        meta = {}
+        for kind, src in (("new", rows[:max(0, k)]), ):
+            for h, _i, it, c, t in src:
+                meta[it.id] = {"kind": kind, "visit_no": 1, "tried": t,
+                               "candidates": list(c)}
+        for n, h, _i, it, c, t in rev[:max(0, revisit)]:
+            meta[it.id] = {"kind": "revisit", "visit_no": n + 1, "tried": t,
+                           "candidates": list(c)}
+        record["meta"] = meta
+    return new + again
 
 
-def exploration_questions(pairs, ctx):
-    """The `questions` object and site map for one exploration request."""
+def exploration_questions(pairs, ctx, meta=None):
+    """The `questions` object and site map for one exploration request.
+
+    `meta` is `exploration_sites`' record["meta"]; a site it marks as a
+    revisit gets EXPLORE_REVISIT_INSTRUCTIONS (r1), every other site the
+    v1 text. Without `meta` every site gets the v1 text, as before."""
     questions, site_map = {}, {}
     for i, (it, cands) in enumerate(pairs):
         it.qname = "e%d" % i
+        m = (meta or {}).get(it.id) or {}
         site_map[it.qname] = {"site_id": it.id, "kind": it.kind,
                               "label": it.label, "exploration": True}
-        instructions = EXPLORE_INSTRUCTIONS.format(qname=it.qname)
+        if m.get("kind") == "revisit":
+            site_map[it.qname]["revisit"] = True
+            instructions = EXPLORE_REVISIT_INSTRUCTIONS.format(
+                qname=it.qname,
+                tried=", ".join("`%s`" % V.spec_spelling_safe(t)
+                                for t in m.get("tried") or []))
+        else:
+            instructions = EXPLORE_INSTRUCTIONS.format(qname=it.qname)
         if ctx.get("verdicts"):
             instructions += verdict_block(it, ctx)
         questions[it.qname] = {"type": "choice",
@@ -3184,13 +3305,14 @@ class JevProposer:
     name = "jev"
 
     def __init__(self, client, cfg, knobs, max_state_chars,
-                 readout="forced_top1", explore=2):
+                 readout="forced_top1", explore=2, explore_revisit=0):
         self.client = client
         self.cfg = cfg
         self.knobs = knobs
         self.max_state_chars = max_state_chars
         self.readout = readout
         self.explore = int(explore)
+        self.explore_revisit = int(explore_revisit)
 
     def choose(self, items, ctx, round_no, phase):
         """The phase's answers, or a lost phase (decision 92 d).
@@ -3261,13 +3383,22 @@ class JevProposer:
         not one of the candidates --- is left as it was. Exploration must not
         be able to turn a phase into something the model did not say.
         """
-        pairs = exploration_sites(items, picks, ctx, self.knobs, self.explore)
+        elig = {}
+        pairs = exploration_sites(items, picks, ctx, self.knobs, self.explore,
+                                  self.explore_revisit, record=elig)
         rec = {"k": self.explore, "phase": phase,
-               "sites": [it.id for it, _c in pairs], "picks": {}}
+               "sites": [it.id for it, _c in pairs], "picks": {},
+               # Decision 92 (b).
+               "revisit": self.explore_revisit,
+               "max_visits": EXPLORE_MAX_VISITS,
+               "eligible_new": elig.get("eligible_new"),
+               "eligible_revisit": elig.get("eligible_revisit"),
+               "asked": elig.get("meta"), "pick_detail": {}}
         ctx["exploration"] = rec
         if not pairs:
             return rec
-        questions, site_map = exploration_questions(pairs, ctx)
+        questions, site_map = exploration_questions(pairs, ctx,
+                                                    elig.get("meta"))
         state = state_header(ctx, len(pairs)) + \
             "".join(state_section(it, ctx) for it, _c in pairs)
         # The same unchanged re-send a phase gets (Experiment 4, 1.4 b;
@@ -3305,8 +3436,38 @@ class JevProposer:
             w["confidence"] = a.get("confidence")
             w["probabilities"] = a.get("probabilities")
             rec["picks"][it.id] = pick
-            print("[%s.explore] %s: nothing has been tried here; trying %s"
-                  % (phase, it.label, V.spec_spelling_safe(pick)))
+            m = (elig.get("meta") or {}).get(it.id) or {}
+            probs = a.get("probabilities") if isinstance(
+                a.get("probabilities"), dict) else {}
+            def p_of(c):
+                try:
+                    return float(probs.get(c) or 0.0)
+                except (TypeError, ValueError):
+                    return 0.0
+            offered = list(cands)
+            order = sorted(offered, key=lambda c: (-p_of(c),
+                                                   offered.index(c)))
+            detail = {"kind": m.get("kind", "new"),
+                      "visit_no": m.get("visit_no", 1),
+                      "tried_before": m.get("tried") or [],
+                      "candidates": offered,
+                      "pick_rank": order.index(pick) + 1,
+                      "pick_p": p_of(pick) if probs else None}
+            rec["pick_detail"][it.id] = detail
+            w["exploration_kind"] = detail["kind"]
+            w["visit_no"] = detail["visit_no"]
+            w["candidates_offered"] = offered
+            w["pick_rank"] = detail["pick_rank"]
+            w["pick_p"] = detail["pick_p"]
+            if detail["kind"] == "revisit":
+                print("[%s.explore] %s: revisit %d, tried here so far %s; "
+                      "trying %s" % (phase, it.label, detail["visit_no"],
+                                     ", ".join(V.spec_spelling_safe(t) for t
+                                               in detail["tried_before"]),
+                                     V.spec_spelling_safe(pick)))
+            else:
+                print("[%s.explore] %s: nothing has been tried here; trying "
+                      "%s" % (phase, it.label, V.spec_spelling_safe(pick)))
         return rec
 
     def _ask(self, items, ctx, round_no, phase):
@@ -3823,6 +3984,15 @@ class Search:
         self.state_v2 = (args.vocab in ("v2", "v3", "v4", "v5"))
         V.set_version(args.vocab)
         set_state_format(args.vocab)
+        # Decision 92 (c): the post_vectorize untried line is its own state
+        # format, v5.1, and exists only on top of vocabulary v5.
+        self.pv_untried = getattr(args, "pv_untried", "off") == "on"
+        if self.pv_untried:
+            if args.vocab != "v5":
+                sys.exit("--pv-untried on is only defined for --vocab v5 "
+                         "(state format %s); got --vocab %s"
+                         % (STATE_FORMATS["v5.1"], args.vocab))
+            set_state_format("v5.1")
         self.demangler = Demangler()
         self._platform = None
         self.marks = read_marks(args.marks)
@@ -4134,13 +4304,18 @@ class Search:
                 # after the phase's own answers are in, so the preview has
                 # to assume one: KEEP_DEFAULT everywhere, which is the case
                 # the mechanism exists for.
+                revisit = getattr(self.args, "explore_revisit", 0)
+                elig = {}
                 pairs = exploration_sites(items, {}, ctx, self.knobs,
-                                          self.args.explore)
+                                          self.args.explore, revisit,
+                                          record=elig)
                 print("=" * 72)
                 print("### phase %s exploration request (%d question(s), "
-                      "--explore %d; the preview assumes this phase answered "
-                      "KEEP_DEFAULT everywhere) ###"
-                      % (phase, len(pairs), self.args.explore))
+                      "--explore %d%s; the preview assumes this phase "
+                      "answered KEEP_DEFAULT everywhere) ###"
+                      % (phase, len(pairs), self.args.explore,
+                         (", --explore-revisit %d" % revisit)
+                         if revisit else ""))
                 print("=" * 72)
                 if not pairs:
                     print("(no site is eligible: every site of this phase "
@@ -4148,7 +4323,7 @@ class Search:
                           "round, or --explore is 0)")
                     print("")
                     continue
-                eq, _ = exploration_questions(pairs, ctx)
+                eq, _ = exploration_questions(pairs, ctx, elig.get("meta"))
                 print(state_header(ctx, len(pairs))
                       + "".join(state_section(it, ctx) for it, _c in pairs))
                 for it, _c in pairs:
@@ -4259,7 +4434,8 @@ class Search:
                              self.args.source_comments)
         return JevProposer(self.jev, self.cfg["jev"], self.knobs,
                            int(self.cfg["search"]["max_state_chars"]),
-                           self.args.readout, self.args.explore)
+                           self.args.readout, self.args.explore,
+                           getattr(self.args, "explore_revisit", 0))
 
     def platform(self):
         """The platform block, read from the machine once and cached in the
@@ -4296,6 +4472,7 @@ class Search:
              "source_comments": getattr(self.args,
                                         "source_comments", "strip"),
              "knobs": self.knobs,
+             "pv_untried": getattr(self, "pv_untried", False),
              "state_v2": self.state_v2, "verdicts": self.state_v2,
              "demangler": self.demangler,
              "bench_cpu": self.shell["bench_cpu"],
@@ -4819,6 +4996,15 @@ class Search:
             "source_comments": self.args.source_comments,
             "readout": self.args.readout,
             "explore": self.args.explore,
+            # Decision 92 (b, c).
+            "exploration": {
+                "k": self.args.explore,
+                "revisit": getattr(self.args, "explore_revisit", 0),
+                "max_visits": EXPLORE_MAX_VISITS,
+                "revisit_text": (EXPLORE_REVISIT_TEXT_VERSION
+                                 if getattr(self.args, "explore_revisit", 0)
+                                 else None),
+                "pv_untried": getattr(self.args, "pv_untried", "off")},
             "platform_block": (os.path.join(self.out, "platform.json")
                                if self.state_v2 else None),
             "config": self.cfg["_path"], "config_sha256": self.cfg["_sha256"],
@@ -5049,6 +5235,25 @@ def main():
                         "--proposer jev only: random already draws non-"
                         "KEEP_DEFAULT candidates by construction, and the "
                         "oracle's arms are enumerated")
+    p.add_argument("--explore-revisit", type=int, default=0, metavar="R",
+                   help="decision 92 (b): R further exploration slots per "
+                        "phase for sites that have been tried, filled after "
+                        "the K new-site slots and sent in the same request. "
+                        "A site is eligible when this round answered "
+                        "KEEP_DEFAULT there, fewer than %d distinct hints "
+                        "have been tried there, and an untried candidate "
+                        "remains; order: fewest hints tried, then hotness. "
+                        "Candidates are every untried non-KEEP candidate, "
+                        "and the question names what was tried (text %s). "
+                        "0 (default) is Experiment 5's behaviour exactly"
+                        % (EXPLORE_MAX_VISITS, EXPLORE_REVISIT_TEXT_VERSION))
+    p.add_argument("--pv-untried", default="off", choices=("off", "on"),
+                   help="decision 92 (c): on adds, beside the post_vectorize "
+                        "width and interleave lines of a vectorized loop, "
+                        "which vocabulary values of that kind have not been "
+                        "tried at the loop in this run (all of them, "
+                        "numeric order). State format %s; --vocab v5 only"
+                        % STATE_FORMATS["v5.1"])
     p.add_argument("--source-comments", default="strip",
                    choices=("strip", "keep"),
                    help="how the source excerpts in the state are rendered "
