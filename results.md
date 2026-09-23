@@ -10907,3 +10907,90 @@ instead of `unroll_count_2` (near-neutral, exp6-ctl's pick, §152) — a
 difference in which non-`KEEP_DEFAULT` candidate the model's sampling
 landed on at an equally-uninformed site, not a difference the
 post_vectorize-untried sentence produced.
+
+### 156. Correction to 155: the untried line WAS sent
+
+§155's "the exact pv line never appeared" claim is wrong, and the bug is in
+where it looked, not in the mechanism. `post_vectorize_lines()`
+(`scripts/jev_search.py` ~2224, called ~2435) writes the added sentence into
+each question's `instructions` (`request.questions[*].instructions`), not
+into the shared `request.state`. §155 grepped `state` and `exp6-pv.log`
+(the human-readable per-request summary, which never carries question
+text) — both correctly return nothing, but neither is where the sentence
+lives.
+
+Re-verified directly:
+
+```
+$ grep -c "cost model picked" artifacts/hintbench-search/exp6-pv/jev-log/exp6-pv.jsonl
+6
+$ grep -c "cost model picked" artifacts/hintbench-search/exp6-pv/jev-log/exp6-pv.log
+0
+$ jq -r '.request.questions[]?.instructions' artifacts/hintbench-search/exp6-pv/jev-log/exp6-pv.jsonl \
+    | grep -c "cost model picked"
+34
+```
+
+The first grep (6) counts *requests* containing the phrase; the `jq`
+version counts individual *copies* across all `questions[].instructions`
+(one question can carry the sentence twice, once per vectorized-loop
+metric). Per round/phase, via
+`jq -r '[.round, .phase, (.request.questions[]?.instructions // "" | [scan("cost model picked")] | length)]'`
+matched against the round/phase table in §155:
+
+| round | phase | per-question copies | total |
+|---|---|---|--:|
+| 1 | B | 2, 2, 2, 0 (k5, k4, k8 = 2 each — width 8, interleave 4; k3 = 0, not vectorized) | 6 |
+| 1 | B.explore | 2, 2 (k5, k8) | 4 |
+| 2 | B | 2, 2, 2, 0 | 6 |
+| 2 | B.explore | 0 (k3 only) | 0 |
+| 3 | B | 2, 2, 2, 0 | 6 |
+| 4 | B | 2, 2, 2, 0 | 6 |
+| 5 | B | 2, 2, 2, 0 | 6 |
+| **total** | | | **34** |
+
+6 + 4 + 24 (4 × 6) + 0 = 34, matching the flat `jq` count above. k3 carries
+"LLVM did NOT vectorize" instead and never gets the sentence; that is
+correct behavior, not the bug.
+
+One copy, verbatim (`jev-log/exp6-pv.jsonl`, round 1, phase `B.explore`,
+site `e1`, the k8 loop):
+
+> - 8 is the width LLVM's cost model picked for this loop with no hint; it
+> is not a measurement of this program, and no other width has been
+> measured at this loop in this run. Vocabulary values other than 8 not
+> yet tried here: 2, 4, 16. None of them is being proposed over another.
+
+ctl vs. pv, round 1, with the state-format header string normalized: phases
+A and A.explore are identical in both `state` and `questions`; phases B and
+B.explore are identical in `state`, and their `questions` differ from
+ctl's only by the added lines above (no removals). exp6-ctl, exp6-rev and
+Exp5 (`jev-v42-r5`) carry the v4.2 plugin fact line ("recorded by the
+plugin itself") in every phase-B question instead (4/4, then 3/3 in rev's
+rounds 2–5) and score 0 for "cost model picked", as expected — they are a
+different plugin/site-set vintage, not a repeat of this bug.
+
+**Corrected reading of §151 rule 4.** The untried-line sentence reached Jev
+at k5, k4 and k8 in every phase-B request. `P(vectorize_width_16)` at k8 in
+round 1 `B.explore` was 0.02 for exp6-pv vs. 0.01 for exp6-ctl vs. 0.01 for
+Exp5 (§145); width 16 was never picked at k8 in any round. exp6-pv's
+−2.2 pt vs. ctl on the headline (§155's closing table) is Jev's pick at
+k8 (`interleave_count_1`, harmful, `pick_ratio` 0.8033) on a `B.explore`
+question that differs from ctl's *only* by the added untried-line
+sentence — so this is a **null result for the untried line as a discovery
+aid** (it was sent, and did not move the pick toward `vectorize_width_16`
+or away from the harmful pick), not a "line never sent" artefact as §155
+concluded.
+
+For the record, independent of the correction above: byte-identical inputs
+(ctl's and pv's phase A / A.explore) and near-identical phase-B inputs
+produced different picks across arms (§155's k8 `B.explore` probability
+table) — single-run arms carry Jev's sampling variance on top of whatever
+a feature does. That is stated here as an observation; the exp6 write-up
+is where it gets interpreted.
+
+§155 is left as written above, per the append-only rule.
+
+For future write-ups checking whether driver-added text reached Jev: grep
+`.request.questions[].instructions` in the `.jsonl`, not `.request.state`
+and not the `.log`.
