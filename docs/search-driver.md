@@ -33,18 +33,26 @@ scripts/jev_search.py --target jaq \
 Useful flags:
 
 ```
---vocab v1|..|v4    the frozen vocabulary AND state template. v3 is the
+--vocab v1|..|v5    the frozen vocabulary AND state template. v3 is the
                     default (decision 77), rendering the v3.1 state since
                     decision 83; v4 (decision 84) is v3 with the six
-                    function descriptions rebalanced; v2 is decision 73's
-                    W7; v1 is what Experiment 3 was run with. See "The
-                    state format" below
+                    function descriptions rebalanced; v5 (decision 85) is
+                    v4 minus the three `align` candidates and minus
+                    `unroll.disable`; v2 is decision 73's W7; v1 is what
+                    Experiment 3 was run with. See "The state format" below
 --readout           forced_top1 (default) or argmax: how a phase's answers
                     become plan entries (decision 71). See "The proposers"
 --explore K         how many extra Choices a round adds for sites nothing
                     has ever been tried at (decision 89 b, default 2).
                     --explore 0 is the behaviour of Experiment 4. jev only.
                     See "The proposers"
+--explore-revisit R further exploration slots per phase for sites already
+                    tried (decision 92 b, default 0 = Experiment 5's
+                    behaviour). See "Exploration" below
+--pv-untried on|off adds, to a vectorized loop's post_vectorize lines,
+                    which vocabulary values of that kind have not been
+                    tried at the loop (decision 92 c). --vocab v5 only,
+                    off by default. See "The state format" below
 --source-comments   strip (default) or keep: whether the source excerpts in
                     the state are stripped of comments and doc attributes
                     (decision 81). See "Source excerpts" below
@@ -277,13 +285,14 @@ every request log line, every plan and the run manifest, as is
 prints the whole thing --- the state of both phases **and** every question,
 with its instructions and its `criteria` --- without making a request.
 
-There are four of them, and `--vocab` selects both halves at once, because
+There are five of them, and `--vocab` selects both halves at once, because
 the wording and the template are one measurement condition and the prompt
 study measured them together. v3 is the default; it is v2 with a different
-set of function candidates, and v4 is v3 with the function descriptions
-rebalanced. Both have their own section below, as does the decision-83
-repair of the v3 state (`state-v3.1-2026-09-22`), which v3 and v4 share and
-v1 and v2 do not.
+set of function candidates, v4 is v3 with the function descriptions
+rebalanced, and v5 is v4 minus two candidates the hintbench oracle measured
+dead or duplicate. Each has its own section below, as does the decision-83
+repair of the v3 state (`state-v3.1-2026-09-22`), which v3, v4 and v5 share
+and v1 and v2 do not.
 
 The four format strings, as `STATE_FORMATS` in `jev_search.py` spells them:
 `state-v1-2026-09-22`, `state-v2-2026-09-22`, **`state-v3.2-2026-09-22`**
@@ -690,6 +699,65 @@ A report written by an older plugin carries no `post_vectorize`, and the
 block then falls back to the v3.2 remark reading unchanged --- which is what
 `artifacts/hintbench-sites/baseline` still does.
 
+### v5: two candidates the oracle measured dead or duplicate (decision 85)
+
+`v5-2026-09-23` / `state-v5.0-2026-09-23`. v5 is built from v4's own dicts in
+`jev_vocab.py`, not by copying text, so the two cannot drift: every
+surviving candidate keeps v4's id, description and plan fragment to the
+byte, and the loop and function *instructions* (the question wording) are
+v4's unchanged, since neither names a candidate by id. Only the candidate
+tables lose two entries:
+
+* the three **`align_16` / `align_32` / `align_64`** function candidates,
+  which the hintbench oracle (decision 85, 85 arms) measured moved the clock
+  at **no** function site it swept;
+* the loop candidate **`unroll_disable`**, which produced machine code
+  identical to `interleave_count_1` on every vectorized oracle loop --- 8 of
+  the oracle's 44 loop arms were that exact duplicate.
+
+Both facts are about vectorized loops specifically; the merge is a decision
+about this recipe's loops, not a claim that the two hints are identical
+everywhere. `docs/decisions.ja.md` 85 has the numbers.
+
+Because v5's state template is v4.2's unchanged (only the candidate table
+has fewer rows), `--vocab v5` renders **byte-identical** state to `--vocab
+v4` for any site whose picks avoid the removed candidates; the two vocabulary
+version strings (`v4-2026-09-22` vs. `v5-2026-09-23`, written into every
+request log line, plan and manifest) are what tells a v5 run apart from a
+v4 one at a site that never touches the difference. `evidence_fixes`, the
+`state_v2` gate and the inliner-mechanics verdict line (v3's onward) all
+treat v5 exactly as v3 and v4.
+
+### v5.1: the post_vectorize untried line (decision 92 c)
+
+`state-v5.1-2026-09-23`, selected by `--pv-untried on` and legal only with
+`--vocab v5` (the driver exits with an error otherwise). It is v5.0 plus one
+mechanical sentence, added after the post_vectorize width line and again
+after the post_vectorize interleave-count line of a vectorized loop, each
+naming the vocabulary values of that kind (`vectorize_width_*` or
+`interleave_count_*`) not yet tried at this loop in this run:
+
+```
+%d is the %s LLVM's cost model picked for this loop with no hint; it is not
+a measurement of this program, and no other %s has been measured at this
+loop %s. Vocabulary values other than %d not yet tried here: %s. None of
+them is being proposed over another.
+```
+
+(`PV_UNTRIED_TEMPLATE` in `jev_search.py`; the `%s` naming what else has been
+measured here is `in this run` when nothing else has been tried at this
+loop, or `except <the other values tried so far>` otherwise, and the
+untried list is every remaining vocabulary value in numeric order.)
+`--pv-untried off` (the default) renders byte-identical state to v5.0.
+
+Why: Experiment 5 (decision 92) found that the post_vectorize fact killed a
+wrong answer at hintbench's k8 loop --- `vectorize_width_8` fell from P 0.60
+to P 0.01 once the state said LLVM had already chosen width 8 with no hint
+--- but produced no right one, because "LLVM picked 8" reads as "8 is right"
+rather than "8 is a choice LLVM made and 16 is the untried alternative". The
+line states, mechanically and with no ranking, which values of the same kind
+nothing has measured at this loop yet.
+
 ### One shot, API only: `scripts/jev_oneshot.py`
 
 Round 1 of a run, both phases, N repeats, **no build and no timing**. It
@@ -785,19 +853,21 @@ for a threshold but fixes no value).
   requests, questions, latency, tokens, cost, and the share of the run's
   wall clock spent waiting for Jev).
 
-  **A phase that never got through is re-sent unchanged.** When all three
-  internal retries of a request fail --- a 503 burst on the gateway, which
-  decision 87 recorded taking out both phases of a one-shot repeat --- every
-  answer of that phase is replaced by `KEEP_DEFAULT` with `source: "no
-  answer"` and no probabilities, so the plan is empty *and* the decision-71
-  readout has nothing to rank. `JevProposer.choose` therefore detects a
-  phase whose every answer is `no answer` and sends the **same request
-  again**, ten seconds later, logged as phase `A.retry` / `B.retry`; the
-  exhausted line stays in the JSONL with its `http_status`. No request is
-  ever modified to make it succeed. This is what `scripts/jev_oneshot.py`
-  has always done at the harness level, and that harness's own `ask_phase`
-  now retries on top of this one --- a second re-send after this one has
-  also failed, recorded as `A.retry.retry`.
+  **A phase that never gets through is not built.** Every request already
+  retries internally on the gateway's own terms (decision 92 d, "Gateway and
+  retries" below); if it is still exhausted, `JevProposer.send` re-sends it
+  **unchanged** up to `[jev] phase_resend_max` more times, logged as phase
+  `A.retry`, `A.retry2`, ... If it is *still* lost after that, the phase is
+  LOST: no readout and no exploration run on answers that do not exist, and
+  the round is not built at all --- `Search.lost_round` records it with
+  `status: "lost"`, the round counter still advances and the history does
+  not change. This replaced the original rule (decision 87: three internal
+  retries, then one unchanged re-send after ten seconds, and a still-lost
+  phase became an all-`KEEP_DEFAULT` plan that was built anyway) once
+  Experiment 5 showed why that was unsafe: a "half plan" with one phase
+  silently empty is a different experiment from the one asked for, not a
+  degraded version of it. See "Gateway and retries" below for the full
+  policy and what a lost round costs.
 
   **The readout (decision 71).** The argmax alone throws the probabilities
   away, and Experiment 3 spent five rounds answering `KEEP_DEFAULT`
@@ -870,17 +940,20 @@ for a threshold but fixes no value).
   `KEEP_DEFAULT`: exploration must not be able to put a hint in a plan that
   the model did not choose.
 
-  **An exploration request that never got through is re-sent unchanged**, ten
-  seconds later, logged as `A.explore.retry` / `B.explore.retry` --- the same
-  rule `choose` applies to a phase whose every answer is `no answer`
-  (`docs/experiments/hintbench/exp4.md` 1.4 b), and added before round 1 of
-  Experiment 5 for the same reason. A request the gateway dropped leaves
-  every eligible site at `KEEP_DEFAULT`, and because those sites are then
-  still untried it costs the round its whole exploration slot. Six of
-  Experiment 4's twelve requests carried at least one 503 and two exhausted
-  all three internal retries. No request is ever modified to make it
-  succeed, and the exhausted line stays in the JSONL with its
-  `http_status`.
+  **An exploration request goes through the same `send` as a phase**
+  (decision 92 d), re-sent unchanged up to `[jev] phase_resend_max` more
+  times, logged as `A.explore.retry`, `A.explore.retry2`, ... A request the
+  gateway dropped for good leaves every eligible site at `KEEP_DEFAULT`, and
+  because those sites are then still untried it costs the round its whole
+  exploration slot --- but, unlike a lost phase, **a lost exploration
+  request does not lose the round**: the argmax plan is whole without it.
+  It is recorded as `lost: true` in the phase's `exploration` block and as
+  `explore_lost` on the round record, and the round is built without
+  exploration. Six of Experiment 4's twelve exploration requests carried at
+  least one 503; Experiment 5's probe of the gateway (decision 92 d, "Gateway
+  and retries" below) is what replaced the old fixed-count internal retry
+  and single ten-second re-send with the current policy. No request is ever
+  modified to make it succeed, and every attempt's line stays in the JSONL.
 
   `--explore 0` restores Experiment 4's behaviour exactly. Exploration is a
   `jev` mechanism: `random` already draws non-`KEEP_DEFAULT` candidates by
@@ -894,6 +967,69 @@ for a threshold but fixes no value).
   `docs/experiments/hintbench/exp4.md` 1.4's "round 1 reproduces
   `jev-oneshot-v4.md`" only holds under `--explore 0`. `scripts/jev_oneshot.py`
   pins `--explore 0` for exactly that reason.
+
+  **Revisit budget: `--explore-revisit R` (decision 92 b, default 0).**
+  Experiment 5 found the mechanism above's limit: once any candidate has
+  been tried at a site, in any round, accepted or not, the site is never
+  eligible for exploration again. hintbench's k8 loop was explored once, in
+  round 1, and lost its P 0.60 `vectorize_width_8` (a no-op) for
+  `unroll_count_2` --- and the site's real winner, `vectorize_width_16`
+  (+8.8%), was never asked about again for the rest of the run. `--explore
+  0` (the default) is Experiment 5's behaviour exactly; `R > 0` adds `R`
+  further exploration slots per phase for sites that have already been
+  tried, **filled after** the `K` new-site slots and sent in the **same**
+  `X.explore` request, so a never-tried site is never starved for a
+  revisit's sake.
+
+  A site is eligible for a revisit when, in this round, **all** of:
+
+  * this round's own argmax answer there is `KEEP_DEFAULT` (the same clause
+    as a new-site slot: no argmax is ever overridden);
+  * at least 1 and fewer than `EXPLORE_MAX_VISITS` (2) distinct hints have
+    been tried at it so far --- 2 means "one more try after the first";
+  * an untried non-`KEEP_DEFAULT` candidate remains for it.
+
+  Eligible revisits are ordered by **fewest distinct hints tried**, then by
+  **hotness**, then by list position --- mechanical, and it chooses which
+  *site* gets the slot, never which hint. The candidates offered are every
+  candidate that site has not already been given (mechanically filtered, no
+  `KEEP_DEFAULT`), exactly as for a new site; only the question wording
+  differs, in a new frozen text, `EXPLORE_REVISIT_INSTRUCTIONS`, text version
+  **r1** (`EXPLORE_INSTRUCTIONS`, v1, is unchanged and still used for every
+  new-site slot):
+
+  ```
+  Section `{qname}` of the state describes this site. Hints already tried
+  at this site in this run: {tried}; their measured results are in this
+  site's history above. They are not among the candidates below. None of
+  the candidates below has been tried at this site, so nothing measured
+  here says what any of them would be worth. One of the candidates below
+  will be tried at this site in this round's build; which of them is most
+  promising? The list is every candidate this site has not already been
+  given, filtered mechanically --- KEEP_DEFAULT is not among them and
+  nothing was left out on anyone's judgement.
+  ```
+
+  Like the v1 text, it never ranks or recommends: it names what was tried,
+  in the history's own spelling, and says the list below is the mechanical
+  remainder.
+
+  Per pick, `phase_a.exploration` / `phase_b.exploration`'s `pick_detail`
+  records `kind` (`new` or `revisit`), `visit_no` (1 for a new site, `n+1`
+  for a site with `n` distinct hints already tried), the `candidates`
+  offered, the `pick_rank` (the pick's rank in the offered list, ordered by
+  the model's own probability, ties broken by list order) and `pick_p` (the
+  pick's own probability, when the response carried probabilities). The
+  round record also carries the two **eligible lists** in their evaluation
+  order --- `eligible_new` and `eligible_revisit`, each site with its
+  hotness (and, for a revisit, the number of distinct hints tried and what
+  they were) --- so which sites were *offered* a slot and not only which
+  sites were *picked* is recoverable after the fact.
+
+  `run-manifest.json` gains an `exploration` block: `{k, revisit,
+  max_visits, revisit_text, pv_untried}` --- the run's `--explore`,
+  `--explore-revisit`, `EXPLORE_MAX_VISITS`, the revisit text version (`r1`,
+  or `null` when `--explore-revisit` is 0) and `--pv-untried`.
 * **random** --- uniform over the same candidate list, same sites, same
   number of rounds, seeded from `[evaluation] seed` and the round number.
 * **oracle** --- the arms of SPEC.ja.md 2: every candidate alone at every
@@ -928,6 +1064,90 @@ for a threshold but fixes no value).
 shares and source locations per mark, notes and per-site candidate
 allowlists, and `search.max_sites`. Unknown keys are ignored, and a plugin
 report directory is also accepted in its place.
+
+## Gateway and retries (decision 92 d)
+
+**The measured fact.** On 2026-09-23 a probe of the gateway with Experiment
+5's own request bodies found that whether a request landed tracked its
+**body size**, not the time of day or how long it waited: phase A (85 KB)
+landed 0 of 6, phase B (51 KB) 4 of 18, and an exploration request (24 KB) 5
+of 6, all at the same endpoint within the same short window, with re-sends
+byte-identical. That this is the provider's condition and not some fixed
+threshold is confirmed by the same target's own history: jaq's phase A body
+is **104 KB**, larger than any of the three above, and it landed **5 of 5**
+on 2026-09-22. A longer wait or a bigger internal retry budget buys nothing
+against a rejection that is about the request, not the moment; attempts and
+a wall-clock ceiling do.
+
+### The retry policy
+
+`JevClient._post` makes one HTTP attempt; `JevClient.ask` retries it:
+
+* retried: any **5xx**, any **429** (honouring its `Retry-After` when
+  present --- taken as a floor, never as a shortening of the policy's own
+  pause), and any **transport error** (timeout, DNS, connection reset);
+* not retried: any other 4xx, which ends the request at once;
+* the pause between attempts is **fixed**, not growing: `RETRY_BACKOFF_S`
+  (2 s) `+-RETRY_JITTER` (20%), capped at `[jev] backoff_cap_s` (5.0). The
+  jitter is drawn from an RNG seeded by the **request body's sha256**, so
+  the same request waits the same way every time it is sent --- deterministic,
+  not random per process;
+* attempts stop at `[jev] retries` (200) or when the **next** pause would
+  take the request's wall clock past `[jev] retry_wall_budget_s` (600 s),
+  whichever comes first;
+* one HTTP attempt may take up to `[jev] request_timeout_s` (20 s, down
+  from the old 60: every landed request of Experiment 5 took under 1 s and
+  every 503 came back in 120--340 ms, so a long per-attempt timeout only
+  delays discovering that this attempt failed).
+
+An `ask()` that is still exhausted after that returns `None`; `JevProposer
+.send` (used by both a phase's own request and an `X.explore` request) then
+re-sends the **same, byte-identical** request up to `[jev] phase_resend_max`
+(2) more times, ten seconds apart, logged as `<phase>.retry`,
+`<phase>.retry2`, ... No request is ever modified to make it succeed.
+
+### The round gate
+
+A **phase** (`A` or `B`) still exhausted after its resends is **LOST**:
+`JevProposer.choose` sets `ctx["phase_lost"]`, runs no readout and no
+exploration on answers that do not exist, and `Search.lost_round` records
+the round with `status: "lost"`, `lost_phase`, `lost_attempts`,
+`lost_sends` and `lost_seconds_waited`, and does **not build it**. The round
+counter still advances (`--resume` counts a lost round too, so it is not
+retried by resuming), but the round does **not** enter `self.history`: the
+next round's state is exactly what this round would have been sent, less
+nothing. This is the rule Experiment 5 was missing: rounds 4 and 5 there
+each built a "half plan" --- one phase's answers silently defaulted to
+`KEEP_DEFAULT` --- which is a different experiment from the one asked for,
+not a degraded version of it. **A lost exploration request does not lose
+the round**: the argmax plan is whole without it, so it is recorded as
+`explore_lost` on the round and the round is built without exploration.
+
+### What is logged
+
+Every JSONL request-log line (`jev-log/<run-id>.jsonl`) gains
+`request_sha256`, `request_bytes`, `n_attempts`, `attempt_log` (one entry per
+HTTP attempt: `attempt`, `ts`, `http_status`, `latency_ms`, `error`,
+`request_sha256`, `request_bytes`, `retry_after`, `sleep_s`, plus whatever
+the gateway's own response says about that attempt --- `generation_id`,
+`provider_attempts`, `provider_attempt_count`, selected response headers ---
+via `gateway_trace`, which reads only the response, never the request, so
+`Authorization` cannot reach the log through this path), `seconds_waiting`
+and `exhausted`. Existing fields are unchanged. The human-readable `.log`
+line is unchanged too; a request with more than one attempt, or any error,
+gets extra `#`-prefixed comment lines under it with the per-attempt detail,
+so a reader of the one-line-per-request format is not disturbed by it.
+
+`run-manifest.json` gains two blocks:
+
+* `retry_policy`: `backoff`, `cap_s`, `jitter`, `timeout_s`, `wall_budget_s`,
+  `retries_cap`, `phase_resend_max` --- the policy this run actually used,
+  `null` for a non-`jev` proposer;
+* `gateway`: `requests`, `attempts`, `landed`, `exhausted`, `lost_phases`,
+  `lost_rounds`, `seconds_waiting`, and `attempts_by_phase` --- per `A`, `B`
+  and `explore`, `requests`, `attempts`, `landed`, `body_bytes_total` and
+  `mean_body_bytes`, which is what makes the body-size finding above
+  measurable on the next run without a separate probe.
 
 ## Files a run writes
 
