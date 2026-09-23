@@ -1,6 +1,6 @@
 # HANDOFF — jev-opt の引き継ぎ(2026-09-23)
 
-この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(97 項目、番号で参照)、数値は `results.md`(章番号で参照、§161 まで)。この 3 つが正本で、本文書はそこへの案内図。
+この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(97 項目、番号で参照)、数値は `results.md`(章番号で参照、§162 まで)。この 3 つが正本で、本文書はそこへの案内図。
 
 ---
 
@@ -65,7 +65,7 @@
 - **jaq 関数属性 oracle v4(決定 91)**: 実プログラムで初めて、確認済み・MDE 超・正方向の関数属性が 1 本(`Val::hash` に `inline(always)`、objsearch で +4.5%)。ただし 3 ケース集計は +1.7%、組み合わせは +0.2% で、jaq の見出しは依然フラット。jaq で時計を動かす関数属性は強制インライン(両方向)だけ。`results.md` §135〜§142。
 - **hintbench 探索付き Jev(決定 92)**: **+7.4%(oracle の 84〜86%)**、Exp4 の +6.7%(77%)から前進。探索は k3 の unroll 4 を見つけたが、k8 の幅 16 は 1 回の探索で外して二度と聞かれず取り残し。API の 503 で 5 ラウンド中 3 ラウンドのどちらかのフェーズが落ちた。`results.md` §143〜§149。
 - **Experiment 6(hintbench、4 arm、決定 93〜95)**: 語彙 v5 を採用。3 arm(ctl / rev / both)が訓練 +7.4〜7.8%(oracle の組み合わせ 1.0881 の 84〜88%)、pv だけ +5.2%(k8 ループで有害な選択を引いた)。再訪予算の機構は動く(both は再訪に成功)が、幅 16(k8)には一度も届かず、`post_vectorize` の未試行判定行も null(k8 の P は 0.01 → 0.02 止まり)。試行回数ベースの 503 対策で 4 arm 合計 40 フェーズ中 0 喪失(Exp5 は 10 中 5)。rev の +11% 台の読みは k5 の計測モードであって plan の効果ではなく、見出しは 1.0780 のまま。ドライバに新フラグ: `--vocab v5`、`--explore-revisit R`、`--pv-untried on|off`、設定キー `retries=200`、`retry_wall_budget_s=600`、`backoff_cap_s=5`、`phase_resend_max=2`。`results.md` §150〜§159、`docs/experiments/hintbench/exp6.md`。
-- **hintbench の A/A のみパネル調査(決定 97)**: 7 パネル約 17 分、基準バイナリのコピーだけ。k5 のモードは argv[0] の長さのクラスで決まる(周期 32 バイト、31/31 脚、len 88|89 で段差)。ファイル配置・seed・CPU・スタック位置・SMT 負荷では変わらない。機構(ヒープのオフセット)は未確定。Exp6 の訓練比と holdout 比は oracle と同クラス(c96)、confirm とパネルは c112 か混在。`results.md` §161(クラスをまたぐ既存結果の脚注表)、`docs/experiments/hintbench/aa-study.md`。
+- **hintbench の A/A のみパネル調査(決定 97)**: 7 パネル約 17 分、基準バイナリのコピーだけ。k5 のモードは argv[0] の長さのクラスで決まる(周期 32 バイト、31/31 脚、len 88|89 で段差)。ファイル配置・seed・CPU・スタック位置・SMT 負荷では変わらない。機構(ヒープのオフセット)は未確定。Exp6 の訓練比と holdout 比は oracle と同クラス(c96)、confirm とパネルは c112 か混在。`results.md` §161(クラスをまたぐ既存結果の脚注表)、`docs/experiments/hintbench/aa-study.md`。修正後の 3 脚 A/A で検証済み(§162)。
 - **次にやること(§4 の表の 3a〜)**: 探索の適格条件の見直し、`inline(never)` でループが site 集合から落ちる件の理解、jaq / zopfli の 2 クラス A/A 確認、jaq ループ oracle、zopfli。
 
 ## 4. 今後の計画(Claude の提案。オーナー未承認の部分は「提案」)
@@ -116,6 +116,8 @@
 - `export TARGET=x` が必要(`TARGET=x source …` は効かない。31)。plan のパスは絶対(60)。marks の `#` は行頭のみコメント(63)。
 - jaq のノイズは A/A で 2〜4%、ページ配置のドリフトあり。入力を小さくして反復、`--gap-ms 250`、`taskset -c 4`(33)。hintbench は A/A が 0.3% 以下で収まる日もあるが、k5 は同一バイナリで 2 つの計測モード(約 358〜362 ms と約 326〜333 ms)を持ち最大 26 pt 動く。モードは argv[0] の長さで決まる(決定 95・97、§3.2)。zopfli の 0.3% は Stage 0 時点の値で、同種のモード切替は未確認。
 - timing バイナリの絶対パス長で k5 が約 9% 動く(glibc チャンククラスが 32 の倍数だと遅い)。bench.py が全ラベルを 80 バイト(クラス 96)に固定する(決定 97)。
+- `bench.py` は timing 用の別名パスを 80 バイトに固定するため、リポジトリの絶対パスが 75 バイトを超えると全計測が開始前に失敗する(現状 27 バイト。長いパスに clone すると壊れる。決定 97)。
+- クラス→モードの対応(c96 が遅い)はこの機械の glibc / カーネルでの実測。別の機械では `scripts/hintbench_aa_study/run.sh` を先に回し、クラス 96 が比較可能なクラスであることを確認してから信用する。
 - Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`、`model: typesafe-ai/jev`、Choice の `criteria` はオブジェクト、Score は配列(19)。503 がバーストで来る。
 - site key は jaq では一意でない(13 key が 2〜9 ループに解決)。plan のエントリは「key への指示」(64)。
 - Vercel/TypeSafe の 503 はその日の提供側の状態として要求サイズに単調依存する(固定の閾値ではない): phase A 85 KB は 0/6、B 51 KB は 4/18、探索 24 KB は 5/6 だったが、jaq の phase A(約 104 KB)は前日 5/5 だった。待ち時間ではなく試行回数で吸収する(2 s 固定 ±20% のバックオフ、上限 200 回 / 600 s、フェーズが落ちたら丸ごと再送し半分の plan は組まない。決定 92・95)。

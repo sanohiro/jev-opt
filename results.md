@@ -11779,3 +11779,54 @@ c112).
 The fix — every label of a timing batch executed from a path of the same
 length, 80 bytes (class 96, the oracle's and every round batch's class) —
 is being implemented in `scripts/bench.py` under decision 97.
+
+### 162. The pinned alias verified on hintbench (3-leg A/A, class 96)
+
+Command (2026-09-23 ~20:35 JST, machine idle, pinned mode = default):
+```
+export TARGET=hintbench
+scripts/bench_panel.sh artifacts/hintbench-aa-study/p6-pinned 15 3 20260923 \
+    base=artifacts/hintbench-sites/baseline/bin \
+    aa=artifacts/hintbench-sites/baseline/bin \
+    cand=artifacts/hintbench-sites/baseline/bin
+```
+All three labels are the same frozen baseline binary (Exp6 `timing/base`,
+stripped sha256 a84b7c0dfe37e4f6…, `p6-pinned/panel.txt`) — a 3-leg A/A of
+the decision-97 fix itself, not of a plan.
+
+**Pre-stated pass criteria** (written before reading the numbers):
+1. All three labels pinned to argv0 length 80, class 96 (`panel.txt`,
+   `stats.json`).
+2. k5 leg medians in the slow mode (§161 len-80 legs: p1/p4 c96
+   358.9/358.8, p5a/b/c c96 358.3/359.4/360.9, p3 S096 a0/a57
+   360.7/359.9), not the fast ~326–333 ms mode.
+3. Aggregate ratio (geomean) of `aa` and `cand` vs `base` within ±0.5%
+   (the study's rule 1, `results.md` §160).
+
+**Numbers** (`artifacts/hintbench-aa-study/p6-pinned/stats.json`,
+`panel.txt`):
+
+argv0, from `panel.txt` (`argv0 mode pinned`) and `stats.json`
+(`argv0_class: 96`, `argv0_classes: [96]`): all three legs len 80 class
+96 — `base` `.../00-base_______________`, `aa` `.../01-aa_________________`,
+`cand` `.../02-cand_______________`. Criterion 1: **pass**.
+
+k5 leg medians (ms, `stats.md`): base 356.8, aa 359.4, cand 357.7 — base
+and cand sit 0.6–1.5 ms below the study's lowest len-80 slow median (358.3,
+p5a), aa is within the len-80 slow spread; all ~24–29 ms above the fast
+mode. Unambiguously slow, not fast. k8 leg medians: base 341.2, aa 338.9,
+cand 344.8, consistent with the study's slow-class k8 band (p1/p5a/p5b c96:
+341.2/341.7/341.8). Criterion 2: **pass**.
+
+Aggregate ratios (geomean, `stats.md`): aa **1.0004** [0.9977, 1.0032],
+half-width 0.27%; cand **0.9975** [0.9944, 1.0007], half-width 0.32%. Both
+inside ±0.5%. Criterion 3: **pass**.
+
+`ls artifacts/timing-run/` after the run: empty (no leftover pinned-alias
+directories).
+
+**Verdict: pass.** The 80-byte pinned alias (decision 97) puts every label
+of a batch in class 96, the study's slow mode, and an A/A of three copies
+of the same baseline binary through it reads flat (1.0004, 0.9975), inside
+the pre-registered A/A tolerance. This closes the loop opened in §160/§161:
+the fix works on the binary and workload it was built for.

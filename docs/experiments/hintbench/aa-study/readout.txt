@@ -1,0 +1,266 @@
+== p1: cpu 8, shuffle:20260927, runs 15, warmup 3, 2026-09-23T19:41:41+0900 .. 2026-09-23T19:46:43+0900
+   c112xxxxxxxxxxxxxxxxxxxxxxxxx    len  96 chunk 112 (mod32 16) inode 1426899
+   c80                              len  70 chunk  80 (mod32 16) inode 1426900
+   c96xxxxxxxxxx                    len  80 chunk  96 (mod32  0) inode 1426901
+   c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx len 112 chunk 128 (mod32  0) inode 1426902
+   c144xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx len 128 chunk 144 (mod32 16) inode 1426903
+   c160xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx len 144 chunk 160 (mod32  0) inode 1426904
+   k5 leg split: 345.0 ms (relative)
+   -- k5 (argv tail k5)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  326.2 med  329.9 max  335.6 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      331 326 330 327 330 336 326 327 334 328 328 332 332 330 328
+   c80                      len  70 c 80 min  325.9 med  330.5 max  334.4 ratio 0.9977 mode F runs FFFFFFFFFFFFFFF pred F OK
+      332 332 333 332 330 334 332 329 334 330 330 328 326 326 330
+   c96xxxxxxxxxx            len  80 c 96 min  354.7 med  358.9 max  367.3 ratio 0.9170 mode S runs SSSSSSSSSSSSSSS pred S OK
+      362 364 356 363 360 367 356 356 358 355 362 360 358 359 357
+   c128xxxxxxxxxxxxxxxxxxxx len 112 c128 min  356.3 med  358.5 max  363.4 ratio 0.9180 mode S runs SSSSSSSSSSSSSSS pred S OK
+      358 358 363 358 362 360 360 356 358 362 359 357 357 356 363
+   c144xxxxxxxxxxxxxxxxxxxx len 128 c144 min  326.3 med  331.5 max  334.0 ratio 0.9969 mode F runs FFFFFFFFFFFFFFF pred F OK
+      334 332 330 326 332 334 333 331 331 327 329 333 333 331 327
+   c160xxxxxxxxxxxxxxxxxxxx len 144 c160 min  355.5 med  359.0 max  365.9 ratio 0.9170 mode S runs SSSSSSSSSSSSSSS pred S OK
+      361 355 362 358 357 360 361 358 361 366 358 359 359 358 362
+   -- k8 (argv tail k8)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  329.8 med  334.7 max  349.9 ratio 1.0000
+      345 335 336 333 334 330 350 335 333 331 334 344 334 335 350
+   c80                      len  70 c 80 min  333.4 med  336.8 max  364.3 ratio 0.9926
+      334 338 364 336 339 336 335 338 358 336 339 333 337 338 335
+   c96xxxxxxxxxx            len  80 c 96 min  337.7 med  341.2 max  355.7 ratio 0.9744
+      340 341 352 338 355 341 339 355 354 338 341 353 351 356 339
+   c128xxxxxxxxxxxxxxxxxxxx len 112 c128 min  339.2 med  342.2 max  367.9 ratio 0.9701
+      359 343 342 340 342 368 340 341 364 339 343 343 342 368 341
+   c144xxxxxxxxxxxxxxxxxxxx len 128 c144 min  333.4 med  341.1 max  368.2 ratio 0.9804
+      336 337 346 348 341 339 333 336 335 347 353 335 347 356 368
+   c160xxxxxxxxxxxxxxxxxxxx len 144 c160 min  340.8 med  355.7 max  369.3 ratio 0.9559
+      358 366 346 356 366 369 356 341 360 347 341 341 346 345 356
+   k8 chunk%32= 0: 3 legs, median of leg medians 342.2 ms
+   k8 chunk%32=16: 3 legs, median of leg medians 336.8 ms
+
+== p2: cpu 8, shuffle:20260922, runs 15, warmup 3, 2026-09-23T19:46:47+0900 .. 2026-09-23T19:49:27+0900
+   L091xxxxxxxxxxxxxxxxxxxxxxx      len  91 chunk 112 (mod32 16) inode 1426919
+   L085xxxxxxxxxxxxxxxxx            len  85 chunk  96 (mod32  0) inode 1426920
+   L086xxxxxxxxxxxxxxxxxx           len  86 chunk  96 (mod32  0) inode 1426921
+   L087xxxxxxxxxxxxxxxxxxx          len  87 chunk  96 (mod32  0) inode 1426922
+   L088xxxxxxxxxxxxxxxxxxxx         len  88 chunk  96 (mod32  0) inode 1426923
+   L089xxxxxxxxxxxxxxxxxxxxx        len  89 chunk 112 (mod32 16) inode 1426924
+   L090xxxxxxxxxxxxxxxxxxxxxx       len  90 chunk 112 (mod32 16) inode 1426925
+   L092xxxxxxxxxxxxxxxxxxxxxxxx     len  92 chunk 112 (mod32 16) inode 1426926
+   L093xxxxxxxxxxxxxxxxxxxxxxxxx    len  93 chunk 112 (mod32 16) inode 1426927
+   L094xxxxxxxxxxxxxxxxxxxxxxxxxx   len  94 chunk 112 (mod32 16) inode 1426928
+   Q089xxxxxxxxxxxxxxxxxxxxx        len  89 chunk 112 (mod32 16) inode 1426929
+   H088xxxxxxxxxxxxxxxxxxxx         len  88 chunk  96 (mod32  0) inode 1426930
+   H089xxxxxxxxxxxxxxxxxxxxx        len  89 chunk 112 (mod32 16) inode 1426930
+   k5 leg split: 346.1 ms (relative)
+   -- k5 (argv tail k5)
+   L091xxxxxxxxxxxxxxxxxxxx len  91 c112 min  325.6 med  329.0 max  335.5 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      331 329 328 326 330 334 336 328 333 326 329 327 328 331 330
+   L085xxxxxxxxxxxxxxxxx    len  85 c 96 min  354.9 med  360.9 max  367.9 ratio 0.9152 mode S runs SSSSSSSSSSSSSSS pred S OK
+      368 362 356 361 362 362 358 364 363 356 359 355 362 360 358
+   L086xxxxxxxxxxxxxxxxxx   len  86 c 96 min  356.1 med  360.7 max  378.3 ratio 0.9135 mode S runs SSSSSSSSSSSSSSS pred S OK
+      378 357 357 364 362 356 363 362 358 361 357 361 360 358 362
+   L087xxxxxxxxxxxxxxxxxxx  len  87 c 96 min  356.2 med  359.7 max  382.0 ratio 0.9134 mode S runs SSSSSSSSSSSSSSS pred S OK
+      382 363 357 358 362 360 358 357 359 356 360 362 360 363 359
+   L088xxxxxxxxxxxxxxxxxxxx len  88 c 96 min  355.7 med  359.6 max  383.3 ratio 0.9136 mode S runs SSSSSSSSSSSSSSS pred S OK
+      383 357 358 362 360 362 356 358 358 359 360 357 361 362 362
+   L089xxxxxxxxxxxxxxxxxxxx len  89 c112 min  326.9 med  332.6 max  336.4 ratio 0.9946 mode F runs FFFFFFFFFFFFFFF pred F OK
+      336 328 333 330 332 333 333 327 327 328 335 334 334 333 330
+   L090xxxxxxxxxxxxxxxxxxxx len  90 c112 min  326.5 med  329.7 max  338.6 ratio 0.9967 mode F runs FFFFFFFFFFFFFFF pred F OK
+      338 328 327 328 329 336 331 328 327 327 330 332 333 339 333
+   L092xxxxxxxxxxxxxxxxxxxx len  92 c112 min  326.5 med  330.1 max  347.6 ratio 0.9951 mode F runs SFFFFFFFFFFFFFF pred F OK
+      348 327 333 328 330 334 334 332 330 327 333 330 327 330 328
+   L093xxxxxxxxxxxxxxxxxxxx len  93 c112 min  326.5 med  331.8 max  339.0 ratio 0.9930 mode F runs FFFFFFFFFFFFFFF pred F OK
+      339 332 327 333 333 333 330 332 330 331 333 334 330 331 335
+   L094xxxxxxxxxxxxxxxxxxxx len  94 c112 min  325.8 med  330.5 max  356.3 ratio 0.9935 mode F runs SFFFFFFFFFFFFFF pred F OK
+      356 326 327 328 334 334 333 331 327 327 327 328 333 333 336
+   Q089xxxxxxxxxxxxxxxxxxxx len  89 c112 min  326.6 med  331.4 max  336.0 ratio 0.9946 mode F runs FFFFFFFFFFFFFFF pred F OK
+      336 336 327 331 330 334 336 328 327 329 334 334 331 332 329
+   H088xxxxxxxxxxxxxxxxxxxx len  88 c 96 min  356.1 med  360.3 max  380.8 ratio 0.9112 mode S runs SSSSSSSSSSSSSSS pred S OK
+      376 359 357 361 358 363 364 356 357 358 358 362 360 360 381
+   H089xxxxxxxxxxxxxxxxxxxx len  89 c112 min  326.0 med  329.4 max  335.9 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      326 329 329 328 335 332 328 330 327 327 326 332 336 330 332
+   -- k8 (argv tail k8)
+   L091xxxxxxxxxxxxxxxxxxxx len  91 c112 min  330.4 med  334.6 max  349.9 ratio 1.0000
+      334 335 335 341 333 333 350 347 345 334 330 345 334 348 332
+   L085xxxxxxxxxxxxxxxxx    len  85 c 96 min  338.1 med  342.4 max  367.4 ratio 0.9702
+      367 342 341 357 367 338 344 359 341 341 340 355 340 342 354
+   L086xxxxxxxxxxxxxxxxxx   len  86 c 96 min  339.3 med  342.1 max  356.7 ratio 0.9831
+      357 354 342 341 344 341 354 341 343 342 342 340 339 339 343
+   L087xxxxxxxxxxxxxxxxxxx  len  87 c 96 min  334.1 med  341.8 max  366.1 ratio 0.9793
+      334 344 353 344 341 340 339 342 342 366 339 340 357 360 342
+   L088xxxxxxxxxxxxxxxxxxxx len  88 c 96 min  338.8 med  342.5 max  355.5 ratio 0.9822
+      345 342 339 353 342 343 343 343 355 340 341 341 352 348 340
+   L089xxxxxxxxxxxxxxxxxxxx len  89 c112 min  330.6 med  334.6 max  354.3 ratio 1.0017
+      354 333 337 333 347 335 332 345 345 333 331 336 331 344 331
+   L090xxxxxxxxxxxxxxxxxxxx len  90 c112 min  330.2 med  334.5 max  352.9 ratio 0.9961
+      349 331 330 353 334 333 332 334 347 346 334 342 346 331 352
+   L092xxxxxxxxxxxxxxxxxxxx len  92 c112 min  330.4 med  334.8 max  380.5 ratio 0.9934
+      380 334 345 342 343 334 330 353 334 334 335 335 343 332 333
+   L093xxxxxxxxxxxxxxxxxxxx len  93 c112 min  330.4 med  334.3 max  352.8 ratio 0.9993
+      334 344 330 333 334 340 347 343 353 332 345 332 333 346 333
+   L094xxxxxxxxxxxxxxxxxxxx len  94 c112 min  330.6 med  334.2 max  356.9 ratio 0.9997
+      357 344 337 338 348 332 343 334 334 334 347 332 332 331 334
+   Q089xxxxxxxxxxxxxxxxxxxx len  89 c112 min  330.3 med  333.8 max  373.5 ratio 1.0018
+      374 333 332 332 341 344 336 334 336 330 332 341 334 336 332
+   H088xxxxxxxxxxxxxxxxxxxx len  88 c 96 min  338.1 med  344.1 max  368.9 ratio 0.9691
+      344 343 355 340 364 350 369 351 343 342 342 354 338 340 363
+   H089xxxxxxxxxxxxxxxxxxxx len  89 c112 min  331.0 med  336.4 max  354.7 ratio 0.9970
+      355 337 336 331 332 345 340 335 354 333 331 346 333 332 349
+   k8 chunk%32= 0: 5 legs, median of leg medians 342.4 ms
+   k8 chunk%32=16: 8 legs, median of leg medians 334.5 ms
+
+== p3: cpu 8, shuffle:20360924, runs 15, warmup 3, 2026-09-23T19:49:28+0900 .. 2026-09-23T19:51:07+0900
+   S112xxxxxxxxxxxxxxxxxxxxxxxxxxxx len  96 chunk 112 (mod32 16) inode 1426938
+   S096xxxxxxxxxxxx                 len  80 chunk  96 (mod32  0) inode 1426939
+   k5 leg split: 346.5 ms (relative)
+   -- k5a0 (argv tail k5)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  327.1 med  330.7 max  334.3 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      332 329 331 331 328 328 332 332 327 333 329 334 329 329 331
+   S096xxxxxxxxxxxx         len  80 c 96 min  356.1 med  360.7 max  380.4 ratio 0.9138 mode S runs SSSSSSSSSSSSSSS pred S OK
+      361 359 365 361 358 358 361 361 364 357 361 364 358 380 356
+   -- k5a7 (argv tail k5 3800000)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  357.0 med  361.3 max  365.0 ratio 1.0000 mode S runs SSSSSSSSSSSSSSS
+      362 359 361 365 358 363 362 362 357 360 360 361 357 363 364
+   S096xxxxxxxxxxxx         len  80 c 96 min  327.2 med  331.8 max  334.8 ratio 1.0889 mode F runs FFFFFFFFFFFFFFF
+      332 333 335 334 330 335 329 328 328 333 329 330 327 335 335
+   -- k5a25 (argv tail k5 0000000000000000003800000)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  357.1 med  362.1 max  367.6 ratio 1.0000 mode S runs SSSSSSSSSSSSSSS
+      368 363 360 364 364 362 359 360 357 364 362 362 359 362 362
+   S096xxxxxxxxxxxx         len  80 c 96 min  326.5 med  333.2 max  372.7 ratio 1.0797 mode F runs FFFSFFFFFFFFFFF
+      334 331 333 373 333 334 331 337 327 333 327 336 333 333 334
+   -- k5a41 (argv tail k5 0000000000000000000000000000000000380)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  357.1 med  362.5 max  375.4 ratio 1.0000 mode S runs SSSSSSSSSSSSSSS
+      357 363 366 366 364 360 375 365 357 364 362 359 362 357 360
+   S096xxxxxxxxxxxx         len  80 c 96 min  326.7 med  330.4 max  336.7 ratio 1.0958 mode F runs FFFFFFFFFFFFFFF
+      327 330 331 337 334 330 329 330 331 330 329 330 332 332 333
+   -- k5a57 (argv tail k5 0000000000000000000000000000000000000)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  325.9 med  331.9 max  336.2 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF
+      327 335 330 336 332 333 332 330 334 334 330 326 330 327 335
+   S096xxxxxxxxxxxx         len  80 c 96 min  355.7 med  359.9 max  364.4 ratio 0.9204 mode S runs SSSSSSSSSSSSSSS
+      356 357 362 364 361 364 356 362 359 358 362 360 364 359 357
+   -- k8a0 (argv tail k8)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  331.4 med  335.4 max  364.3 ratio 1.0000
+      350 335 333 364 345 335 331 347 335 332 344 338 335 332 334
+   S096xxxxxxxxxxxx         len  80 c 96 min  337.7 med  352.9 max  358.1 ratio 0.9734
+      340 341 344 343 354 344 356 355 353 353 353 358 353 338 343
+   -- k8a6 (argv tail k8 920000)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  336.0 med  342.1 max  357.1 ratio 1.0000
+      336 357 339 357 341 356 339 337 342 354 352 344 351 336 338
+   S096xxxxxxxxxxxx         len  80 c 96 min  266.3 med  338.7 max  359.8 ratio 1.0220
+      337 341 338 341 266 339 356 336 354 337 341 360 339 337 348
+   -- k8a25 (argv tail k8 0000000000000000000920000)
+   S112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  340.6 med  343.3 max  361.2 ratio 1.0000
+      343 343 359 345 343 341 357 341 343 358 345 341 361 342 344
+   S096xxxxxxxxxxxx         len  80 c 96 min  330.2 med  333.9 max  343.9 ratio 1.0341
+      333 334 331 334 343 335 344 330 336 332 335 333 336 343 334
+   k8a0 chunk%32= 0: 1 legs, median of leg medians 352.9 ms
+   k8a0 chunk%32=16: 1 legs, median of leg medians 335.4 ms
+   k8a25 chunk%32= 0: 1 legs, median of leg medians 333.9 ms
+   k8a25 chunk%32=16: 1 legs, median of leg medians 343.3 ms
+   k8a6 chunk%32= 0: 1 legs, median of leg medians 338.7 ms
+   k8a6 chunk%32=16: 1 legs, median of leg medians 342.1 ms
+   P3 S112xxxxxxxxxxxxxxxxxxxx: a0/a7/a25/a41/a57 = F/S/S/S/F; alternation a7=a41, a25=a57, a7!=a25: NO
+   P3 S096xxxxxxxxxxxx: a0/a7/a25/a41/a57 = S/F/F/F/S; alternation a7=a41, a25=a57, a7!=a25: NO
+
+== p4: cpu 8, shuffle:20360922, runs 15, warmup 3, 2026-09-23T19:51:09+0900 .. 2026-09-23T19:56:11+0900
+   c112xxxxxxxxxxxxxxxxxxxxxxxxx    len  96 chunk 112 (mod32 16) inode 1426947
+   c80                              len  70 chunk  80 (mod32 16) inode 1426948
+   c96xxxxxxxxxx                    len  80 chunk  96 (mod32  0) inode 1426949
+   c128xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx len 112 chunk 128 (mod32  0) inode 1426950
+   c144xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx len 128 chunk 144 (mod32 16) inode 1426951
+   c160xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx len 144 chunk 160 (mod32  0) inode 1426952
+   k5 leg split: 343.8 ms (relative)
+   -- k5 (argv tail k5)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  327.1 med  329.3 max  333.0 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      331 328 329 331 327 328 331 333 328 330 327 330 327 330 328
+   c80                      len  70 c 80 min  326.0 med  327.1 max  332.6 ratio 1.0029 mode F runs FFFFFFFFFFFFFFF pred F OK
+      327 327 331 332 329 327 333 326 331 328 327 326 327 326 328
+   c96xxxxxxxxxx            len  80 c 96 min  355.1 med  358.8 max  362.8 ratio 0.9182 mode S runs SSSSSSSSSSSSSSS pred S OK
+      358 360 359 361 357 360 362 356 357 363 355 358 359 356 359
+   c128xxxxxxxxxxxxxxxxxxxx len 112 c128 min  355.5 med  358.3 max  361.9 ratio 0.9190 mode S runs SSSSSSSSSSSSSSS pred S OK
+      358 358 358 362 359 357 360 359 356 359 357 356 361 357 360
+   c144xxxxxxxxxxxxxxxxxxxx len 128 c144 min  326.5 med  328.1 max  332.4 ratio 1.0017 mode F runs FFFFFFFFFFFFFFF pred F OK
+      326 329 329 332 328 327 329 328 328 330 327 328 332 330 327
+   c160xxxxxxxxxxxxxxxxxxxx len 144 c160 min  354.7 med  359.2 max  365.7 ratio 0.9168 mode S runs SSSSSSSSSSSSSSS pred S OK
+      363 356 357 363 356 357 366 358 360 360 355 362 360 355 359
+   -- k8 (argv tail k8)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  330.3 med  333.4 max  360.9 ratio 1.0000
+      333 332 333 332 361 334 346 343 335 332 330 334 343 331 333
+   c80                      len  70 c 80 min  334.7 med  339.2 max  370.2 ratio 0.9763
+      370 336 349 355 355 347 336 339 337 335 338 336 354 336 352
+   c96xxxxxxxxxx            len  80 c 96 min  336.7 med  342.8 max  373.7 ratio 0.9703
+      353 350 343 354 338 374 337 340 353 338 341 355 340 341 350
+   c128xxxxxxxxxxxxxxxxxxxx len 112 c128 min  339.5 med  343.1 max  376.5 ratio 0.9619
+      350 340 368 341 358 341 377 359 343 346 343 342 343 340 363
+   c144xxxxxxxxxxxxxxxxxxxx len 128 c144 min  333.5 med  337.6 max  355.3 ratio 0.9881
+      338 339 336 347 338 336 338 352 338 334 336 338 351 355 337
+   c160xxxxxxxxxxxxxxxxxxxx len 144 c160 min  338.4 med  350.6 max  368.0 ratio 0.9558
+      344 342 368 358 343 351 364 366 361 340 340 343 338 367 360
+   k8 chunk%32= 0: 3 legs, median of leg medians 343.1 ms
+   k8 chunk%32=16: 3 legs, median of leg medians 337.6 ms
+
+== p5a: cpu 10, shuffle:20260921, runs 15, warmup 3, 2026-09-23T19:56:13+0900 .. 2026-09-23T19:56:50+0900
+   c112xxxxxxxxxxxxxxxxxxxxxxxxxxx  len  96 chunk 112 (mod32 16) inode 1426961
+   c80xx                            len  70 chunk  80 (mod32 16) inode 1426962
+   c96xxxxxxxxxxxx                  len  80 chunk  96 (mod32  0) inode 1426963
+   k5 leg split: 344.6 ms (relative)
+   -- k5 (argv tail k5)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  326.0 med  330.9 max  333.8 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      330 331 326 326 332 332 333 332 329 331 334 329 329 328 333
+   c80xx                    len  70 c 80 min  325.7 med  328.3 max  332.7 ratio 1.0039 mode F runs FFFFFFFFFFFFFFF pred F OK
+      332 332 329 326 328 333 332 327 328 328 328 332 327 326 329
+   c96xxxxxxxxxxxx          len  80 c 96 min  355.2 med  358.3 max  362.0 ratio 0.9221 mode S runs SSSSSSSSSSSSSSS pred S OK
+      359 358 356 361 358 358 359 356 356 362 358 355 359 362 358
+   -- k8 (argv tail k8)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  329.8 med  333.1 max  343.1 ratio 1.0000
+      333 331 342 343 333 334 331 330 333 333 333 333 333 330 334
+   c80xx                    len  70 c 80 min  332.9 med  337.0 max  376.8 ratio 0.9794
+      338 335 335 335 337 339 337 359 338 377 337 333 334 336 341
+   c96xxxxxxxxxxxx          len  80 c 96 min  337.5 med  341.7 max  365.2 ratio 0.9688
+      341 341 338 340 354 352 342 340 338 343 343 365 338 342 353
+   k8 chunk%32= 0: 1 legs, median of leg medians 341.7 ms
+   k8 chunk%32=16: 2 legs, median of leg medians 335.0 ms
+
+== p5b: cpu 8, shuffle:20260921, runs 15, warmup 3, 2026-09-23T19:56:51+0900 .. 2026-09-23T19:57:27+0900
+   c112xxxxxxxxxxxxxxxxxxxxxxxxxxx  len  96 chunk 112 (mod32 16) inode 1426913
+   c80xx                            len  70 chunk  80 (mod32 16) inode 1426971
+   c96xxxxxxxxxxxx                  len  80 chunk  96 (mod32  0) inode 1426973
+   k5 leg split: 344.9 ms (relative)
+   -- k5 (argv tail k5)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  325.9 med  330.5 max  333.6 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      332 332 328 331 329 326 329 330 329 331 331 332 331 334 326
+   c80xx                    len  70 c 80 min  325.8 med  330.4 max  334.8 ratio 0.9995 mode F runs FFFFFFFFFFFFFFF pred F OK
+      326 334 330 330 326 330 333 331 335 327 327 330 332 327 333
+   c96xxxxxxxxxxxx          len  80 c 96 min  355.6 med  359.4 max  362.5 ratio 0.9181 mode S runs SSSSSSSSSSSSSSS pred S OK
+      356 358 361 362 359 360 359 361 360 359 357 357 359 362 362
+   -- k8 (argv tail k8)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  330.3 med  333.5 max  344.8 ratio 1.0000
+      332 334 334 332 330 344 333 345 334 341 333 332 334 332 344
+   c80xx                    len  70 c 80 min  335.3 med  346.4 max  363.3 ratio 0.9637
+      345 339 363 337 362 338 346 361 361 336 355 336 356 335 354
+   c96xxxxxxxxxxxx          len  80 c 96 min  337.8 med  341.8 max  364.5 ratio 0.9722
+      351 339 342 342 340 355 341 342 338 339 348 356 364 341 338
+   k8 chunk%32= 0: 1 legs, median of leg medians 341.8 ms
+   k8 chunk%32=16: 2 legs, median of leg medians 339.9 ms
+
+== p5c: cpu 8, shuffle:20260921, runs 15, warmup 3, 2026-09-23T19:57:28+0900 .. 2026-09-23T19:58:06+0900
+   c112xxxxxxxxxxxxxxxxxxxxxxxxxxx  len  96 chunk 112 (mod32 16) inode 1426981
+   c80xx                            len  70 chunk  80 (mod32 16) inode 1426982
+   c96xxxxxxxxxxxx                  len  80 chunk  96 (mod32  0) inode 1426983
+   k5 leg split: 348.0 ms (relative)
+   -- k5 (argv tail k5)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  327.6 med  332.9 max  338.2 ratio 1.0000 mode F runs FFFFFFFFFFFFFFF pred F OK
+      331 333 329 334 330 337 329 334 330 338 330 338 328 337 333
+   c80xx                    len  70 c 80 min  327.9 med  335.1 max  501.0 ratio 0.9632 mode F runs SFFFFFFFSFFFFFF pred F OK
+      346 328 331 335 330 338 328 343 501 340 328 337 332 330 336
+   c96xxxxxxxxxxxx          len  80 c 96 min  358.1 med  360.9 max  370.5 ratio 0.9191 mode S runs SSSSSSSSSSSSSSS pred S OK
+      370 358 358 362 360 367 358 363 362 365 359 369 360 361 360
+   -- k8 (argv tail k8)
+   c112xxxxxxxxxxxxxxxxxxxx len  96 c112 min  332.2 med  337.0 max  356.9 ratio 1.0000
+      333 333 337 337 337 357 333 334 338 336 350 332 348 338 338
+   c80xx                    len  70 c 80 min  338.2 med  342.1 max  361.7 ratio 0.9776
+      339 338 351 360 360 342 362 342 344 340 339 340 341 340 359
+   c96xxxxxxxxxxxx          len  80 c 96 min  342.3 med  354.5 max  360.7 ratio 0.9587
+      355 361 360 342 361 357 353 350 356 344 348 352 357 349 358
+   k8 chunk%32= 0: 1 legs, median of leg medians 354.5 ms
+   k8 chunk%32=16: 2 legs, median of leg medians 339.5 ms
+
+H6 plain-k5 legs: ok 36, miss 0, unassigned 0
