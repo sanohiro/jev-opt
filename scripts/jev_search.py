@@ -139,7 +139,11 @@ STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
                  # post_vectorize width and interleave lines also name the
                  # vocabulary values not yet tried at the loop. Only legal
                  # with --vocab v5.
-                 "v5.1": "state-v5.1-2026-09-23"}
+                 "v5.1": "state-v5.1-2026-09-23",
+                 # v6 (decision 98) restores unroll_disable to the loop
+                 # table; the template is otherwise v5.0's, so it gets its
+                 # own name rather than reusing v5's.
+                 "v6": "state-v6.0-2026-09-23"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -2032,7 +2036,7 @@ def evidence_fixes(ctx=None):
     the fixes are rendered for v3, v4 and v5 only. They change no candidate,
     no description and no question: only what the state says it knows.
     """
-    return V.active_version() in ("v3", "v4", "v5")
+    return V.active_version() in ("v3", "v4", "v5", "v6")
 
 
 def classify(value, table):
@@ -2172,7 +2176,7 @@ def fn_verdict_lines(item, ctx):
                     ("%.1fx, i.e. the body fits inside that budget" % r)
                     if r < 1 else "%.0fx over" % r))
     L.append("attributes already on it: %s" % attr_text)
-    if V.active_version() in ("v3", "v4", "v5"):
+    if V.active_version() in ("v3", "v4", "v5", "v6"):
         # Decision 77. The same sentence at every function site: it is a
         # property of the recipe, not of this site, and it names nothing.
         # Without it the `inlinehint` an attribute list may carry reads as
@@ -4000,7 +4004,7 @@ class Search:
         # v3's state template is v2's (see STATE_FORMATS): the verdict block,
         # the platform block and the V2 wording are shared, only the function
         # candidates and one verdict line differ.
-        self.state_v2 = (args.vocab in ("v2", "v3", "v4", "v5"))
+        self.state_v2 = (args.vocab in ("v2", "v3", "v4", "v5", "v6"))
         V.set_version(args.vocab)
         set_state_format(args.vocab)
         # Decision 92 (c): the post_vectorize untried line is its own state
@@ -4021,7 +4025,13 @@ class Search:
             cfg["evaluation"]["repetitions"])
         self.warmup = args.warmup if args.warmup is not None else int(
             cfg["evaluation"]["warmup"])
-        self.seed = int(cfg["evaluation"]["seed"])
+        # --seed-offset (default 0, identical behaviour) shifts the base
+        # seed for the random proposer, the per-round shuffle (self.seed +
+        # round_no) and the confirmation batch (self.seed + 100000 +
+        # round_no) alike, so offsets 0/1000/2000 cannot collide as long as
+        # a run stays under 1000 rounds (decision 98).
+        self.seed_offset = getattr(args, "seed_offset", 0) or 0
+        self.seed = int(cfg["evaluation"]["seed"]) + self.seed_offset
         self.resamples = int(cfg["evaluation"]["resamples"])
         self.target_dir = os.path.join(REPO, "target-%s-jevsearch" % self.target)
         self.rounds_path = os.path.join(self.out, "rounds.jsonl")
@@ -4285,6 +4295,8 @@ class Search:
                      len(self.build_list)))
             for it in self.fn_list + self.base_loops + self.build_list:
                 print("  %-6s %s" % (it.kind, it.id))
+            print("[dry-run] seed_offset=%d seed=%d (effective base seed = "
+                  "config seed + seed_offset)" % (self.seed_offset, self.seed))
             return 0
 
         if self.args.print_state:
@@ -5040,7 +5052,11 @@ class Search:
             "taskset_cpu": self.shell["bench_cpu"],
             "gap_ms": self.shell["bench_gap_ms"],
             "repetitions": self.reps, "warmup": self.warmup,
-            "seed": self.seed,
+            # "seed" is the effective base seed (config seed + seed_offset);
+            # seed_offset is recorded separately so a manifest shows both
+            # what was configured and what --seed-offset shifted it by
+            # (decision 98).
+            "seed": self.seed, "seed_offset": self.seed_offset,
             # Decision 97: every timed exec path is an alias of this length.
             "argv0": {"len": B.ARGV0_LEN, "class": B.chunk(B.ARGV0_LEN),
                       "root": B.ALIAS_ROOT},
@@ -5212,7 +5228,7 @@ def main():
     p.add_argument("--proposer", required=True,
                    choices=("jev", "random", "oracle"))
     p.add_argument("--vocab", default="v3",
-                   choices=("v1", "v2", "v3", "v4", "v5"),
+                   choices=("v1", "v2", "v3", "v4", "v5", "v6"),
                    help="the frozen vocabulary AND state template: v1 is "
                         "Experiment 3's, v2 is decision 73 --- the prompt "
                         "study's W7, i.e. the mechanical verdict block in "
@@ -5231,7 +5247,11 @@ def main():
                         "another. v5 (decision 85): v4 minus the three "
                         "`align` candidates and minus `unroll.disable`, "
                         "both measured dead or duplicate in the hintbench "
-                        "oracle")
+                        "oracle. v6 (decision 98): v5 with `unroll.disable` "
+                        "restored to the loop half only, for a loop LLVM "
+                        "does not vectorize (the oracle's merge of it into "
+                        "`interleave.count=1` held for vectorized loops "
+                        "only)")
     p.add_argument("--readout", default="forced_top1",
                    choices=("forced_top1", "argmax"),
                    help="how a phase's answers become plan entries "
@@ -5299,6 +5319,13 @@ def main():
     p.add_argument("-n", "--n", type=int, default=None,
                    help="timed repetitions per round (bench.py --runs)")
     p.add_argument("--warmup", type=int, default=None)
+    p.add_argument("--seed-offset", type=int, default=0, metavar="N",
+                   help="added to jev-opt.toml [evaluation].seed before it "
+                        "seeds the random proposer, the per-round shuffle "
+                        "and the confirmation batch (decision 98); default "
+                        "0 is identical to no offset, recorded in "
+                        "run-manifest.json as `seed` (the effective base "
+                        "seed) and `seed_offset`")
     p.add_argument("--bench-set", default="training",
                    choices=("training", "holdout"),
                    help="search rounds use the training cases (SPEC.ja.md 7)")

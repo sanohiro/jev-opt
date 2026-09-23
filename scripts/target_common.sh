@@ -35,8 +35,11 @@ TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
 # TRAIN_WORKLOADS the same three cases on the *training* inputs, selected by
 #                 BENCH_SET=training (SPEC.ja.md 7 wants the sweep on the
 #                 training data and the holdout measured once, after
-#                 freezing). Default BENCH_SET=holdout keeps toy and zopfli
-#                 behaving exactly as results.md sections 24-26 recorded.
+#                 freezing) -- or, for zopfli, on its dedicated search-*.dat
+#                 split (decision 98), distinct from the PGO training set;
+#                 see the zopfli case below. Default BENCH_SET=holdout keeps
+#                 toy and zopfli behaving exactly as results.md sections
+#                 24-26 recorded.
 # TRAIN_INPUTS    the training cases. Used once, by the instrumented build, to
 #                 produce merged.profdata (SPEC.ja.md 3). Disjoint from the
 #                 holdout by construction.
@@ -105,13 +108,27 @@ case "$TARGET" in
     # default features, so no --features is required. --locked pins the
     # vendored Cargo.lock.
     CARGO_EXTRA=(--locked)
+    # SPEC.ja.md 2 / decision 60 (a): see the jaq and hintbench recipes below
+    # for why this flag is pinned on every arm, the baseline included.
+    FIXED_RUSTFLAGS=('-Cllvm-args=-hints-allow-reordering=false')
     WLDIR="$REPO/targets/zopfli/workloads"
     WORKLOADS=("text=$WLDIR/hold-text.dat"
                "binary=$WLDIR/hold-binary.dat"
                "json=$WLDIR/hold-json.dat")
+    # TRAIN_WORKLOADS (selected by BENCH_SET=training, mirroring jaq below) is
+    # the *search* set for the Jev search loop (decision 98), not the PGO
+    # training set: zopfli's search inputs are search-*.dat, distinct from
+    # both train-*.dat (below, feeds merged.profdata only) and hold-*.dat
+    # (above, the one-time holdout transfer check).
+    TRAIN_WORKLOADS=("text=$WLDIR/search-text.dat"
+                     "binary=$WLDIR/search-binary.dat"
+                     "json=$WLDIR/search-json.dat")
+    # TRAIN_ARGS is the PGO training set (SPEC.ja.md 3): unchanged by the
+    # search split above; for zopfli the search set is NOT the PGO set.
     TRAIN_ARGS=("$WLDIR/train-text.dat" "$WLDIR/train-binary.dat" "$WLDIR/train-json.dat")
     CORRECTNESS_IN=("$WLDIR/train-text.dat" "$WLDIR/train-binary.dat" "$WLDIR/train-json.dat"
-                    "$WLDIR/hold-text.dat" "$WLDIR/hold-binary.dat" "$WLDIR/hold-json.dat")
+                    "$WLDIR/hold-text.dat" "$WLDIR/hold-binary.dat" "$WLDIR/hold-json.dat"
+                    "$WLDIR/search-text.dat" "$WLDIR/search-binary.dat" "$WLDIR/search-json.dat")
     ;;
   jaq)
     # A cargo workspace: build the `jaq` bin package only.

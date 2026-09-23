@@ -13,7 +13,7 @@ comparison with earlier runs. `VOCAB_VERSION` is written into the run
 manifest and into every Jev request log line so a changed vocabulary is
 visible after the fact instead of being silently mixed in.
 
-There are now five frozen vocabularies, selected by `set_version()` and by
+There are now six frozen vocabularies, selected by `set_version()` and by
 the driver's `--vocab` flag:
 
   v1   what Experiment 3 was run with. Frozen; nothing below it may change.
@@ -58,6 +58,17 @@ the driver's `--vocab` flag:
        plan fragments, questions --- is v4's to the byte; see the v5 section
        below for the removal and the caveat that the unroll/interleave
        equivalence is about vectorized loops, not a general claim.
+  v6   decision 98. v5 with `unroll_disable` restored to the loop half; the
+       function half is v5's, unchanged. v5's `unroll_disable`/
+       `interleave_count_1` merge (85 b) was observed on hintbench's oracle,
+       whose three loop sites are all vectorized, where the two candidates
+       compile to identical code. On a loop LLVM does not vectorize (zopfli
+       `cache.rs:108`, whose only Stage 0 win was `-unroll-max-count=1`,
+       results.md 31.1/31.3) `interleave_count=1` is a no-op --- there is no
+       vector width to interleave --- and only `unroll_disable` stops the
+       scalar unroller (LLVM remark "unable to calculate the loop count").
+       v5 stays frozen; v6 exists because v5 alone cannot express zopfli's
+       known-good answer.
 
 Every string of v2 is copied verbatim from
 `docs/experiments/jev-prompt-study/` (`scripts/jev_state_variants.py`
@@ -634,6 +645,27 @@ LOOP_INSTRUCTIONS_V5 = LOOP_INSTRUCTIONS_V4
 
 
 # ---------------------------------------------------------------------------
+# v6 (decision 98): restore unroll_disable to the loop half
+# ---------------------------------------------------------------------------
+#
+# Function half unchanged from v5. Loop half is v5's plus `unroll_disable`,
+# taken from V4's table (its id, description and plan fragment untouched)
+# rather than retyped, so v4 and v6 cannot disagree about what that
+# candidate says.
+
+FN_CANDIDATES_V6 = {cid: (desc, dict(frag))
+                    for cid, (desc, frag) in FN_CANDIDATES_V5.items()}
+
+LOOP_CANDIDATES_V6 = {cid: (desc, dict(frag))
+                      for cid, (desc, frag) in LOOP_CANDIDATES_V5.items()}
+_v4_unroll_desc, _v4_unroll_frag = LOOP_CANDIDATES_V4["unroll_disable"]
+LOOP_CANDIDATES_V6["unroll_disable"] = (_v4_unroll_desc, dict(_v4_unroll_frag))
+
+FN_INSTRUCTIONS_V6 = FN_INSTRUCTIONS_V5
+LOOP_INSTRUCTIONS_V6 = LOOP_INSTRUCTIONS_V5
+
+
+# ---------------------------------------------------------------------------
 # frozen question wording
 # ---------------------------------------------------------------------------
 
@@ -660,7 +692,7 @@ BUILD_INSTRUCTIONS = (
 
 VOCAB_VERSIONS = {"v1": "v1-2026-09-22", "v2": "v2-2026-09-22",
                   "v3": "v3-2026-09-22", "v4": "v4-2026-09-22",
-                  "v5": "v5-2026-09-23"}
+                  "v5": "v5-2026-09-23", "v6": "v6-2026-09-23"}
 
 _TABLES = {
     "v1": {"fn": FN_CANDIDATES, "loop": LOOP_CANDIDATES},
@@ -668,6 +700,7 @@ _TABLES = {
     "v3": {"fn": FN_CANDIDATES_V3, "loop": LOOP_CANDIDATES_V3},
     "v4": {"fn": FN_CANDIDATES_V4, "loop": LOOP_CANDIDATES_V4},
     "v5": {"fn": FN_CANDIDATES_V5, "loop": LOOP_CANDIDATES_V5},
+    "v6": {"fn": FN_CANDIDATES_V6, "loop": LOOP_CANDIDATES_V6},
 }
 
 _INSTRUCTIONS = {
@@ -683,6 +716,8 @@ _INSTRUCTIONS = {
     "v4": {"fn": FN_INSTRUCTIONS_V4, "loop": LOOP_INSTRUCTIONS_V4,
            "build": BUILD_INSTRUCTIONS},
     "v5": {"fn": FN_INSTRUCTIONS_V5, "loop": LOOP_INSTRUCTIONS_V5,
+           "build": BUILD_INSTRUCTIONS},
+    "v6": {"fn": FN_INSTRUCTIONS_V6, "loop": LOOP_INSTRUCTIONS_V6,
            "build": BUILD_INSTRUCTIONS},
 }
 

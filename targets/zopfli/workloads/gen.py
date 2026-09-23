@@ -21,6 +21,17 @@ Training and holdout differ only in seed (and therefore in content), never in
 kind or size, so the holdout is the same measurement on data the profile has
 never seen. SPEC.ja.md 10: "the holdout cases are never used to produce the
 profdata".
+
+A third split, `search`, is the input set for the Jev search loop itself
+(decision 98), distinct from both: it is not fed to PGO (the `train-*`
+inputs still produce `merged.profdata`, unchanged) and it is not the
+one-time holdout transfer check. `search-*` is smaller (896 KiB) than
+`train-*`/`hold-*` (1400 KiB): at that size each search input is under
+1e6 bytes, so it compresses as a single zopfli master block, while the
+1,433,600-byte holdout inputs span two master blocks. A hint that wins on
+the single-block search inputs and still wins on the two-block holdout
+inputs is evidence the win transfers across that boundary, not an artifact
+of it.
 """
 
 import argparse
@@ -37,11 +48,21 @@ SEEDS = {
     ("hold", "text"): 20260921101,
     ("hold", "binary"): 20260921102,
     ("hold", "json"): 20260921103,
+    ("search", "text"): 20260923201,
+    ("search", "binary"): 20260923202,
+    ("search", "json"): 20260923203,
 }
 
 # Target sizes, tuned so that one zopfli run takes >= 1 s on the PGO baseline
 # (SPEC.ja.md 10 wants the case long enough that process startup is noise).
+# `search` is smaller by design (see module docstring): one master block
+# instead of two, so it is a cheaper, faster loop for the search itself.
 SIZES = {"text": 1400 * 1024, "binary": 1400 * 1024, "json": 1400 * 1024}
+SEARCH_SIZE = 896 * 1024
+
+
+def _size_for(split, kind):
+    return SEARCH_SIZE if split == "search" else SIZES[kind]
 
 LOWER = "abcdefghijklmnopqrstuvwxyz"
 
@@ -118,7 +139,7 @@ def main():
     for (split, kind), seed in sorted(SEEDS.items(), key=lambda kv: (kv[0][0], kv[0][1])):
         path = os.path.join(args.out_dir, f"{split}-{kind}.dat")
         if not args.check:
-            data = GENERATORS[kind](random.Random(seed), SIZES[kind])
+            data = GENERATORS[kind](random.Random(seed), _size_for(split, kind))
             with open(path, "wb") as f:
                 f.write(data)
         if not os.path.isfile(path):
