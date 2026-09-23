@@ -222,7 +222,7 @@ do_sites() {
     --profdata "$PROFDATA" --src-dir "$SRC_DIR" \
     --out-json "$SITES_JSON" --out-md "$SITES_MD" \
     --vocab "$SITES_VOCAB" --cap-rule "$SITE_CAP_RULE" \
-    --flags "$flags" --flags-sha "$(printf '%s' "$flags" | sha256sum | cut -d' ' -f1)" \
+    --flags="$flags" --flags-sha "$(printf '%s' "$flags" | sha256sum | cut -d' ' -f1)" \
     --baseline-text-sha "$bt" --dump-text-sha "$dt" --outputs "$outs" \
     ${ak[@]+"${ak[@]}"})
 }
