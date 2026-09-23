@@ -12277,3 +12277,280 @@ oracle.selected_keys_top6`; no-op skip on; confirmation batches on the
 training (search) set; holdout measured once at the end; correctness =
 sha256 of all nine `.gz` outputs; argv0 class 96 throughout, per decision
 97/99.
+
+### 166. Marks, sites and the oracle pre-registration (zopfli)
+
+Commit `e593960` (`targets/zopfli/jev-marks.txt`,
+`targets/zopfli/jev-marks.rationale.md`, `targets/zopfli/sites.json`,
+`targets/zopfli/sites.md`). Nothing in this section is a timing measurement;
+it records what the marks and sites tooling produced from the §165 profile
+and states the oracle sweep's protocol before its first arm runs, per
+SPEC.ja.md §7 ("正しさは時間より先に読む" and the freeze-before-numbers
+rule of §2 (f)).
+
+**1. Marks.** The selection rule, `targets/zopfli/jev-marks.rationale.md`
+§1, was written and saved before the perf tables were read: *"Rank every
+function by `reach` on the three search-set profiles aggregated... Walk down
+the ranking and add each function to the marks. After each addition,
+recompute the union coverage... Stop after the addition that first brings
+the union to >= 90% of in-binary cycles."* Non-negotiable 2 applies: Claude,
+acting as the human's proxy, says only *where* (decision 58); no hint,
+attribute or compiler setting is named anywhere in the marks file or the
+rationale.
+
+**6 marks** (`targets/zopfli/jev-marks.txt`), union coverage **93.37%** of
+in-binary user cycles on the search set (per case: binary 86.17%, json
+93.17%, text 96.58%) and **94.88%** on the holdout (binary 88.87%, json
+95.76%, text 96.41%) — `jev-marks.rationale.md` §3. The rule's own walk
+first crosses 90% at the seventh addition (`zopfli::lz77::find_longest_match`,
+union 93.37%), which is why coverage is 93.37% and not exactly 90%: the
+rule adds whole functions, not fractions of one.
+
+The profiling recorder labels the search set `train-*.data`, even though the
+bytes it reads are `targets/zopfli/workloads/search-*.dat` (decision 98's
+split; `jev-marks.rationale.md` §1 states the recorder's `TRAIN_WORKLOADS`
+naming, not why) — `artifacts/zopfli-marks/perf-hotness-train.txt`
+is the search-set table, `perf-hotness-hold.txt` the holdout one, both from
+`perf record -e cycles:u -F 5000`, 6 runs/case, on the plugin-off base build
+(normalised-code identical to Stage 0, §165). Top 10 of 14 functions ranked
+by reach on the search set (`self`/`reach` are the marks-file numbers, both
+percent of in-binary user cycles; S = search, H = holdout; from the
+inline-aware tables in `perf-hotness-{train,hold}.txt`):
+
+| # | self S | reach S | self H | reach H | function | marked |
+|--:|--:|--:|--:|--:|---|:-:|
+| 1 | 43.31 | 43.31 | 41.76 | 41.76 | `find_longest_match_loop` | y |
+| 2 | 40.53 | 40.53 | 42.87 | 42.87 | `squeeze::lz77_optimal` | y |
+| 3 | 0.00 | 39.82 | 0.00 | 42.10 | `squeeze::get_best_lengths` | y |
+| 4 | 0.00 | 39.82 | 0.00 | 42.10 | `squeeze::lz77_optimal_run` | y |
+| 5 | 0.00 | 15.02 | 0.00 | 16.20 | `<ZopfliHash>::update` | y |
+| 6 | 0.00 | 11.62 | 0.00 | 12.63 | `<HashThing>::update` | **removed** |
+| 7 | 0.00 | 11.15 | 0.00 | 11.58 | `find_longest_match` | y |
+| 8 | 0.00 | 11.01 | 0.00 | 11.45 | `<...Cache>::try_get` | n |
+| 9 | 9.61 | 9.61 | 10.31 | 10.31 | `<Lz77Store>::follow_path` | n |
+| 10 | 0.00 | 6.82 | 0.00 | 7.48 | `Option<u16>::eq` (core) | n |
+
+Row 3/4's `self` is 0.00 because neither function keeps a post-LTO symbol
+of its own — fully inlined — while its `reach` (everything inlined into it,
+wherever fat LTO placed the code) is the third- and fourth-highest of any
+function in the binary.
+
+`<zopfli::hash::HashThing>::update` (row 6, reach 11.62% search / 12.63%
+holdout) was the rule's sixth addition — the walk's union was already at
+89.87% after `ZopfliHash::update` (the fifth addition) and stayed at
+89.87% after `HashThing::update` (rationale §2's walk table: neither
+addition moves the union, since both sit inside code the first four
+additions already cover), still short of the 90% stop. It was then
+**removed by the existence gate** (rationale §1 rule step 4):
+`scripts/target_sites.sh dump` resolves it to a function row in both
+pre-link modules, but the post-LTO report — the only report whose loop
+stage runs — lists it in `unmatched_marks`, so `target_sites_report.py`'s
+intersection rule (the same rule `jev_search.py`'s `unmatched_marks()`
+uses) reports it **unmatched**. Removing it changed the union by **+0.00
+points**, because it had already added +0.00 points on the way in: the
+coverage the marks file states, 93.37%, is reached by the walk's seventh
+and final addition, `find_longest_match`, with or without
+`HashThing::update` in the set. The walk was not continued to refill a
+seventh slot after the removal: 6 marks, not 7, is the final set.
+
+`<zopfli::cache::ZopfliLongestMatchCache>::max_sublen` (search reach 4.03%,
+14th by reach) never entered the ranking far enough to be a candidate — the
+walk stops at rank 7 (`find_longest_match`, union 93.37% >= 90%) and never
+reaches rank 14.
+
+**2. Sites.** `scripts/target_sites.sh dump`, `allkeys`, `sites` and
+`baseline` (`targets/zopfli/sites.json`, `targets/zopfli/sites.md`;
+generated 2026-09-23T13:07:08Z). `allkeys` applies every dumped key once:
+**42 keys** total — **37 `attached`**, **5 `ambiguous+attached`** (a key
+that names more than one loop, applied once, all copies changed), **0
+`unmatched`**, **0 `vanished`**; outputs match. The 5 ambiguous keys are
+`...-fetch_sublen-cache.rs-108` (8 copies behind 1 key — the `cache.rs:108`
+loop inside `try_get`/`fetch_sublen`, which is itself `loop_in_mark` under
+mark 2, `lz77_optimal`; see §3 below) and four distinct
+`...-update-hash.rs-150` keys (2 copies each, inside `ZopfliHash::update`,
+mark 5) — 16 loops behind those 5 keys (`jev-marks.rationale.md` §3).
+
+Restricted to `loop_in_mark` sites (decision 61 (a) — loops actually inside
+a marked function's inline chain, not merely a loop a mark sits inside):
+**47 sites** behind **36 distinct keys** (5 of the 36 are the ambiguous
+keys above: 4 `hash.rs:150` + 1 `cache.rs:108`). `sites.md` separately
+records **6** `mark_in_loop` rows excluded from this count; 42 total
+allkeys minus 6 is consistent with, but not separately verified here as
+identical to, the 36 `loop_in_mark` keys. Of the 36: no profile count 8,
+trip < 2 fifteen, contains a call 11, FP reduction 3; `post_vectorize` set
+on 2.
+
+Cap rule, pre-registered result-blind, `sites.md` §"Loop-site cap and oracle
+sizing": `no_profile,trip_lt_2,per_mark:2,top:6` — drop keys with no profile
+count, drop trip < 2, keep at most 2 per mark by hotness, then keep the top
+6 overall. Applied to the 36 keys this selects **5** keys, not 6: only 3 of
+the 6 marks own a key that survives `no_profile`/`trip_lt_2` (see below), so
+`per_mark:2` yields 2 + 2 + 1 = 5 before `top:6` even has six candidates to
+choose from. Site set `oracle.selected_keys_top6`:
+
+| key (`leaf`) | owning mark | hot% | trip | vectorized |
+|---|---|--:|--:|---|
+| `lz77.rs:530` | `find_longest_match_loop` | 62.70 | 74.2 | - |
+| `squeeze.rs:275` | `lz77_optimal` | 16.36 | 272644.1 | - |
+| `squeeze.rs:325` | `lz77_optimal` | 16.18 | 9.2 | - |
+| `lz77.rs:563` | `find_longest_match_loop` | 0.28 | 5.4 | width 16 |
+| `index.rs:184` | `<ZopfliHash>::update` | 0.25 | 15921.6 | - |
+
+**Why only 5, not one or two per each of the 6 marks.** Only 3 marks own a
+`loop_in_mark` site that survives `no_profile`/`trip_lt_2` at all:
+`find_longest_match_loop` and `lz77_optimal` each contribute their top 2 by
+hotness (the table above); `ZopfliHash::update` contributes 1
+(`index.rs:184`) because its other `loop_in_mark` sites are the
+`hash.rs:150` keys at trip 1.0, dropped by `trip_lt_2`. The other 3 marks
+contribute nothing: `get_best_lengths`'s 7 owned sites (`sites.json` mark 3,
+`n_sites_owned: 7`) are all `squeeze.rs:261/265/275/325` copies with
+`hot=0` — no profile count reached them, dropped by `no_profile`;
+`lz77_optimal_run` and `find_longest_match` own **zero** `loop_in_mark`
+sites each (`sites.json` marks 4 and 6, `n_sites_owned: 0` both — their
+reach comes entirely through the inline chain into functions that own the
+loops, not from loops of their own).
+
+Baseline dir `artifacts/zopfli-sites/baseline/` (`baseline.json`): bin
+sha256 `8b0ba235be9bf45c167f7cbf39edb096668e0f2eb1d320dcbd1718d1f97ea8a4`,
+`.text` sha256
+`9aca86fcd89a759f60bb5d83ac768ff83a72b21516bee26ab0cd0982fa76cbdf`,
+profdata sha256
+`f066f5072627b070f19acfe1bfa4772b25cf5babc7752799931f579036e0ace8`,
+`norm_code_diff_rc: "0"` against the plugin-off build (`outputs_match:
+true`) — the same three identities §165 already established for the
+plugin-off base build, now recorded against the `dump`-mode baseline that
+the oracle's own arms will be built and compared against.
+
+**3. A stated limitation (non-negotiable 2).** Stage 0's only global win at
+the compiler-flag level, `-unroll-max-count=1` (+1.6%, §31.3), acted
+through the `cache.rs:108` loop that sits inside `fetch_sublen`/`try_get`.
+Two different things exclude it here, not one:
+
+* `try_get` itself, the function, ranks 8th by reach (11.01% search /
+  11.45% holdout, row 8 above) and lies outside the 90%-stop marks set (the
+  walk stopped at rank 7). **No function-level arm (`inline_always` /
+  `inline_never`) can be tried on `try_get`**: it is unmarked, full stop.
+* The `cache.rs:108` **loop** is a different matter: it *is* `loop_in_mark`
+  under mark 2 (`lz77_optimal`) — it is one of the 5 ambiguous keys in §2,
+  `...-fetch_sublen-cache.rs-108`, 8 copies behind 1 key, hot% 1.09, trip
+  6.4 (`sites.md`'s keys table). It is excluded from
+  `oracle.selected_keys_top6` **by the cap rule, not by the marks set**:
+  mark 2's `per_mark:2` allowance is already spent on `squeeze.rs:275`
+  (hot% 16.36) and `squeeze.rs:325` (hot% 16.18), both far hotter than
+  `cache.rs:108`'s 1.09, so the cap drops it before `top:6` is even applied.
+
+**This oracle cannot measure that global win's site either way**, but the
+loop half of that statement is a cap-rule fact, not a marks-coverage fact:
+a different `--site-set` (a wider cap, or a hand-added key) built on the
+*same* 6 marks could reach `cache.rs:108` without touching the marks file
+at all. Only the function-attribute half (`try_get`) actually requires a
+wider marks set.
+
+The marks rule (§1 above) and the cap rule (§2 above) were each written and
+saved before their respective tables were read, and neither is changed now
+that this consequence is known — doing so would be the "the selection rule
+drives the answer" failure mode both frozen rules exist to prevent.
+Widening the marks set to include `try_get`, or changing the cap rule to
+reach `cache.rs:108`, are each a separate, later registration, only if the
+owner directs it (HANDOFF.ja.md §2 row 4 lets the human, not an agent,
+redirect the marks).
+
+**4. Oracle command**, pre-registered exactly as it will be run:
+
+```
+export TARGET=zopfli
+scripts/jev_search.py --target zopfli \
+    --marks targets/zopfli/jev-marks.txt \
+    --sites targets/zopfli/sites.json \
+    --site-set oracle.selected_keys_top6 \
+    --proposer oracle --oracle-phase all --vocab v6 \
+    -n 15 --warmup 3 \
+    --baseline-dir artifacts/zopfli-sites/baseline \
+    --out artifacts/zopfli-search/oracle
+```
+
+Dry run: **68 arms** = 12 fn (6 marks x {`inline_always`, `inline_never`},
+`FN_CANDIDATES_V6` in `scripts/jev_vocab.py`) + 55 loop (5 sites x 11 v6
+loop candidates: `unroll_count_{2,4,8}`, `unroll_disable` (decision 98),
+`vectorize_width_{2,4,8,16}`, `interleave_count_{1,2,4}`, each against
+`KEEP_DEFAULT`) + 1 combination.
+
+**5. Rules before numbers.**
+
+- Training set = `search-*.dat` (decision 98, §165); holdout
+  (`hold-*.dat`) measured once at the end with `bench_panel.sh`, four
+  labels (base, combination, best single function arm, best single loop
+  arm) plus `aa`.
+- MDE = **3%** (§165's rule and its floor; SPEC §2). The rule itself,
+  `max(2 x worst per-workload CI half-width, 3%)`, is recomputed against
+  this sweep's own null panel and holdout batch when they are taken (the
+  same way hintbench's holdout batch got its own MDE at readout, §126) —
+  it is not the specific 3% value carried over unevaluated from §165's
+  training/holdout A/A, though §165's panels were quiet enough (worst
+  half-width under 1%) that 3% is also the expected outcome here.
+- "Good" = the round batch's CI excludes 1 **and** an independent
+  confirmation batch agrees in sign (decision 80 (a)), and the gain exceeds
+  the MDE. "Harmful" is the symmetric rule on the loss side.
+- Combination arm = every site whose best candidate was confirmed with a
+  ratio > 1, one candidate per site (the site's best confirmed arm, not the
+  best point estimate — decision 80 (a)'s replacement rule, hintbench
+  §118 (c)).
+- No-op skip on (decision 80 (b)): an arm whose build is `identical` to the
+  baseline (normalised instruction sequence and symbol table both match) is
+  not timed and is recorded as ratio 1.0, `ci95: null`. Skipped arms are
+  listed by candidate, not silently dropped from the arm count.
+- Correctness: sha256 of all nine `.gz` outputs (three cases x
+  train/hold/search, `correctness-base.txt`'s layout, §165) identical to
+  the baseline's; an arm whose output differs is rejected regardless of
+  speed and does not enter the combination arm (non-negotiable 5).
+- All arms carry `-Cllvm-args=-hints-allow-reordering=false` (§165,
+  `target_common.sh`'s zopfli `FIXED_RUSTFLAGS`).
+- argv0 pinned to length 80, class 96 (decision 97) for every label in
+  every batch; a batch whose recorded class is not 96 is `measure-failed`
+  and is not silently accepted at another class.
+- Per-case (text/binary/json) ratios are reported alongside the aggregate
+  for every accepted arm, not only the geometric mean.
+- Expected shape, stated as a prediction and not a result. Four of the
+  five selected sites are unvectorized (`lz77.rs:530`, `squeeze.rs:275`,
+  `squeeze.rs:325`, `index.rs:184`); the fifth, `lz77.rs:563`, already
+  carries `post_vectorize` width 16. Decision 37's zopfli-specific account
+  of Stage 0's flat loop-hint sweep is "early-exit byte scan (67%)", which
+  points at `find_longest_match_loop` (`lz77.rs:530` sits in it) rather
+  than at the other three unvectorized sites by name. Decision 22 examined
+  Stage 0's two hottest loops directly and found two different reasons for
+  no headroom: `hash.rs:150`'s near-zero average trip (0.95 — a loop that
+  almost never runs twice has no room for a prologue) is a correctly-made
+  cost-model call, and separately, `cache.rs:108` (excluded from this
+  sweep, §3 above) is a loop whose trip count LLVM's own analysis fails to
+  compute, so width hints cannot reach it at all — only `unroll`'s full
+  range moved it, by +1.6%. Neither of those two loops is a candidate
+  here (`hash.rs:150` cut by `trip_lt_2`, `cache.rs:108` by the cap), so
+  decision 22's specific finding cannot be re-tested by this sweep; the
+  prediction is only the general pattern decision 37 states across all
+  four targets measured so far — the four unvectorized candidate sites are
+  likely flat under loop-metadata hints. `inline(always)`/`inline(never)`
+  on the six marked functions is a dimension Stage 0's compiler-flag sweep
+  never measured at all, and is where a result, if any, is more likely to
+  appear (by analogy with jaq's `Val::hash inline_always`, §138, and
+  hintbench's `k2_mix inline_always`, §123).
+- Cost estimate, from §165's measured medians and the driver's own batch
+  shape. `scripts/jev_search.py`'s `measure()` times **3** labels per batch
+  (`base`, `cand`, an in-run `aa` copy of `base` — `scripts/jev_search.py:
+  3852`), not 2, over `warmup 3 + n 15 = 18` rounds each, across the 3
+  search-set cases. Using §165's search-set base medians summed across
+  cases (text 1905.8 ms + binary 1155.6 ms + json 1847.0 ms ~= 4.91 s per
+  label per round): one batch ~= 18 rounds x 3 labels x 4.91 s ~= 265 s
+  ~= 4.4 min. A confirmed arm carries two independent batches (decision
+  80 (a)) ~= 8.8 min of timing, plus a build. Zopfli's plugin-off base
+  build took 5 s (§165, `step-base.log`); an apply-mode arm build was not
+  separately timed for this target, so the nearest sourced analogue is
+  hintbench's oracle, whose 46 measured arms averaged 290 s each
+  build-plus-two-batches under a different reps/label count (§127).
+  **Worst case, no arm skipped and every arm confirmed: order 10 h**
+  (68 x ~9 min, dominated by the ~8.8 min of timing); **expected well
+  under that**, since hintbench's precedent skipped 39 of 84 arms as
+  identical builds (§120, 3.1 of 3.8 hours saved) and an arm whose first
+  batch does not clear the MDE is never confirmed at all.
+- Measuring agent and write-up agent are separate (HANDOFF.ja.md §5): this
+  section is written by the write-up agent before the measuring agent's
+  first arm, and nothing in it is edited once the run starts.
