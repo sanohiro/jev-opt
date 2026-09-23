@@ -1,0 +1,4318 @@
+{
+ "schema_version": 1,
+ "target": "zopfli",
+ "generated_utc": "2026-09-23T13:07:08Z",
+ "generator": "scripts/target_sites_report.py",
+ "basis": {
+  "profdata": "/home/hiro/prj/jev-optimize/pgo/zopfli/merged.profdata",
+  "profdata_sha256": "f066f5072627b070f19acfe1bfa4772b25cf5babc7752799931f579036e0ace8",
+  "fixed_flags": [
+   "-Ctarget-cpu=native",
+   "-Csymbol-mangling-version=v0",
+   "-Cprofile-use=/home/hiro/prj/jev-optimize/pgo/zopfli/merged.profdata",
+   "-Cllvm-args=-pgo-warn-missing-function",
+   "-Cllvm-args=-pass-remarks=.*",
+   "-Cllvm-args=-pass-remarks-missed=.*",
+   "-Cllvm-args=-pass-remarks-analysis=.*",
+   "-Cllvm-args=-hints-allow-reordering=false"
+  ],
+  "fixed_flags_sha256": "73a1e6b00c3711ae0532d40d5def917de248305373ef7828829a24b36a76c8d1",
+  "plugin_sha256": "ca4a6625f2bdea45b69db4b7a23e2ca8ce54661835b1085328f74c05fdcfcff7",
+  "plugin_source_sha256": "1cbbe0e9837c09e4cd833013bcf13a3a4d9852ed93a66b2023a98b46dc6f7a1b",
+  "marks_sha256": "5bfd79adddc6fbe70081a873fcde97515007629d4c94ca133ebb5f3a2cbc77bd",
+  "n_marks": 6,
+  "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)",
+  "target_commit": "91a34e5d2ce57883a82145158bc74222d7da5229",
+  "src_dir": "/home/hiro/prj/jev-optimize/targets/zopfli/src",
+  "reports": "/home/hiro/prj/jev-optimize/artifacts/zopfli-sites/rep-dump",
+  "baseline": {
+   "text_sha256": "9aca86fcd89a759f60bb5d83ac768ff83a72b21516bee26ab0cd0982fa76cbdf",
+   "norm_code_hash": "",
+   "dump_build_text_sha256": "9aca86fcd89a759f60bb5d83ac768ff83a72b21516bee26ab0cd0982fa76cbdf",
+   "outputs": {
+    "train-text.dat": "90d617f8cea1de4ac2b85e584342541fe2b023fe9fa6b5c8d33395cf1ee96e0d",
+    "train-binary.dat": "74be7ace4f6ba9857ce0335ca8ace40e107f3902b006c98923d16c0745cb9dcc",
+    "train-json.dat": "f94c7fd2f4331f31d69ae8c97ce0fe23bccb40a7a43d0fdeb330952d38c67773",
+    "hold-text.dat": "e876f985995f485871cd8835c163c40257ee277ef08d6829f8e44a25ac01d9fb",
+    "hold-binary.dat": "f2b0f204e2c2468e0faaceec8eea7b6a3c4478f0fa4979c8118f7c355e0660ff",
+    "hold-json.dat": "535723094e22129aff69fa5017d21d6700002928e83637f1d40174f77a9b99b5",
+    "search-text.dat": "a7ec8b977b875c85c22819f7f52ae9818d221ffafa1fb482edd6c55157a16219",
+    "search-binary.dat": "beb286e6eef92888f63c6e4a4e946b5c7b16082783305b23c7b5a9ea3fc45d20",
+    "search-json.dat": "b764ae1fc924f69a3806834164ba4b803a40ab1e28357603fb577b9391b90bdd"
+   }
+  },
+  "note": "fixed_flags is the \\x1f-separated CARGO_ENCODED_RUSTFLAGS build_variant assembles for this target (scripts/target_sites.sh flags); fixed_flags_sha256 is the sha256 of that string as rustc receives it. A null sha means the file was absent when this ran."
+ },
+ "marks": [
+  {
+   "index": 1,
+   "mark": "zopfli::lz77::find_longest_match_loop",
+   "matched": true,
+   "share": 43.31,
+   "reach": 43.31,
+   "functions": [
+    {
+     "linkage": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+     "demangled": "zopfli::lz77::find_longest_match_loop",
+     "stage": "lto",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 211,
+     "entry_count": 8249166,
+     "attributes": "inlinehint",
+     "loops": 1
+    },
+    {
+     "linkage": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+     "demangled": "zopfli::lz77::find_longest_match_loop",
+     "stage": "prelink",
+     "module_id": "zopfli.b1f583a64baa3c23-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 210,
+     "entry_count": 8249166,
+     "attributes": "inlinehint",
+     "loops": 0
+    }
+   ],
+   "n_function_rows": 2,
+   "n_linkage_names": 1,
+   "n_sites_owned": 4,
+   "n_sites_in_chain": 4,
+   "n_mark_in_loop": 0
+  },
+  {
+   "index": 2,
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "matched": true,
+   "share": 40.53,
+   "reach": 40.53,
+   "functions": [
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "lto",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 2029,
+     "entry_count": 16,
+     "attributes": "cold",
+     "loops": 3
+    },
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 997,
+     "entry_count": 16,
+     "attributes": "cold",
+     "loops": 2
+    },
+    {
+     "linkage": "_RNCINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB6_5cache23ZopfliLongestMatchCacheE0Cs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>::{closure#0}",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 3,
+     "entry_count": null,
+     "attributes": "inlinehint",
+     "loops": 0
+    }
+   ],
+   "n_function_rows": 3,
+   "n_linkage_names": 2,
+   "n_sites_owned": 28,
+   "n_sites_in_chain": 28,
+   "n_mark_in_loop": 0
+  },
+  {
+   "index": 3,
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "matched": true,
+   "share": 0.0,
+   "reach": 39.82,
+   "functions": [
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::get_best_lengths::<zopfli::squeeze::lz77_optimal<zopfli::cache::ZopfliLongestMatchCache>::{closure#0}, zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 612,
+     "entry_count": null,
+     "attributes": "",
+     "loops": 0
+    },
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::get_best_lengths::<zopfli::squeeze::get_cost_fixed, zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 611,
+     "entry_count": null,
+     "attributes": "",
+     "loops": 0
+    }
+   ],
+   "n_function_rows": 2,
+   "n_linkage_names": 2,
+   "n_sites_owned": 7,
+   "n_sites_in_chain": 24,
+   "n_mark_in_loop": 0
+  },
+  {
+   "index": 4,
+   "mark": "zopfli::squeeze::lz77_optimal_run",
+   "matched": true,
+   "share": 0.0,
+   "reach": 39.82,
+   "functions": [
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::lz77_optimal_run::<zopfli::squeeze::lz77_optimal<zopfli::cache::ZopfliLongestMatchCache>::{closure#0}, zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 44,
+     "entry_count": null,
+     "attributes": "",
+     "loops": 0
+    },
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::squeeze::lz77_optimal_run::<zopfli::squeeze::get_cost_fixed, zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 44,
+     "entry_count": null,
+     "attributes": "",
+     "loops": 0
+    }
+   ],
+   "n_function_rows": 2,
+   "n_linkage_names": 2,
+   "n_sites_owned": 0,
+   "n_sites_in_chain": 24,
+   "n_mark_in_loop": 0
+  },
+  {
+   "index": 5,
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "matched": true,
+   "share": 0.0,
+   "reach": 15.02,
+   "functions": [
+    {
+     "linkage": "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update",
+     "demangled": "<zopfli::hash::ZopfliHash>::update",
+     "stage": "lto",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 113,
+     "entry_count": 91435780,
+     "attributes": "inlinehint",
+     "loops": 1
+    },
+    {
+     "linkage": "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update",
+     "demangled": "<zopfli::hash::ZopfliHash>::update",
+     "stage": "prelink",
+     "module_id": "zopfli.b1f583a64baa3c23-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 111,
+     "entry_count": 140697581,
+     "attributes": "inlinehint",
+     "loops": 0
+    }
+   ],
+   "n_function_rows": 2,
+   "n_linkage_names": 1,
+   "n_sites_owned": 8,
+   "n_sites_in_chain": 15,
+   "n_mark_in_loop": 6
+  },
+  {
+   "index": 6,
+   "mark": "zopfli::lz77::find_longest_match",
+   "matched": true,
+   "share": 0.0,
+   "reach": 11.15,
+   "functions": [
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::lz77::find_longest_match::<zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "lto",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 26,
+     "entry_count": 0,
+     "attributes": "inlinehint",
+     "loops": 0
+    },
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+     "demangled": "zopfli::lz77::find_longest_match::<zopfli::cache::ZopfliLongestMatchCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 26,
+     "entry_count": 0,
+     "attributes": "inlinehint",
+     "loops": 0
+    },
+    {
+     "linkage": "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache7NoCacheEB4_",
+     "demangled": "zopfli::lz77::find_longest_match::<zopfli::cache::NoCache>",
+     "stage": "prelink",
+     "module_id": "zopfli.b1f583a64baa3c23-cgu.0",
+     "crate": "zopfli",
+     "inst_count": 44,
+     "entry_count": null,
+     "attributes": "",
+     "loops": 0
+    }
+   ],
+   "n_function_rows": 3,
+   "n_linkage_names": 2,
+   "n_sites_owned": 0,
+   "n_sites_in_chain": 8,
+   "n_mark_in_loop": 0
+  }
+ ],
+ "unmatched_marks": [],
+ "sites": [
+  {
+   "key": "321c89d54ede63d5-find_longest_match_loop-lz77.rs-530",
+   "mark": "zopfli::lz77::find_longest_match_loop",
+   "marks_in_chain": [
+    "zopfli::lz77::find_longest_match_loop"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+   "owner_fn_demangled": "zopfli::lz77::find_longest_match_loop",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop"
+   ],
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 530,
+    "col": 11
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 74.226,
+   "header_count": 612305683,
+   "body_inst_count": 159,
+   "hotness": 97356603597,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": 16,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 16,
+      "iv_step": 0,
+      "insts": 195
+     }
+    ],
+    "body_inst_count": 195,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop"
+   },
+   "vectorized": false,
+   "trip": 74.226,
+   "profile_share": 43.31,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.6270200918249687,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "f9f93ab4129b4524--squeeze.rs-275",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 275,
+    "col": 11
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 272644.117,
+   "header_count": 37352244,
+   "body_inst_count": 680,
+   "hotness": 25399525920,
+   "has_calls": true,
+   "has_fp_reduction": true,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 0,
+      "insts": 1092
+     }
+    ],
+    "body_inst_count": 1092,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 272644.117,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.1635843125813381,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "bab3292ec12294cd--squeeze.rs-325",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 325,
+    "col": 9
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 9.199,
+   "header_count": 330639955,
+   "body_inst_count": 76,
+   "hotness": 25128636580,
+   "has_calls": false,
+   "has_fp_reduction": true,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": null,
+    "exists": false,
+    "loops": 0,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [],
+    "body_inst_count": null,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 9.199,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.16183966401549146,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 211206759,
+   "body_inst_count": 8,
+   "hotness": 1689654072,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.010882128301880475,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "630fd0dd5bba1cab-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update",
+   "owner_fn_demangled": "<zopfli::hash::ZopfliHash>::update",
+   "inline_chain": [
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 95000364,
+   "body_inst_count": 12,
+   "hotness": 1140004368,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 12,
+    "owner_fn": "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.007342138253539607,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 100394407,
+   "body_inst_count": 8,
+   "hotness": 803155256,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.00517267924065445,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "be56de8d6fceb526-update-hash.rs-150",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 38808405,
+   "body_inst_count": 12,
+   "hotness": 465700860,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 40.53,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.002999321927959747,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "b5ea95b28efd82f1-find_longest_match_loop-lz77.rs-563",
+   "mark": "zopfli::lz77::find_longest_match_loop",
+   "marks_in_chain": [
+    "zopfli::lz77::find_longest_match_loop"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+   "owner_fn_demangled": "zopfli::lz77::find_longest_match_loop",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop"
+   ],
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 563,
+    "col": 21
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 5.355,
+   "header_count": 42773851,
+   "body_inst_count": 10,
+   "hotness": 427738510,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": true,
+    "vector_width": 16,
+    "iv_step": 64,
+    "interleave_count": 4,
+    "matched": [
+     {
+      "isvectorized": true,
+      "vector_width": 16,
+      "iv_step": 64,
+      "insts": 14
+     }
+    ],
+    "body_inst_count": 14,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop"
+   },
+   "vectorized": true,
+   "trip": 5.355,
+   "profile_share": 43.31,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.002754827406751685,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "vectorized_post"
+   ]
+  },
+  {
+   "key": "0872c4acd6915ea3-get_match-lz77.rs-420",
+   "mark": "zopfli::lz77::find_longest_match_loop",
+   "marks_in_chain": [
+    "zopfli::lz77::find_longest_match_loop"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+   "owner_fn_demangled": "zopfli::lz77::find_longest_match_loop",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+    "_RNvNtCsfhgQMe4x2DL_6zopfli4lz779get_match"
+   ],
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 420,
+    "col": 5
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.088,
+   "header_count": 42670322,
+   "body_inst_count": 10,
+   "hotness": 426703220,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 16,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 16,
+      "insts": 10
+     }
+    ],
+    "body_inst_count": 10,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop"
+   },
+   "vectorized": false,
+   "trip": 1.088,
+   "profile_share": 43.31,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0027481596758851426,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "40e1792fa58b8923--squeeze.rs-265",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 265,
+    "col": 5
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 285935.543,
+   "header_count": 39459105,
+   "body_inst_count": 10,
+   "hotness": 394591050,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": true,
+    "vector_width": 8,
+    "iv_step": 32,
+    "interleave_count": 4,
+    "matched": [
+     {
+      "isvectorized": true,
+      "vector_width": 8,
+      "iv_step": 32,
+      "insts": 13
+     }
+    ],
+    "body_inst_count": 13,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": true,
+   "trip": 285935.543,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.002541342931687223,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "vectorized_post"
+   ]
+  },
+  {
+   "key": "0958c8716c3e1da5-get-index.rs-184",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "<zopfli::lz77::Lz77Store>::follow_path::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update",
+    "_RINvMNtCs2ubz5g4KsBC_4core5sliceSh3getjECsfhgQMe4x2DL_6zopfli",
+    "_RNvXs0_NtNtCs2ubz5g4KsBC_4core5slice5indexjINtB5_10SliceIndexShE3getCsfhgQMe4x2DL_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/slice/index.rs",
+    "line": 184,
+    "col": 12
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 15921.558,
+   "header_count": 3566429,
+   "body_inst_count": 108,
+   "hotness": 385174332,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 108
+     }
+    ],
+    "body_inst_count": 108,
+    "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 15921.558,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0024806950540199727,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 47721186,
+   "body_inst_count": 8,
+   "hotness": 381769488,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.002458766335076911,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "3d4d9c4162e201d1-get-index.rs-184",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update",
+    "_RINvMNtCs2ubz5g4KsBC_4core5sliceSh3getjECsfhgQMe4x2DL_6zopfli",
+    "_RNvXs0_NtNtCs2ubz5g4KsBC_4core5slice5indexjINtB5_10SliceIndexShE3getCsfhgQMe4x2DL_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/slice/index.rs",
+    "line": 184,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 15807.906,
+   "header_count": 2181491,
+   "body_inst_count": 108,
+   "hotness": 235601028,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 108
+     }
+    ],
+    "body_inst_count": 108,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 15807.906,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0015173760459241117,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "773747e36f95ad59-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "<zopfli::lz77::Lz77Store>::follow_path::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 17862476,
+   "body_inst_count": 12,
+   "hotness": 214349712,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 12,
+    "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0013805080614484081,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "0e343dcb026b2630-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "<zopfli::lz77::Lz77Store>::follow_path::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 17311446,
+   "body_inst_count": 12,
+   "hotness": 207737352,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 0.0,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.00133792150418166,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 22683650,
+   "body_inst_count": 8,
+   "hotness": 181469200,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.0011687428509565409,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "97e21afcf63a1960-spec_next-range.rs-1103",
+   "mark": "zopfli::lz77::find_longest_match_loop",
+   "marks_in_chain": [
+    "zopfli::lz77::find_longest_match_loop"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+   "owner_fn_demangled": "zopfli::lz77::find_longest_match_loop",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop",
+    "_RNvNtCsfhgQMe4x2DL_6zopfli4lz779get_match",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCsfhgQMe4x2DL_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCsfhgQMe4x2DL_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 7.825,
+   "header_count": 12501684,
+   "body_inst_count": 10,
+   "hotness": 125016840,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     }
+    ],
+    "body_inst_count": 10,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli4lz7723find_longest_match_loop"
+   },
+   "vectorized": false,
+   "trip": 7.825,
+   "profile_share": 43.31,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0008051643915285774,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 10782380,
+   "body_inst_count": 8,
+   "hotness": 86259040,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.0005555468163764115,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "0e343dcb026b2630-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "<zopfli::lz77::Lz77Store>::follow_path::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 3705464,
+   "body_inst_count": 12,
+   "hotness": 44465568,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 0.0,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.000286378155156478,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 5125265,
+   "body_inst_count": 8,
+   "hotness": 41002120,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.0002640720002295828,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "58d04e0a5cec10ca-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash5reset",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash4init",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCsfhgQMe4x2DL_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCsfhgQMe4x2DL_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 32679.333,
+   "header_count": 4509748,
+   "body_inst_count": 9,
+   "hotness": 40587732,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 16,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 16,
+      "insts": 99
+     }
+    ],
+    "body_inst_count": 99,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 32679.333,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0002614031560812525,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "725e07106c1632b3-get-index.rs-184",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update",
+    "_RINvMNtCs2ubz5g4KsBC_4core5sliceSh3getjECsfhgQMe4x2DL_6zopfli",
+    "_RNvXs0_NtNtCs2ubz5g4KsBC_4core5slice5indexjINtB5_10SliceIndexShE3getCsfhgQMe4x2DL_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/slice/index.rs",
+    "line": 184,
+    "col": 12
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 15850.75,
+   "header_count": 253612,
+   "body_inst_count": 108,
+   "hotness": 27390096,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 108
+     }
+    ],
+    "body_inst_count": 108,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 15850.75,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0001764044746271728,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "be56de8d6fceb526-update-hash.rs-150",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 2266535,
+   "body_inst_count": 12,
+   "hotness": 27198420,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 40.53,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.00017516999541692695,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 2436229,
+   "body_inst_count": 8,
+   "hotness": 19489832,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 0.0001255232392953957,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "75cfde92a2b61708-fetch_sublen-cache.rs-108",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::lz77::find_longest_match",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli4lz7718find_longest_matchNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs0_NtCsfhgQMe4x2DL_6zopfli5cacheNtB5_23ZopfliLongestMatchCacheNtB5_5Cache7try_get",
+    "_RNvMNtCsfhgQMe4x2DL_6zopfli5cacheNtB2_23ZopfliLongestMatchCache12fetch_sublen"
+   ],
+   "leaf": {
+    "file": "src/cache.rs",
+    "line": 108,
+    "col": 17
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.4,
+   "header_count": 1158030,
+   "body_inst_count": 8,
+   "hotness": 9264240,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 16,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 8,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 8,
+      "insts": 43
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 8
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 8,
+      "insts": 8
+     }
+    ],
+    "body_inst_count": 387,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 6.4,
+   "profile_share": 40.53,
+   "key_copies": 8,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 5.966585111713516e-05,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key"
+   ]
+  },
+  {
+   "key": "48337c111cc53198-update-hash.rs-150",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 263499,
+   "body_inst_count": 12,
+   "hotness": 3161988,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 12,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 2.0364617631038053e-05,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "74657a79adfdb757-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangetENtNtNtB7_6traits8iterator8Iterator4nextCs8JVcFN656Ch_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangetENtB5_17RangeIteratorImpl9spec_nextCs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 7.028,
+   "header_count": 12960,
+   "body_inst_count": 111,
+   "hotness": 1438560,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 111
+     }
+    ],
+    "body_inst_count": 111,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 7.028,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 9.264970119844257e-06,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "0a02fdb9747a8d89--lz77.rs-161",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 161,
+    "col": 15
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 238.688,
+   "header_count": 3819,
+   "body_inst_count": 335,
+   "hotness": 1279365,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 0,
+      "insts": 336
+     }
+    ],
+    "body_inst_count": 336,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 238.688,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 8.239683084038586e-06,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "265cf623f914c67a-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache7NoCacheEB7_",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 102136,
+   "body_inst_count": 12,
+   "hotness": 1225632,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 12,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 7.893618519856632e-06,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "758577e143ae9707--lz77.rs-161",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 161,
+    "col": 15
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.502,
+   "header_count": 5736,
+   "body_inst_count": 200,
+   "hotness": 1147200,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 0,
+      "insts": 196
+     }
+    ],
+    "body_inst_count": 196,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.502,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 7.388481343486078e-06,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "5388bb4dc4cd0a5a-get_cost_stat-squeeze.rs-49",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze23get_cost_model_min_costRNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0ECs8JVcFN656Ch_6zopfli",
+    "_RNvXNtNtNtCs2ubz5g4KsBC_4core3ops8function5implsRNCINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtBS_5cache23ZopfliLongestMatchCacheE0INtB4_2FnTjtEE4callCs8JVcFN656Ch_6zopfli",
+    "_RNCINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB6_5cache23ZopfliLongestMatchCacheE0Cs8JVcFN656Ch_6zopfli",
+    "_RNvNtCsfhgQMe4x2DL_6zopfli7squeeze13get_cost_stat"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 49,
+    "col": 13
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 255.304,
+   "header_count": 35232,
+   "body_inst_count": 21,
+   "hotness": 739872,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 4,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 4,
+      "insts": 61
+     }
+    ],
+    "body_inst_count": 61,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 255.304,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 4.76510675433031e-06,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "87fbfe76962d4d32--squeeze.rs-464",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 464,
+    "col": 5
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 8.625,
+   "header_count": 138,
+   "body_inst_count": 1204,
+   "hotness": 166152,
+   "has_calls": true,
+   "has_fp_reduction": true,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": 8,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 8,
+      "iv_step": 1,
+      "insts": 1861
+     }
+    ],
+    "body_inst_count": 1861,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 8.625,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 1.0700932288902534e-06,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "463ab972e96f5b64-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvNtCsfhgQMe4x2DL_6zopfli7squeeze22add_weighed_stat_freqs",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCs8JVcFN656Ch_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 285.316,
+   "header_count": 10842,
+   "body_inst_count": 15,
+   "hotness": 162630,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": true,
+    "matched_by": null,
+    "exists": false,
+    "loops": 0,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [],
+    "body_inst_count": null,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 285.316,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 1.0474099728827935e-06,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "a3d982475f1f362c-update-hash.rs-150",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 11549,
+   "body_inst_count": 12,
+   "hotness": 138588,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 40.53,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 8.925687346853631e-07,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "a3d982475f1f362c-update-hash.rs-150",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 5960,
+   "body_inst_count": 12,
+   "hotness": 71520,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 40.53,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 4.6062080342235377e-07,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "495efc0f64b17f8b-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache7NoCacheEB7_",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.041,
+   "header_count": 3464,
+   "body_inst_count": 12,
+   "hotness": 41568,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit"
+   },
+   "vectorized": false,
+   "trip": 1.041,
+   "profile_share": 0.0,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 2.677165206468177e-07,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "495efc0f64b17f8b-update-hash.rs-150",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [
+    "<zopfli::hash::ZopfliHash>::update"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "inline_chain": [
+    "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache7NoCacheEB7_",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash6update"
+   ],
+   "leaf": {
+    "file": "src/hash.rs",
+    "line": 150,
+    "col": 46
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.04,
+   "header_count": 1788,
+   "body_inst_count": 12,
+   "hotness": 21456,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 2,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     },
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 12
+     }
+    ],
+    "body_inst_count": 24,
+    "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit"
+   },
+   "vectorized": false,
+   "trip": 1.04,
+   "profile_share": 0.0,
+   "key_copies": 2,
+   "key_unique": false,
+   "ambiguous": true,
+   "hot_share": 1.3818624102670615e-07,
+   "allkeys_outcome": "ambiguous+attached",
+   "flags": [
+    "shared_key",
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "5cd8810498a2f83f-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvNtCsfhgQMe4x2DL_6zopfli7squeeze22add_weighed_stat_freqs",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCs8JVcFN656Ch_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 31.711,
+   "header_count": 1205,
+   "body_inst_count": 15,
+   "hotness": 18075,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": true,
+    "matched_by": null,
+    "exists": false,
+    "loops": 0,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [],
+    "body_inst_count": null,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 31.711,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 1.1641108811324167e-07,
+   "allkeys_outcome": "attached",
+   "flags": []
+  },
+  {
+   "key": "50a853883f7e5240--lz77.rs-219",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store6greedyNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 219,
+    "col": 13
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.0,
+   "header_count": 1917,
+   "body_inst_count": 7,
+   "hotness": 13419,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 7
+     }
+    ],
+    "body_inst_count": 7,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": 1.0,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 8.642436466896763e-08,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "trip_lt_2"
+   ]
+  },
+  {
+   "key": "076740e8070eefdd--squeeze.rs-261",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 261,
+    "col": 11
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 5,
+   "hotness": 0,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 5
+     }
+    ],
+    "body_inst_count": 5,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "1b9ac4097d602777--squeeze.rs-265",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 265,
+    "col": 5
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 10,
+   "hotness": 0,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 0,
+      "insts": 10
+     }
+    ],
+    "body_inst_count": 10,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "37398e899d4b7c50--squeeze.rs-275",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 275,
+    "col": 11
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 162,
+   "hotness": 0,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 0,
+      "insts": 164
+     }
+    ],
+    "body_inst_count": 164,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "82c971a09bf5321d-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::lz77_optimal",
+   "marks_in_chain": [
+    "zopfli::squeeze::lz77_optimal",
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNCINvB2_12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheE0B1b_ECs8JVcFN656Ch_6zopfli",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCs8JVcFN656Ch_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 3,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 23,
+   "hotness": 0,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 23
+     }
+    ],
+    "body_inst_count": 23,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze12lz77_optimalNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 40.53,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "a191be17852d4bcf-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash5reset",
+    "_RNvMs_NtCsfhgQMe4x2DL_6zopfli4hashNtB4_10ZopfliHash4init",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCsfhgQMe4x2DL_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCsfhgQMe4x2DL_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 9,
+   "hotness": 0,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 9
+     }
+    ],
+    "body_inst_count": 9,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "c82b00a3f13258cf--squeeze.rs-325",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "src/squeeze.rs",
+    "line": 325,
+    "col": 9
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 39,
+   "hotness": 0,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": null,
+    "exists": false,
+    "loops": 0,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": null,
+    "interleave_count": null,
+    "matched": [],
+    "body_inst_count": null,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "f154d222a623b0c1-call-function.rs-79",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze23get_cost_model_min_costRNvB2_14get_cost_fixedECs8JVcFN656Ch_6zopfli",
+    "_RNvXNtNtNtCs2ubz5g4KsBC_4core3ops8function5implsRNvNtCsfhgQMe4x2DL_6zopfli7squeeze14get_cost_fixedINtB4_2FnTjtEE4callCs8JVcFN656Ch_6zopfli",
+    "_RNvYNvNtCsfhgQMe4x2DL_6zopfli7squeeze14get_cost_fixedINtNtNtCs2ubz5g4KsBC_4core3ops8function2FnTjtEE4callCs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/ops/function.rs",
+    "line": 79,
+    "col": 5
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 10,
+   "hotness": 0,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 10
+     }
+    ],
+    "body_inst_count": 10,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  },
+  {
+   "key": "ff3337c1bb6547ef-spec_next-range.rs-1103",
+   "mark": "zopfli::squeeze::get_best_lengths",
+   "marks_in_chain": [
+    "zopfli::squeeze::get_best_lengths",
+    "zopfli::squeeze::lz77_optimal_run"
+   ],
+   "match": "loop_in_mark",
+   "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "zopfli::squeeze::lz77_optimal_fixed::<zopfli::cache::ZopfliLongestMatchCache>",
+   "inline_chain": [
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16lz77_optimal_runNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze16get_best_lengthsNvB2_14get_cost_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+    "_RNvXs4_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtNtNtB7_6traits8iterator8Iterator4nextCs8JVcFN656Ch_6zopfli",
+    "_RNvXs3_NtNtCs2ubz5g4KsBC_4core4iter5rangeINtNtNtB9_3ops5range5RangejENtB5_17RangeIteratorImpl9spec_nextCs8JVcFN656Ch_6zopfli"
+   ],
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": null,
+   "header_count": null,
+   "body_inst_count": 23,
+   "hotness": 0,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "post_vectorize": {
+    "watched": true,
+    "ambiguous_signature": false,
+    "matched_by": "signature",
+    "exists": true,
+    "loops": 1,
+    "isvectorized": false,
+    "vector_width": null,
+    "iv_step": 1,
+    "interleave_count": null,
+    "matched": [
+     {
+      "isvectorized": false,
+      "vector_width": 0,
+      "iv_step": 1,
+      "insts": 23
+     }
+    ],
+    "body_inst_count": 23,
+    "owner_fn": "_RINvNtCsfhgQMe4x2DL_6zopfli7squeeze18lz77_optimal_fixedNtNtB4_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli"
+   },
+   "vectorized": false,
+   "trip": null,
+   "profile_share": 0.0,
+   "key_copies": 1,
+   "key_unique": true,
+   "ambiguous": false,
+   "hot_share": 0.0,
+   "allkeys_outcome": "attached",
+   "flags": [
+    "no_profile"
+   ]
+  }
+ ],
+ "mark_in_loop_sites": [
+  {
+   "key": "8b998e6f4069f67a-next_back-into_iter.rs-459",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [],
+   "match": "mark_in_loop",
+   "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "<zopfli::lz77::Lz77Store>::follow_path::<zopfli::cache::ZopfliLongestMatchCache>",
+   "leaf": {
+    "file": "library/alloc/src/vec/into_iter.rs",
+    "line": 459,
+    "col": 16
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 74383.433,
+   "header_count": 16661889,
+   "body_inst_count": 525,
+   "hotness": 8747491725,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "inline_chain_len": 3
+  },
+  {
+   "key": "aa84ab9a0550294b--lz77.rs-284",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [],
+   "match": "mark_in_loop",
+   "owner_fn": "_RINvMs_NtCsfhgQMe4x2DL_6zopfli4lz77NtB5_9Lz77Store11follow_pathNtNtB7_5cache23ZopfliLongestMatchCacheECs8JVcFN656Ch_6zopfli",
+   "owner_fn_demangled": "<zopfli::lz77::Lz77Store>::follow_path::<zopfli::cache::ZopfliLongestMatchCache>",
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 284,
+    "col": 19
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 2.862,
+   "header_count": 17192244,
+   "body_inst_count": 109,
+   "hotness": 1873954596,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "inline_chain_len": 1
+  },
+  {
+   "key": "52bbb0d9e47a5dcf-spec_next-range.rs-1103",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [],
+   "match": "mark_in_loop",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 16383.833,
+   "header_count": 98303,
+   "body_inst_count": 107,
+   "hotness": 10518421,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "inline_chain_len": 4
+  },
+  {
+   "key": "e8168e03726a5c0a--lz77.rs-161",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [],
+   "match": "mark_in_loop",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 161,
+    "col": 15
+   },
+   "depth": 1,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 191.0,
+   "header_count": 1146,
+   "body_inst_count": 309,
+   "hotness": 354114,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "inline_chain_len": 2
+  },
+  {
+   "key": "669beab1b1f36e3c-spec_next-range.rs-1103",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [],
+   "match": "mark_in_loop",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "leaf": {
+    "file": "library/core/src/iter/range.rs",
+    "line": 1103,
+    "col": 12
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 6.018,
+   "header_count": 3334,
+   "body_inst_count": 109,
+   "hotness": 363406,
+   "has_calls": false,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "inline_chain_len": 4
+  },
+  {
+   "key": "53c2fbd48b666835--lz77.rs-161",
+   "mark": "<zopfli::hash::ZopfliHash>::update",
+   "marks_in_chain": [],
+   "match": "mark_in_loop",
+   "owner_fn": "_RNvNtCsfhgQMe4x2DL_6zopfli13blocksplitter10blocksplit",
+   "owner_fn_demangled": "zopfli::blocksplitter::blocksplit",
+   "leaf": {
+    "file": "src/lz77.rs",
+    "line": 161,
+    "col": 15
+   },
+   "depth": 2,
+   "already_vectorized": false,
+   "jev_applied": false,
+   "trip_count": 1.5,
+   "header_count": 1721,
+   "body_inst_count": 167,
+   "hotness": 287407,
+   "has_calls": true,
+   "has_fp_reduction": false,
+   "stage": "lto",
+   "module_id": "zopfli.65cee6199ccb03b7-cgu.0",
+   "inline_chain_len": 2
+  }
+ ],
+ "totals": {
+  "loop_in_mark_sites": 47,
+  "distinct_keys": 36,
+  "unique_keys": 31,
+  "shared_keys": 5,
+  "loops_behind_shared_keys": 16,
+  "mark_in_loop_sites": 6,
+  "already_vectorized": 0,
+  "vectorized_post": 2,
+  "no_post_vectorize": 0,
+  "no_profile": 8,
+  "trip_lt_2": 15,
+  "has_calls": 11,
+  "has_fp_reduction": 3,
+  "allkeys_outcomes": {
+   "attached": 37,
+   "ambiguous+attached": 5
+  }
+ },
+ "oracle": {
+  "vocab_requested": "v6",
+  "vocab_used": "v6",
+  "vocab_version": "v6-2026-09-23",
+  "vocab_note": null,
+  "fn_candidates": [
+   "inline_always",
+   "inline_never"
+  ],
+  "loop_candidates": [
+   "unroll_count_2",
+   "unroll_count_4",
+   "unroll_count_8",
+   "vectorize_width_2",
+   "vectorize_width_4",
+   "vectorize_width_8",
+   "vectorize_width_16",
+   "interleave_count_1",
+   "interleave_count_2",
+   "interleave_count_4",
+   "unroll_disable"
+  ],
+  "marked_functions": 6,
+  "build_minutes": 2.5,
+  "timing_minutes": 2.0,
+  "fn_attr_builds": 12,
+  "cap_rule": "no_profile,trip_lt_2,per_mark:2,top:6",
+  "steps": [
+   {
+    "rule": "every loop site its own arm (upper bound; a plan addresses keys)",
+    "loop_sites": 47,
+    "builds": 530,
+    "hours": 39.75
+   },
+   {
+    "rule": "one arm per distinct site key",
+    "loop_sites": 36,
+    "builds": 409,
+    "hours": 30.675
+   },
+   {
+    "rule": "drop keys the training profile never entered",
+    "loop_sites": 28,
+    "builds": 321,
+    "hours": 24.075
+   },
+   {
+    "rule": "drop trip count < 2",
+    "loop_sites": 17,
+    "builds": 200,
+    "hours": 15.0
+   },
+   {
+    "rule": "top 2 by hotness per mark",
+    "loop_sites": 5,
+    "builds": 68,
+    "hours": 5.1
+   },
+   {
+    "rule": "top 6 by hotness overall",
+    "loop_sites": 5,
+    "builds": 68,
+    "hours": 5.1
+   }
+  ],
+  "selected_keys_top6": [
+   "0958c8716c3e1da5-get-index.rs-184",
+   "321c89d54ede63d5-find_longest_match_loop-lz77.rs-530",
+   "b5ea95b28efd82f1-find_longest_match_loop-lz77.rs-563",
+   "bab3292ec12294cd--squeeze.rs-325",
+   "f9f93ab4129b4524--squeeze.rs-275"
+  ],
+  "selected_keys_topk_per_mark": [
+   "0958c8716c3e1da5-get-index.rs-184",
+   "321c89d54ede63d5-find_longest_match_loop-lz77.rs-530",
+   "b5ea95b28efd82f1-find_longest_match_loop-lz77.rs-563",
+   "bab3292ec12294cd--squeeze.rs-325",
+   "f9f93ab4129b4524--squeeze.rs-275"
+  ],
+  "selected_keys_note": "`selected_keys_top6` is the result of cap_rule; `selected_keys_topk_per_mark` is the same list, because jev_search.py uses that field when --site-set is omitted."
+ }
+}

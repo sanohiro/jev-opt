@@ -1,0 +1,59 @@
+# jev-opt marks --- zopfli
+#
+# WHAT THIS FILE IS. One function per line: the places a human (through
+# Claude acting as the human's proxy, decision 58) asks jev-opt to work on.
+# It says WHERE, and nothing about what to do there: choosing hints is Jev's
+# job, and no hint, attribute or knob is named or implied anywhere in this
+# file or in targets/zopfli/jev-marks.rationale.md.
+#
+# MATCHING RULE (as for jaq). A line matches an LLVM function whose
+# demangled v0 name is equal to the line, or continues with `::<` (any
+# generic instantiation), or continues with `::{closure` (a closure defined
+# in it). So `zopfli::lz77::find_longest_match` does NOT match
+# `zopfli::lz77::find_longest_match_loop`, and `zopfli::squeeze::lz77_optimal`
+# matches its `::{closure#0}` but NOT `lz77_optimal_run` or
+# `lz77_optimal_fixed`. Lines whose first non-space character is `#` are
+# comments. Names were copied from `scripts/perf_hotness.py --inline`
+# output (llvm-symbolizer), with the generic `::<...>` suffix cut off.
+#
+# HOW THEY WERE CHOSEN. The rule in section 1 of jev-marks.rationale.md,
+# written before the tables were read: rank by perf reach on the search set
+# (search-*.dat, recorded as train-*.data), add in rank order, stop once the
+# union covers >= 90% of in-binary user cycles. `perf record -e cycles:u
+# -F 5000`, 6 runs per case, on the plugin-off base build
+# target-zopfli-sites-base (normalised-code identical to Stage 0).
+# Per mark below: self and reach on the search set (summed periods), the
+# per-case reach (binary/json/text), and the holdout values.
+#
+# COVERAGE. These 6 marks cover 93.37% of in-binary user cycles on the
+# search set (per case 86.2% / 93.2% / 96.6%) and 94.88% on the holdout
+# (88.9% / 95.8% / 96.4%). The rule selected a seventh,
+# `<zopfli::hash::HashThing>::update` (reach 11.62%, adding 0.00 points to
+# the union); the plugin reports it `unmatched` (no function left at the
+# loop stage), so the existence gate removed it (rationale section 3).
+
+# share 43.31%, reach 43.31% (per case 30.2/47.8/44.5; holdout self 41.76%,
+# reach 41.76%). Its own post-LTO symbol.
+zopfli::lz77::find_longest_match_loop
+
+# share 40.53%, reach 40.53% (per case 38.9/37.8/43.8; holdout self 42.87%,
+# reach 42.87%). Its own post-LTO symbol.
+zopfli::squeeze::lz77_optimal
+
+# share 0.00%, reach 39.82% (per case 36.8/37.4/43.4; holdout reach 42.10%).
+# No post-LTO symbol of its own (fully inlined).
+zopfli::squeeze::get_best_lengths
+
+# share 0.00%, reach 39.82% (per case 36.8/37.4/43.4; holdout reach 42.10%).
+# No post-LTO symbol of its own (fully inlined).
+zopfli::squeeze::lz77_optimal_run
+
+# share 0.00%, reach 15.02% (per case 28.2/12.5/11.9; holdout reach
+# 16.20%). A post-LTO symbol exists but receives no samples; the cycles are
+# in its inlined copies.
+<zopfli::hash::ZopfliHash>::update
+
+# share 0.00%, reach 11.15% (per case 9.2/10.0/13.0; holdout reach 11.58%).
+# A post-LTO symbol exists but receives no samples; the cycles are in its
+# inlined copies.
+zopfli::lz77::find_longest_match
