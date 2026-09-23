@@ -123,7 +123,7 @@
 ## 7. ファイル地図
 
 ```
-SPEC.ja.md                 仕様(v0.5 + 決定 66〜96 反映)
+SPEC.ja.md                 仕様(v0.5 + 決定 66〜97 反映)
 AGENTS.md                  規約(英語)
 HANDOFF.ja.md              この文書
 results.md                 全計測(追記のみ、18 章超)
