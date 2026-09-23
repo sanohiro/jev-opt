@@ -513,8 +513,14 @@ Phase A's own request landed for the first time in the run. Its argmax:
 `k2_mix` at last enters a plan through the phase that was supposed to
 propose it --- rounds 1 and 2 never got the question through --- and the
 +67.8% arrives with it. The two KEEPs that matter are `k4` and `k5` at
-P 0.97: round 1's exploration put `inline_always` on both, measured them as
-builds identical to the baseline, and the history says so.
+P 0.97: round 1's exploration put `inline_always` on both, and the history
+now carries round 1's outcome against them --- the round was rejected at
+0.9369 and its k4 case read 0.5823. That the 0.5823 was the **loop** site's
+doing and not the function's is precisely the attribution problem of decision
+89 (2) (`results.md` 134): one workload serves both of k4's sites, so the
+function site's history line carries a number the function site did not
+cause. Jev answered `KEEP_DEFAULT` at both, which is the truth at both --- it
+was right, and part of its evidence was not.
 
 Phase A's exploration then took the last two never-tried function sites,
 `k1_step` and `k7_error_path` (hotness ties broken by list order), and
