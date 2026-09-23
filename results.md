@@ -12081,3 +12081,199 @@ sensitivity (decision 97) is therefore **target-specific**, not a general
 property of "Rust binary reading argv before input" — it does not
 generalize to jaq (mimalloc allocator) or zopfli (glibc allocator) on this
 machine.
+
+## zopfli campaign --- preparation
+
+### 165. Baseline, training split, A/A and profile
+
+Context: HANDOFF.ja.md §4 row 6 ("get zopfli through the pipeline: perf-mark
+hot functions, build an oracle covering both function attributes and loop
+metadata, then run Jev" --- gloss of the Japanese row). Decisions 96-99 (per-feature n≥3 ablation rule, hintbench's
+argv[0]-length mode and the 80-byte/class-96 pin, vocabulary v6 + zopfli's
+search/training split, the jaq/zopfli argv[0]-class NULL and the
+no-writes-during-timing rule). Commits `c759f18` (search-training split,
+fixed `-hints-allow-reordering=false`, `--seed-offset`, vocabulary v6),
+`93117a0`/`820b2f4` (target-generic `scripts/target_sites.sh` /
+`target_sites_report.py`, and the `--flags` parsing fix).
+
+**Search-training split.**
+
+```
+$ python3 targets/zopfli/workloads/gen.py --check
+542239adfe8ca616be6963d9d87cb62d21584ad632bbff84cbd753f17b5e910c    1433600  hold-binary.dat  seed=20260921102
+a52a647ea929d8e6b6eac3f8cf73d3c9a177f79fe4c74ab78f724cc9b850e34e    1433600  hold-json.dat  seed=20260921103
+40d63cd415fdc8cccee8c262c2455b809087e012aafca203928d8846e7f2a791    1433600  hold-text.dat  seed=20260921101
+9f98a1a1c09526555c00126642be81024bac19917ad0bc8600b92f0f61ea271a     917504  search-binary.dat  seed=20260923202
+76f17bc27fd2642ccf541f6b6b47e4e39bff95dfb638f08a6ce161e7e08c11c0     917504  search-json.dat  seed=20260923203
+8409eac2944d1be6f2140dbf97445aaf82fe853828ec7f9f12545ade6574954e     917504  search-text.dat  seed=20260923201
+f84dea12c0831b3a340a64d022290f73dd75c65ae892655dd366f6707de95e49    1433600  train-binary.dat  seed=20260921002
+15170b05967a6ab1621b1bea980a49b66a99ccec2cf3ade06cd0a59a603731b3    1433600  train-json.dat  seed=20260921003
+d0063a2e4ab40c6791a2a28b75aec370ee9ed2ef65e11700078c1489a335dae8    1433600  train-text.dat  seed=20260921001
+
+$ sha256sum targets/zopfli/workloads/search-{text,binary,json}.dat
+8409eac2944d1be6f2140dbf97445aaf82fe853828ec7f9f12545ade6574954e  search-text.dat    (917,504 B = 896 KiB)
+9f98a1a1c09526555c00126642be81024bac19917ad0bc8600b92f0f61ea271a  search-binary.dat  (917,504 B = 896 KiB)
+76f17bc27fd2642ccf541f6b6b47e4e39bff95dfb638f08a6ce161e7e08c11c0  search-json.dat    (917,504 B = 896 KiB)
+```
+
+`gen.py --check` has no built-in pass/fail comparison (it only prints the
+sha256/size/seed of whatever files already exist); the built-in guarantee
+it does document is that the same seed always regenerates the same bytes.
+Checked by hand against §21's six pinned holdout/PGO hashes: `train-text`
+`d0063a2e...`, `train-binary` `f84dea12...`, `train-json` `15170b05...`,
+`hold-text` `40d63cd4...`, `hold-binary` `542239ad...`, `hold-json`
+`a52a647e...` — **all six match §21 exactly, no drift.** The three
+`search-*.dat` are new (decision 98): 917,504 B = 896 KiB each, as
+specified, disjoint seeds `20260923{201,202,203}` from both `train-*`
+(`2026092100{1,2,3}`) and `hold-*` (`2026092110{1,2,3}`). Holdout stays the
+§21 set, untouched. `scripts/target_common.sh`'s zopfli case now carries
+`FIXED_RUSTFLAGS=('-Cllvm-args=-hints-allow-reordering=false')` (confirmed
+by reading the script directly), satisfying non-negotiable 5 for this
+target the same way jaq and hintbench already do.
+
+**Plugin-off base build.** `export TARGET=zopfli; scripts/target_sites.sh
+base`, log `artifacts/zopfli-sites/step-base.log`:
+
+```
+========== a. zopfli baseline, no plugin, profile .../pgo/zopfli/merged.profdata ==========
+  build time     5 s (rc=0)
+  .text sha256   9aca86fcd89a759f60bb5d83ac768ff83a72b21516bee26ab0cd0982fa76cbdf
+```
+
+`.text` sha is **identical** to Stage 0's `9aca86fc...` (§22). Correctness
+(`artifacts/zopfli-sites/correctness-base.txt`) lists nine sha256 lines, one
+per input's `.gz` output, with no separate PASS/FAIL verdict line in the
+file itself; checked by hand: the six train/hold hashes match §21/§22's
+`train-text.dat`/`train-binary.dat`/`train-json.dat`/`hold-text.dat`/
+`hold-binary.dat`/`hold-json.dat` rows exactly, byte for byte. The three
+`search-*.dat` `.gz` hashes have no prior record to compare against (the
+search split is new, decision 98) — they are established here as the
+reference for future correctness checks on this split.
+
+Identity with Stage 0: `artifacts/zopfli-sites/stage0.sha256` holds the
+pre-existing `target-zopfli-pgo-use` binary's sha256, copied in as
+`stage0.bin`: `8b0ba235be9bf45c167f7cbf39edb096668e0f2eb1d320dcbd1718d1f97ea8a4`.
+`scripts/norm_code_diff.py` compared that binary's normalised code against
+the new base build, rc = 0
+(`artifacts/zopfli-sites/norm-stage0-vs-base.rc`), summary line
+(`norm-stage0-vs-base.txt`):
+
+```
+target-zopfli-sites-base/x86_64-unknown-linux-gnu/release/zopfli: hash e4d0dd7fc425c1fe  IDENTICAL
+  symbols: 442 (base 442), changed 0, only-in-base 0, only-here 0
+```
+
+So the plugin-off base build is code-identical to both Stage 0 records: the
+raw `.text` sha256 matches §22's `9aca86fc...`, and the normalised
+whole-code hash (442 symbols, 0 changed/added/removed) matches the
+pre-existing Stage 0 binary too.
+
+**A/A, class 96 pinned (decision 97).** Pre-registered MDE rule (decision
+27's policy floor, stated before the numbers below): MDE = max(2 x worst
+per-workload CI half-width, 3%).
+
+```
+$ TARGET=zopfli BENCH_SET=training scripts/bench_panel.sh \
+    artifacts/zopfli-sites/aa-training 18 3 20260923 \
+    base=target-zopfli-sites-base/.../zopfli aa=target-zopfli-sites-base/.../zopfli \
+    aa2=target-zopfli-sites-base/.../zopfli
+$ TARGET=zopfli BENCH_SET=holdout scripts/bench_panel.sh \
+    artifacts/zopfli-sites/aa-holdout 18 3 20260923 \
+    base=target-zopfli-sites-base/.../zopfli aa=target-zopfli-sites-base/.../zopfli \
+    aa2=target-zopfli-sites-base/.../zopfli
+```
+
+Exact `label=path` arguments are not separately logged; the form above is
+inferred from `bench_panel.sh`'s "null panel" usage (its header docstring:
+several labels pointing at one binary, copied and stripped per label) and
+confirmed by the panel logs' own sha lines: all three of
+`artifacts/zopfli-sites/aa-training/timing/{base,aa,aa2}` (and the same
+three under `aa-holdout/timing/`) hash to
+`79c3322677aa336f8fab45c449559cac9568277636afdfc998e9d07bae887a98` --- the
+**same stripped hash results.md §164 already recorded** for the Stage 0
+baseline (`artifacts/zopfli-headroom/bin/baseline`, sha256 `8b0ba235...`
+unstripped, stripped to this same `79c33226...`). This is a
+third, independent identity confirmation for the new base build, beyond
+this section's raw `.text` sha (matches §22's `9aca86fc...`) and normalised
+whole-code hash (matches the pre-existing Stage 0 binary): three separate
+build/strip events across the project now collapse to one stripped-binary
+hash.
+
+Both panels: `argv0_class` = 96 in `stats.json` (log: "argv0 pinned class
+96", all three labels len 80), cpu 2, gap 0 ms, stdout pipe, warmup 3, 18
+rounds, bootstrap 10000 resamples seed 20260923. Wall clock: training
+21:42:54-21:48:04 JST (~5m10s), holdout 21:48:04-21:55:39 JST (~7m35s), as
+given by the task that scheduled this preparation and independently
+confirmed here by artifact mtimes on
+`artifacts/zopfli-sites/{aa-training,aa-holdout}.log`, which fall exactly
+on those two windows.
+
+*Training set* (`artifacts/zopfli-sites/aa-training/stats.json`,
+`.log`). Base medians: text 1905.8 ms, binary 1155.6 ms, json 1847.0 ms.
+
+| leg | workload | median ms | ratio vs base | 95% CI |
+|---|---|--:|--:|---|
+| aa | text | 1908.1 | 1.0006 | [0.9980, 1.0034] |
+| aa | binary | 1150.8 | 1.0012 | [0.9912, 1.0092] |
+| aa | json | 1843.4 | 1.0034 | [0.9982, 1.0086] |
+| aa2 | text | 1913.1 | 0.9976 | [0.9940, 1.0013] |
+| aa2 | binary | 1156.3 | 0.9958 | [0.9857, 1.0041] |
+| aa2 | json | 1839.5 | 1.0082 | [1.0016, 1.0163] |
+
+Aggregate (geomean): aa 1.0017 [0.9983, 1.0049], aa2 1.0005 [0.9960,
+1.0043]. Worst per-workload half-width 0.92% (aa2/binary).
+
+One of the 12 leg x workload legs, aa2/json, has a CI that excludes 1
+([1.0016, 1.0163], ratio 1.0082): at 95% coverage roughly 1 in 20 A/A legs
+is expected to do this by chance alone, so 1/12 here is unremarkable, and
+0.82% sits well under the 3% MDE below — no consequence for this section.
+Flagged so a later reader comparing a candidate's training-set json ratio
+near +0.8% knows the A/A floor already brushes that range once.
+
+*Holdout set* (`artifacts/zopfli-sites/aa-holdout/stats.json`, `.log`).
+Base medians: text 2755.1 ms, binary 1692.8 ms, json 2752.6 ms.
+
+| leg | workload | median ms | ratio vs base | 95% CI |
+|---|---|--:|--:|---|
+| aa | text | 2758.1 | 0.9986 | [0.9963, 1.0006] |
+| aa | binary | 1687.4 | 1.0034 | [0.9996, 1.0072] |
+| aa | json | 2757.4 | 0.9992 | [0.9963, 1.0022] |
+| aa2 | text | 2751.8 | 1.0008 | [0.9980, 1.0037] |
+| aa2 | binary | 1691.8 | 1.0000 | [0.9962, 1.0040] |
+| aa2 | json | 2761.0 | 0.9976 | [0.9949, 1.0000] |
+
+Aggregate (geomean): aa 1.0004 [0.9988, 1.0019], aa2 0.9995 [0.9976,
+1.0013]. Worst per-workload half-width 0.39% (aa2/binary).
+
+**MDE, applying the rule stated above.** Training: max(2 x 0.92%, 3%) =
+**3%**. Holdout: max(2 x 0.39%, 3%) = **3%**. Neither panel pushes the MDE
+above the 3% floor — both are quiet (worst CI half-width under 1%,
+consistent with the sub-1% class-96 A/A precision already seen at Stage 0
+and in results.md §164) — so the pre-registered 3% floor stands as the
+minimum-detectable-effect bar for the campaign that follows.
+
+**perf profile.** `SETS=both BIN=target-zopfli-sites-base/.../zopfli
+scripts/perf_marks_profile.sh artifacts/zopfli-marks 6`, log
+`artifacts/zopfli-marks-profile.log`: perf 7.1.8, cpu 2, repeats 6, freq
+5000 Hz, callgraph none, on the plugin-off base binary confirmed identical
+to Stage 0 above. Six `.data` files:
+
+| file | size |
+|---|--:|
+| `hold-text.data` | 3,468,276 B |
+| `hold-binary.data` | 2,094,156 B |
+| `hold-json.data` | 3,455,956 B |
+| `train-text.data` | 2,410,692 B |
+| `train-binary.data` | 1,438,732 B |
+| `train-json.data` | 2,340,884 B |
+
+Marks (which functions/loops get chosen for the oracle from these profiles)
+are a separate agent's task under a pre-stated rule, to be recorded in the
+next section.
+
+**Pre-stated for the oracle (to be pre-registered fully in the next
+section).** Vocabulary v6 (decision 98); `--site-set
+oracle.selected_keys_top6`; no-op skip on; confirmation batches on the
+training (search) set; holdout measured once at the end; correctness =
+sha256 of all nine `.gz` outputs; argv0 class 96 throughout, per decision
+97/99.
