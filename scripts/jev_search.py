@@ -166,8 +166,14 @@ DEFAULTS = {
         "endpoint": "/v1/systemone",
         "model": "typesafe-ai/jev",
         "api_key_env": "AI_GATEWAY_API_KEY",
-        "request_timeout_s": 60,
-        "retries": 3,
+        # Decision 92 (d). A config written before these keys existed
+        # gets these values, which are the policy's and not the old
+        # 60 s / 3 attempts.
+        "request_timeout_s": 20,
+        "retries": 200,
+        "retry_wall_budget_s": 600,
+        "backoff_cap_s": 5.0,
+        "phase_resend_max": 2,
         "min_confidence": 0.0,
         "api_cost_budget_usd": 5.0,
     },
@@ -2814,10 +2820,121 @@ def read_api_key(env_name):
     sys.exit("no %s in the environment or in %s/.env" % (env_name, REPO))
 
 
+# Decision 92 (d): the gateway's retry policy. Every 503 of Experiment 5 came
+# back from the provider (typesafe-ai) in 120-340 ms with no tokens used and
+# no fallback, re-sends were byte-identical, and whether a request landed
+# tracked its body size, not the time of day: a probe of the same bodies
+# landed phase A (85 KB) 0 of 6, phase B (51 KB) 4 of 18 and exploration
+# (24 KB) 5 of 6. A longer wait therefore buys nothing and the policy spends
+# attempts instead: a fixed short pause between them, many of them, inside a
+# wall-clock budget. The jitter is drawn from an RNG seeded by the request
+# body's sha256, so the same request waits the same way every time it is
+# sent.
+RETRY_BACKOFF_S = 2.0
+RETRY_JITTER = 0.2
+
+
+def retry_policy(cfg):
+    """The retry parameters one run uses, as the manifest records them."""
+    return {"backoff": RETRY_BACKOFF_S,
+            "cap_s": float(cfg["backoff_cap_s"]),
+            "jitter": RETRY_JITTER,
+            "timeout_s": float(cfg["request_timeout_s"]),
+            "wall_budget_s": float(cfg["retry_wall_budget_s"]),
+            "retries_cap": int(cfg["retries"]),
+            "phase_resend_max": int(cfg["phase_resend_max"])}
+
+
+def backoff_s(attempt, rng, cap_s):
+    """Sleep after failed attempt `attempt` (1-based), jitter included.
+
+    Fixed, not growing (see RETRY_BACKOFF_S); `attempt` is kept in the
+    signature so that a schedule that does grow can be recorded as a new
+    policy without changing the callers."""
+    return min(float(cap_s),
+               RETRY_BACKOFF_S * (1.0 + RETRY_JITTER
+                                  * (2.0 * rng.random() - 1.0)))
+
+
+def phase_kind(phase):
+    """`A`, `A.1`, `A.retry` -> "A"; `B...` -> "B"; any `.explore` -> "explore"."""
+    if ".explore" in str(phase):
+        return "explore"
+    return str(phase).split(".", 1)[0]
+
+
+def parse_retry_after(value):
+    """`Retry-After` in seconds (delta-seconds or an HTTP-date), or None."""
+    if value is None:
+        return None
+    value = str(value).strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        import email.utils
+        when = email.utils.parsedate_to_datetime(value)
+        now = datetime.datetime.now(when.tzinfo or datetime.timezone.utc)
+        return max(0.0, (when - now).total_seconds())
+    except Exception:
+        return None
+
+
+def gateway_trace(resp, headers):
+    """What the gateway says about one attempt: its generation id and the
+    provider attempts it made, from the body (`providerMetadata` on an
+    error, `provider_metadata` on a success) and a few response headers.
+    Nothing from the request is read here, so the Authorization header
+    cannot reach the log through this path."""
+    out = {}
+    meta = {}
+    if isinstance(resp, dict):
+        meta = resp.get("providerMetadata") or resp.get("provider_metadata") \
+            or {}
+    gw = (meta or {}).get("gateway") or {}
+    if isinstance(gw, dict):
+        if gw.get("generationId"):
+            out["generation_id"] = gw["generationId"]
+        routing = gw.get("routing") or {}
+        pa = []
+        for ma in routing.get("modelAttempts") or []:
+            for a in (ma or {}).get("providerAttempts") or []:
+                try:
+                    ms = float(a["endTime"]) - float(a["startTime"])
+                except (KeyError, TypeError, ValueError):
+                    ms = None
+                pa.append({"provider": a.get("provider"),
+                           "status": a.get("statusCode"),
+                           "success": a.get("success"), "ms": ms})
+        if pa:
+            out["provider_attempts"] = pa
+        if routing.get("totalProviderAttemptCount") is not None:
+            out["provider_attempt_count"] = \
+                routing["totalProviderAttemptCount"]
+    hdr = {}
+    for k, v in (headers or {}).items():
+        lk = k.lower()
+        if lk == "retry-after" or "generation" in lk or lk in (
+                "x-vercel-id", "x-request-id"):
+            hdr[lk] = v
+    if hdr:
+        out["headers"] = hdr
+    return out
+
+
 class JevClient:
     """One HTTP request per phase, logged as JSONL and as a readable line.
 
     SPEC.ja.md 6: the Authorization header is never written to either log.
+
+    Decision 92 (d): a request is retried on a 5xx, on a 429 (honouring
+    `Retry-After`) and on a transport error, with a fixed pause of
+    `RETRY_BACKOFF_S` +-`RETRY_JITTER` (capped at `[jev] backoff_cap_s`)
+    between attempts, until either
+    `[jev] retries` attempts have been made or the next sleep would take the
+    request past `[jev] retry_wall_budget_s` of wall clock. Any other status
+    ends the request at once. Every attempt is logged.
     """
 
     def __init__(self, cfg, log_dir, run_id, source_comments="strip"):
@@ -2837,11 +2954,52 @@ class JevClient:
         self.totals = {"requests": 0, "questions": 0, "latency_ms": 0,
                        "max_latency_ms": 0, "input_tokens": 0,
                        "output_tokens": 0, "cost_usd": 0.0}
+        # Decision 92 (d): what the gateway did to this run, for the
+        # manifest. `requests` counts calls to ask() (a phase re-send is a
+        # request of its own), `attempts` the HTTP attempts inside them.
+        # `lost_phases` and `lost_rounds` are the proposer's and the round
+        # loop's to fill in; `seconds_waiting` is every backoff sleep plus
+        # every re-send pause.
+        self.gateway = {"requests": 0, "attempts": 0, "landed": 0,
+                        "exhausted": 0, "lost_phases": 0, "lost_rounds": 0,
+                        "seconds_waiting": 0.0,
+                        # Landing tracked body size in Experiment 5; this
+                        # is what makes that measurable in the next run.
+                        "attempts_by_phase": {
+                            k: {"requests": 0, "attempts": 0, "landed": 0,
+                                "body_bytes_total": 0,
+                                "mean_body_bytes": None}
+                            for k in ("A", "B", "explore")}}
+        # Injectable for the unit check; nothing else replaces them.
+        self._sleep = time.sleep
+        self._now = time.monotonic
         if not os.path.isfile(self.log_path):
             with open(self.log_path, "w") as f:
                 f.write("# jev-opt request log, run %s\n" % run_id)
                 f.write("# ts round phase questions http_status latency_ms "
                         "input_tokens output_tokens cost_usd\n")
+
+    def wait(self, seconds):
+        """A pause the gateway made us take, counted in `seconds_waiting`."""
+        self._sleep(seconds)
+        self.gateway["seconds_waiting"] += seconds
+
+    def _post(self, payload, timeout):
+        """One POST. Returns (status, response headers, body bytes); raises
+        on a transport error or a timeout."""
+        req = urllib.request.Request(
+            self.url, data=payload, method="POST",
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + self.key})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, dict(r.headers.items()), r.read()
+        except urllib.error.HTTPError as e:
+            try:
+                raw = e.read()
+            except Exception:
+                raw = b""
+            return e.code, dict((e.headers or {}).items()), raw
 
     def ask(self, state, questions, round_no, phase, site_map):
         """Returns (answers dict, jsonl line number) or (None, line)."""
@@ -2849,39 +3007,65 @@ class JevClient:
             self.key = read_api_key(self.cfg["api_key_env"])
         body = {"model": self.model, "state": state, "questions": questions}
         payload = json.dumps(body).encode()
+        body_sha = hashlib.sha256(payload).hexdigest()
+        cap_n = max(1, int(self.cfg["retries"]))
+        budget = float(self.cfg["retry_wall_budget_s"])
+        timeout = float(self.cfg["request_timeout_s"])
+        rng = random.Random(body_sha)
         status, resp, latency, err = None, None, 0.0, None
-        attempts = []
-        for attempt in range(1, int(self.cfg["retries"]) + 1):
-            req = urllib.request.Request(
-                self.url, data=payload, method="POST",
-                headers={"Content-Type": "application/json",
-                         "Authorization": "Bearer " + self.key})
-            t0 = time.monotonic()
+        attempts = []            # "HTTP 503", ... as before (failed only)
+        attempt_log = []         # one dict per attempt, decision 92 (d)
+        waited = 0.0
+        t_start = self._now()
+        for attempt in range(1, cap_n + 1):
+            t0 = self._now()
+            ts = datetime.datetime.now().astimezone().isoformat()
+            headers, retry_after, retryable = {}, None, True
             try:
-                with urllib.request.urlopen(
-                        req, timeout=float(self.cfg["request_timeout_s"])) as r:
-                    status = r.status
-                    resp = json.loads(r.read().decode())
-                latency = (time.monotonic() - t0) * 1e3
-                err = None          # a retry that succeeded is not an error
-                break
-            except urllib.error.HTTPError as e:
-                latency = (time.monotonic() - t0) * 1e3
-                status = e.code
+                status, headers, raw = self._post(payload, timeout)
+                latency = (self._now() - t0) * 1e3
                 try:
-                    resp = json.loads(e.read().decode())
+                    resp = json.loads(raw.decode())
                 except Exception:
                     resp = None
-                err = "HTTP %d" % e.code
-                attempts.append(err)
-                if e.code < 500:
-                    break
+                if 200 <= int(status) < 300 and resp is not None:
+                    err = None      # a retry that succeeded is not an error
+                elif 200 <= int(status) < 300:
+                    err = "HTTP %d with a body that is not JSON" % status
+                else:
+                    err = "HTTP %d" % status
+                    retryable = int(status) >= 500 or int(status) == 429
+                    if int(status) == 429:
+                        retry_after = parse_retry_after(
+                            {k.lower(): v for k, v in headers.items()}
+                            .get("retry-after"))
             except Exception as e:                       # timeout, DNS, ...
-                latency = (time.monotonic() - t0) * 1e3
+                latency = (self._now() - t0) * 1e3
+                status, resp = None, None
                 err = "%s: %s" % (type(e).__name__, e)
-                attempts.append(err)
-            if attempt < int(self.cfg["retries"]):
-                time.sleep(2.0 * attempt)
+            a = {"attempt": attempt, "ts": ts, "http_status": status,
+                 "latency_ms": round(latency, 1), "error": err,
+                 "request_sha256": body_sha, "request_bytes": len(payload),
+                 "retry_after": retry_after, "sleep_s": None}
+            a.update(gateway_trace(resp, headers))
+            attempt_log.append(a)
+            if err is None:
+                break
+            attempts.append(err)
+            if not retryable:
+                break
+            if attempt >= cap_n:
+                break
+            # `Retry-After` wins over the backoff when it asks for longer;
+            # it never shortens it.
+            sleep = backoff_s(attempt, rng, self.cfg["backoff_cap_s"])
+            if retry_after is not None:
+                sleep = max(sleep, retry_after)
+            if (self._now() - t_start) + sleep > budget:
+                break
+            a["sleep_s"] = round(sleep, 3)
+            waited += sleep
+            self.wait(sleep)
 
         usage = (resp or {}).get("usage") or {}
         gw = ((resp or {}).get("provider_metadata") or {}).get("gateway") or {}
@@ -2889,6 +3073,7 @@ class JevClient:
             cost = float(gw.get("cost") or 0.0)
         except (TypeError, ValueError):
             cost = 0.0
+        landed = err is None and isinstance(resp, dict) and "answers" in resp
 
         self.n_lines += 1
         line_no = self.n_lines
@@ -2899,7 +3084,12 @@ class JevClient:
                   "source_comments": self.source_comments,
                   "site_map": site_map, "request": body, "response": resp,
                   "http_status": status, "latency_ms": round(latency, 1),
-                  "error": err, "failed_attempts": attempts}
+                  "error": err, "failed_attempts": attempts,
+                  # Decision 92 (d), added fields only.
+                  "request_sha256": body_sha, "request_bytes": len(payload),
+                  "n_attempts": len(attempt_log), "attempt_log": attempt_log,
+                  "seconds_waiting": round(waited, 3),
+                  "exhausted": not landed}
         with open(self.jsonl_path, "a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -2910,6 +3100,18 @@ class JevClient:
         self.totals["input_tokens"] += int(usage.get("input_tokens") or 0)
         self.totals["output_tokens"] += int(usage.get("output_tokens") or 0)
         self.totals["cost_usd"] += cost
+        self.gateway["requests"] += 1
+        self.gateway["attempts"] += len(attempt_log)
+        self.gateway["landed" if landed else "exhausted"] += 1
+        kind = phase_kind(phase)
+        if kind in self.gateway["attempts_by_phase"]:
+            bp = self.gateway["attempts_by_phase"][kind]
+            bp["requests"] += 1
+            bp["attempts"] += len(attempt_log)
+            bp["landed"] += int(landed)
+            bp["body_bytes_total"] += len(payload)
+            bp["mean_body_bytes"] = round(bp["body_bytes_total"]
+                                          / bp["requests"], 1)
         with open(self.log_path, "a") as f:
             f.write("%s r%d %-7s %3d %s %8.1f %7d %6d %.8f%s\n"
                     % (record["ts"], round_no, phase, len(questions),
@@ -2919,8 +3121,24 @@ class JevClient:
                        ("  (after %d failed attempt(s): %s)"
                         % (len(attempts), ", ".join(attempts))
                         if attempts else "")))
+            # Per-attempt detail as comment lines, so a reader of the
+            # one-line-per-request format is not disturbed by it.
+            if len(attempt_log) > 1 or err:
+                f.write("#   request %d bytes sha256 %s, %d attempt(s), "
+                        "%.1f s waited\n" % (len(payload), body_sha[:16],
+                                             len(attempt_log), waited))
+                for a in attempt_log:
+                    f.write("#   attempt %d %s http %s %.1f ms%s%s%s\n"
+                            % (a["attempt"], a["ts"], a["http_status"],
+                               a["latency_ms"],
+                               (" gen %s" % a["generation_id"])
+                               if a.get("generation_id") else "",
+                               (" retry-after %.1f s" % a["retry_after"])
+                               if a.get("retry_after") is not None else "",
+                               (" then sleep %.1f s" % a["sleep_s"])
+                               if a.get("sleep_s") is not None else ""))
 
-        if resp is None or "answers" not in (resp or {}):
+        if not landed:
             return None, line_no
         return resp["answers"], line_no
 
@@ -2975,25 +3193,61 @@ class JevProposer:
         self.explore = int(explore)
 
     def choose(self, items, ctx, round_no, phase):
-        picks, why = self._ask(items, ctx, round_no, phase)
-        # A phase whose every answer is `no answer` is a phase the HTTP call
-        # never got through for. Decision 87 recorded a 503 burst that took
-        # out both phases of one repeat; `scripts/jev_oneshot.py` already
-        # re-sends such a request **unchanged** and keeps both lines in the
-        # JSONL, and a five-round run cannot afford to spend a round
-        # rebuilding the baseline because the gateway was busy. The request
-        # is never modified to make it succeed, and the failed line stays in
-        # the log.
-        lost = [i for i in items
-                if (why.get(i.id) or {}).get("source") == "no answer"]
-        if items and len(lost) == len(items):
-            print("[%s] every answer was `no answer` (the request never got "
-                  "through); re-sending it unchanged" % phase)
-            time.sleep(10)
-            picks, why = self._ask(items, ctx, round_no, "%s.retry" % phase)
+        """The phase's answers, or a lost phase (decision 92 d).
+
+        `_ask` re-sends an exhausted request unchanged up to
+        `[jev] phase_resend_max` times. If one of the phase's requests is
+        still lost after that, the phase is LOST: `ctx["phase_lost"]` says
+        so, no readout and no exploration are run on answers that do not
+        exist, and the round loop does not build. Experiment 5 built two
+        "half plans" (a phase's answers missing and treated as KEEP_DEFAULT)
+        and ran exploration on sites Jev had never answered; neither can
+        happen now.
+        """
+        picks, why, gate = self._ask(items, ctx, round_no, phase)
+        ctx["gate"] = gate
+        if gate["lost"]:
+            ctx["phase_lost"] = gate
+            ctx["readout"] = None
+            ctx["exploration"] = None
+            # The one line printed for it is the round loop's `[gate]`.
+            self.client.gateway["lost_phases"] += 1
+            return picks, why
         self.read_out(items, picks, why, ctx, phase)
         self.explore_round(items, picks, why, ctx, round_no, phase)
         return picks, why
+
+    def send(self, state, questions, round_no, phase, site_map):
+        """One request, re-sent UNCHANGED while it is exhausted, at most
+        `[jev] phase_resend_max` more times (decision 92 d).
+
+        No build happens between the sends, so the state is the same state
+        and nothing about the request may change; the exhausted lines stay
+        in the JSONL. The re-sends are logged as `<phase>.retry`,
+        `<phase>.retry2`, ... Returns (answers or None, line_no, gate)."""
+        resend_max = int(self.cfg.get("phase_resend_max", 2))
+        g0 = dict(self.client.gateway)
+        lines = []
+        answers, line_no = self.client.ask(state, questions, round_no, phase,
+                                           site_map)
+        lines.append(line_no)
+        n = 0
+        while answers is None and n < resend_max:
+            n += 1
+            print("[%s] the request never got through; re-sending it "
+                  "unchanged (%d of %d)" % (phase, n, resend_max))
+            self.client.wait(10)
+            answers, line_no = self.client.ask(
+                state, questions, round_no,
+                "%s.retry%s" % (phase, "" if n == 1 else n), site_map)
+            lines.append(line_no)
+        g1 = self.client.gateway
+        gate = {"phase": phase, "lost": answers is None, "sends": n + 1,
+                "attempts": g1["attempts"] - g0["attempts"],
+                "seconds_waited": round(g1["seconds_waiting"]
+                                        - g0["seconds_waiting"], 3),
+                "jsonl_lines": lines}
+        return answers, line_no, gate
 
     def explore_round(self, items, picks, why, ctx, round_no, phase):
         """Decision 89 (b): one extra Choice per untried hot site, per round.
@@ -3016,24 +3270,23 @@ class JevProposer:
         questions, site_map = exploration_questions(pairs, ctx)
         state = state_header(ctx, len(pairs)) + \
             "".join(state_section(it, ctx) for it, _c in pairs)
-        answers, line_no = self.client.ask(state, questions, round_no,
+        # The same unchanged re-send a phase gets (Experiment 4, 1.4 b;
+        # decision 92 d): a request that never got through leaves every
+        # eligible site at KEEP_DEFAULT, and because the site is then still
+        # untried it costs the round its whole exploration slot. A lost
+        # exploration request does NOT lose the round --- the argmax plan is
+        # whole without it --- and is recorded as `lost` here and as
+        # `explore_lost` on the round.
+        answers, line_no, gate = self.send(state, questions, round_no,
                                            "%s.explore" % phase, site_map)
-        # The same unchanged re-send `choose` does for a phase whose every
-        # answer is `no answer` (Experiment 4, 1.4 b): a request that never
-        # got through leaves every eligible site at KEEP_DEFAULT, and because
-        # the site is then still untried it costs the round its whole
-        # exploration slot --- which is the mechanism this experiment is
-        # about. Six of Experiment 4's twelve requests carried at least one
-        # 503 and two exhausted all three internal retries. The request is
-        # never modified to make it succeed and the exhausted line stays in
-        # the JSONL with its `http_status`.
-        if answers is None:
-            print("[%s.explore] the request never got through; re-sending it "
-                  "unchanged" % phase)
-            time.sleep(10)
-            answers, line_no = self.client.ask(
-                state, questions, round_no, "%s.explore.retry" % phase,
-                site_map)
+        rec["gate"] = gate
+        rec["lost"] = gate["lost"]
+        if gate["lost"]:
+            self.client.gateway["lost_phases"] += 1
+            print("[%s.explore] LOST after %d send(s), %d HTTP attempt(s), "
+                  "%.1f s waited; the round is built without exploration"
+                  % (phase, gate["sends"], gate["attempts"],
+                     gate["seconds_waited"]))
         ref = "%s.jsonl#%d" % (self.client.run_id, line_no)
         for it, cands in pairs:
             a = (answers or {}).get(it.qname) or {}
@@ -3057,15 +3310,27 @@ class JevProposer:
         return rec
 
     def _ask(self, items, ctx, round_no, phase):
+        """Returns (picks, why, gate). A phase split into several requests
+        (SPEC.ja.md 6) is lost if any one of them is: half a phase is half
+        a plan."""
         picks, why = {}, {}
+        gate = {"phase": phase, "lost": False, "sends": 0, "attempts": 0,
+                "seconds_waited": 0.0, "jsonl_lines": [], "requests": []}
         for batch_i, batch in enumerate(self._batches(items, ctx)):
             questions, site_map = questions_for(batch, ctx, self.knobs)
             state = state_header(ctx, len(batch)) + \
                 "".join(state_section(it, ctx) for it in batch)
-            answers, line_no = self.client.ask(state, questions, round_no,
-                                               "%s%s" % (phase, "" if batch_i == 0
-                                                         else ".%d" % batch_i),
-                                               site_map)
+            answers, line_no, g = self.send(
+                state, questions, round_no,
+                "%s%s" % (phase, "" if batch_i == 0 else ".%d" % batch_i),
+                site_map)
+            gate["requests"].append(g)
+            gate["lost"] = gate["lost"] or g["lost"]
+            gate["sends"] += g["sends"]
+            gate["attempts"] += g["attempts"]
+            gate["seconds_waited"] = round(gate["seconds_waited"]
+                                           + g["seconds_waited"], 3)
+            gate["jsonl_lines"] += g["jsonl_lines"]
             ref = "%s.jsonl#%d" % (self.client.run_id, line_no)
             for it in batch:
                 a = (answers or {}).get(it.qname) or {}
@@ -3084,7 +3349,7 @@ class JevProposer:
                 why[it.id] = {"source": reason, "answer_ref": ref,
                               "confidence": conf,
                               "probabilities": a.get("probabilities")}
-        return picks, why
+        return picks, why, gate
 
     def read_out(self, items, picks, why, ctx, phase):
         """Decision 71: rank by `1 - P(KEEP_DEFAULT)`; never leave a phase
@@ -3572,6 +3837,8 @@ class Search:
         self.target_dir = os.path.join(REPO, "target-%s-jevsearch" % self.target)
         self.rounds_path = os.path.join(self.out, "rounds.jsonl")
         self.history = []
+        # Every round record written so far, lost ones included.
+        self.n_rounds = 0
         # `plan_sig` is the empty plan's: the incumbent at round 0 is the
         # baseline, and a round whose plan is empty rebuilds it (decision
         # 89 a). `batches` collects every independent batch measured on the
@@ -3897,7 +4164,9 @@ class Search:
         if not self.history:
             self.load_resume()
 
-        round_no = len(self.history)
+        # Not len(self.history): a lost round (decision 92 d) is recorded
+        # and counted but is not history.
+        round_no = self.n_rounds
         limit = (10 ** 9 if self.args.proposer == "oracle"
                  else int(self.args.rounds or self.cfg["search"]["rounds"]))
         while round_no < limit:
@@ -3920,6 +4189,9 @@ class Search:
             rec["wall_s"] = round(time.time() - t_round, 1)
             with open(self.rounds_path, "a") as f:
                 f.write(json.dumps(rec) + "\n")
+            self.n_rounds = round_no
+            if rec.get("status") == "lost":
+                continue
             self.history.append(self.history_entry(rec))
             self.update_best(rec)
 
@@ -4052,6 +4324,8 @@ class Search:
         items_a = self.fn_list + self.build_list
         ctx_a = self.ctx({"arm": arm})
         picks_a, why_a = proposer.choose(items_a, ctx_a, round_no, "A")
+        if ctx_a.get("phase_lost"):
+            return self.lost_round(rec, "A", ctx_a, picks_a, why_a)
         fn_attrs = fn_attrs_from(picks_a, items_a, why_a, self.knobs)
         basis = basis_of(fn_attrs)
         plan_a = os.path.join(rdir, "plan-a.json")
@@ -4060,6 +4334,7 @@ class Search:
         rec["phase_a"] = {"choices": picks_a, "why": why_a,
                           "readout": ctx_a.get("readout"),
                           "exploration": ctx_a.get("exploration"),
+                          "gate": ctx_a.get("gate"),
                           "fn_attrs": fn_attrs, "basis": basis,
                           "plan_sha256": sha_a, "build_knobs": knob_flags,
                           "fn_fanout": {i.meta["mark"]: {
@@ -4109,13 +4384,24 @@ class Search:
         ctx_b = self.ctx({"arm": arm, "fn_choice_text": fn_text,
                           "loop_items": items_b})
         picks_b, why_b = proposer.choose(items_b, ctx_b, round_no, "B")
+        if ctx_b.get("phase_lost"):
+            # Phase A was built (its dump is what phase B's state is made
+            # of) and is kept in the record as data; the round's own build
+            # is not made.
+            return self.lost_round(rec, "B", ctx_b, picks_b, why_b)
         loop_md = loop_md_from(picks_b, items_b, why_b)
         plan_b = os.path.join(rdir, "plan-b.json")
         sha_b = write_plan(plan_b, "r%d-b" % round_no, fn_attrs, loop_md, basis)
         rec["phase_b"] = {"choices": picks_b, "why": why_b,
                           "readout": ctx_b.get("readout"),
                           "exploration": ctx_b.get("exploration"),
+                          "gate": ctx_b.get("gate"),
                           "loop_md": loop_md, "plan_sha256": sha_b}
+        # A lost exploration request does not lose the round: the argmax
+        # plan is whole without it (decision 92 d).
+        rec["explore_lost"] = any(
+            bool((c.get("exploration") or {}).get("lost"))
+            for c in (ctx_a, ctx_b))
         # Decision 89 (a): what makes this round's build different from
         # another round's, with the annotations left out.
         rec["plan_sig"] = plan_signature(fn_attrs, loop_md)
@@ -4291,6 +4577,33 @@ class Search:
                              *rec["confirm"]["kernel"]["ci95"]))
                          if rec["confirm"].get("kernel") else ""))
         self.score_confirmation(rec)
+        return rec
+
+    def lost_round(self, rec, phase, ctx, picks, why):
+        """Decision 92 (d): a round one of whose phases never got through.
+
+        It is not built and not measured, and it does not enter the history
+        (the state of the next round is the state this round would have
+        been sent, less nothing); the round counter still advances, so a
+        run's round budget is spent by the gateway as well as by builds."""
+        gate = ctx.get("phase_lost") or {}
+        key = "phase_a" if phase == "A" else "phase_b"
+        rec[key] = dict(rec.get(key) or {}, choices=picks, why=why,
+                        gate=gate)
+        rec["status"] = "lost"
+        rec["lost_phase"] = phase
+        rec["lost_attempts"] = gate.get("attempts")
+        rec["lost_sends"] = gate.get("sends")
+        rec["lost_seconds_waited"] = gate.get("seconds_waited")
+        rec["accepted"] = False
+        rec["correct"] = False
+        if self.jev:
+            self.jev.gateway["lost_rounds"] += 1
+        print("[gate] round %d lost in phase %s (%d send(s), %d HTTP "
+              "attempt(s), %.1f s waited): not built, not measured, history "
+              "unchanged" % (rec["round"], phase, gate.get("sends") or 0,
+                             gate.get("attempts") or 0,
+                             gate.get("seconds_waited") or 0.0))
         return rec
 
     # -- batch bookkeeping -------------------------------------------------
@@ -4470,6 +4783,9 @@ class Search:
             if not line:
                 continue
             rec = json.loads(line)
+            self.n_rounds = max(self.n_rounds, int(rec["round"]))
+            if rec.get("status") == "lost":
+                continue
             self.history.append(self.history_entry(rec))
             if rec.get("accepted"):
                 self.best = {"round": rec["round"], "ratio": rec["ratio"],
@@ -4481,8 +4797,9 @@ class Search:
                              "batches": rec.get("best_plan_batches") or []}
             elif rec.get("same_plan_as_best") and rec.get("best_plan_batches"):
                 self.best["batches"] = rec["best_plan_batches"]
-        print("[resume] %d rounds already recorded, best = %s (%.4f)"
-              % (len(self.history), self.best["label"], self.best["ratio"]))
+        print("[resume] %d rounds already recorded (%d of them lost), best = "
+              "%s (%.4f)" % (self.n_rounds, self.n_rounds - len(self.history),
+                             self.best["label"], self.best["ratio"]))
 
     # -- output -----------------------------------------------------------
 
@@ -4523,6 +4840,10 @@ class Search:
                                       capture_output=True).stdout,
             "best": self.best, "holdout": getattr(self, "holdout", None),
             "jev_totals": self.jev.totals if self.jev else None,
+            # Decision 92 (d).
+            "retry_policy": (retry_policy(self.cfg["jev"])
+                             if self.args.proposer == "jev" else None),
+            "gateway": self.jev.gateway if self.jev else None,
             "wall_s": round(wall, 1),
         }
         with open(os.path.join(self.out, "run-manifest.json"), "w") as f:
@@ -4631,6 +4952,14 @@ class Search:
                           t["output_tokens"], t["cost_usd"],
                           100.0 * (t["latency_ms"] / 1e3)
                           / max(1e-9, manifest["wall_s"])))
+            g = self.jev.gateway
+            out.append("Gateway (decision 92 d): %d requests in %d HTTP "
+                       "attempts, %d landed, %d exhausted; %d phase(s) lost, "
+                       "%d round(s) lost and not built; %.1f s spent "
+                       "waiting between attempts and re-sends."
+                       % (g["requests"], g["attempts"], g["landed"],
+                          g["exhausted"], g["lost_phases"], g["lost_rounds"],
+                          g["seconds_waiting"]))
             out.append("")
         h = getattr(self, "holdout", None)
         if h and "ratio" in h:

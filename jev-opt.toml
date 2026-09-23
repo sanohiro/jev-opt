@@ -49,8 +49,22 @@ base_url = "https://ai-gateway.vercel.sh/typesafe"
 endpoint = "/v1/systemone"
 model = "typesafe-ai/jev"
 api_key_env = "AI_GATEWAY_API_KEY"
-request_timeout_s = 60
-retries = 3
+# Seconds one HTTP attempt may take. Every landed request of Experiment 5
+# took under 1 s and every 503 came back in 120-340 ms (decision 92 d).
+request_timeout_s = 20
+# Hard cap on HTTP attempts per request. 503s are fast provider-side
+# rejections whose rate tracks body size, so attempts, not waiting, are
+# what lands a large request (decision 92 d).
+retries = 200
+# Wall-clock budget per request: no further attempt is made once the next
+# pause would take the request past it.
+retry_wall_budget_s = 600
+# Upper bound on the pause between attempts (fixed 2 s +-20% jitter);
+# a 429's Retry-After is honoured even when it asks for longer.
+backoff_cap_s = 5.0
+# Unchanged re-sends of an exhausted request within the same round before
+# the phase is recorded as lost and the round is not built.
+phase_resend_max = 2
 # Below this confidence a Choice answer is replaced by KEEP_DEFAULT and the
 # reason is recorded (SPEC.ja.md 6). 0 disables the rule: the spec asks for a
 # threshold but fixes no value, and the one sample response in
