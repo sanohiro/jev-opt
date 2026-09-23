@@ -35,6 +35,7 @@ applied by our LLVM pass plugin; target sources are never modified.
 - **One target measured at a time on this machine.** Never run two timing benchmarks
   concurrently (we lost a day to that). Builds while another agent times are tolerated only when
   small; check `ps -eo cmd | grep -E 'bench.py|jev_search'` first.
+- **Stalled subagents**: if an agent keeps reporting "waiting on background work" while `ps` shows no `bench.py`/`jev_search`/`cargo` and its artifact dir has not changed for 15+ minutes, it is stuck in post-processing. Measurements are safe in `rounds.jsonl`; stop it and have another agent finish the write-up from artifacts. Prefer splitting long sweeps into a measuring agent and a separate write-up agent.
 - **Never edit a running shell script** (`scripts/*.sh`) — bash re-reads it mid-run and dies.
 - **Frozen things** (vocabulary texts in `scripts/jev_vocab.py`, state templates, site sets in
   `targets/*/sites.json`, marks, `EXPECTED.md` §1–§4): changing them means re-running every
