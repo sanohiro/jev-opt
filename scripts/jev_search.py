@@ -170,6 +170,12 @@ DEFAULTS = {
         "warmup": 3,
         "seed": 20260921,
         "resamples": 10000,
+        # Measurement protocol v2 (results.md 170). The defaults are
+        # protocol v1 (decision 80), so a config without these keys measures
+        # exactly as before. `reps_oracle` None means "= repetitions".
+        "confirm_when": "ci",
+        "aa_leg": True,
+        "reps_oracle": None,
     },
     "jev": {
         "base_url": "https://ai-gateway.vercel.sh/typesafe",
@@ -3845,13 +3851,64 @@ def strip_copy(src, dst):
     return dst
 
 
-def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples):
-    """Interleaved timing of cand vs base vs an in-run A/A copy of base."""
+# Measurement protocols (results.md 170). v1 is decision 80 as it has run
+# since jaq's oracle A; v2 is selected explicitly and changes only cost:
+# a confirmation batch only where the first batch reached the MDE, no A/A
+# leg in the oracle's one-factor arm batches, and `reps_oracle` repetitions
+# there. `--protocol` is a preset; an explicit key or flag wins over it.
+PROTOCOLS = {
+    "v1": {"confirm_when": "ci", "aa_leg": True, "reps_oracle": None},
+    "v2": {"confirm_when": "mde", "aa_leg": False, "reps_oracle": 8},
+}
+CONFIRM_RULES = ("ci", "mde")
+
+
+def batch_labels(aa=True):
+    """The label names of one timing batch. `aa` False drops the in-run
+    A/A copy of the baseline (protocol v2, oracle arm batches only)."""
+    return ["base", "cand", "aa"] if aa else ["base", "cand"]
+
+
+def confirm_trigger(rec, own_wl, rule, mde=None):
+    """Which readouts of a first batch call for a confirmation batch.
+
+    rule "ci" (protocol v1, decision 80 a): the 95% CI excludes 1.
+    rule "mde" (protocol v2): |ratio - 1| >= MDE, where MDE is `mde` if
+    given (the frozen `[evaluation] mde` / `--mde`) and otherwise the
+    batch's own `rec["mde"]` = max(2 x worst half-width, 3%) from bench.py
+    stats. A difference below the MDE is reported as flat with one batch.
+    Returns the list of readouts that fired ("aggregate" and/or own_wl).
+    """
+    if rule not in CONFIRM_RULES:
+        raise ValueError("unknown confirm rule %r" % rule)
+    thr = mde if mde is not None else rec.get("mde")
+    thr = max(float(thr if thr is not None else 0.03), 0.03)
+
+    def fires(ratio, ci):
+        if rule == "ci":
+            return bool(excludes_one(ci))
+        return ratio is not None and abs(ratio - 1.0) >= thr
+    fired = []
+    if fires(rec.get("ratio"), rec.get("ci95")):
+        fired.append("aggregate")
+    k = rec.get("kernel")
+    if k and fires(k.get("ratio"), k.get("ci95")):
+        fired.append(own_wl)
+    return fired
+
+
+def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples,
+            aa=True):
+    """Interleaved timing of cand vs base vs an in-run A/A copy of base.
+
+    `aa` False times base and cand only (protocol v2's oracle arm batches);
+    every consumer then sees `aa: null`."""
     timing = os.path.join(out_dir, "timing")
     os.makedirs(timing, exist_ok=True)
     labels = [("base", strip_copy(base_bin, os.path.join(timing, "base"))),
-              ("cand", strip_copy(cand_bin, os.path.join(timing, "cand"))),
-              ("aa", strip_copy(base_bin, os.path.join(timing, "aa")))]
+              ("cand", strip_copy(cand_bin, os.path.join(timing, "cand")))]
+    if aa:
+        labels.append(("aa", strip_copy(base_bin, os.path.join(timing, "aa"))))
     samples = os.path.join(out_dir, "samples.json")
     argv = [sys.executable, BENCH, "run", "--out", samples,
             "--cpu", shell["bench_cpu"], "--warmup", str(warmup),
@@ -4025,6 +4082,7 @@ class Search:
             cfg["evaluation"]["repetitions"])
         self.warmup = args.warmup if args.warmup is not None else int(
             cfg["evaluation"]["warmup"])
+        self.resolve_protocol(args, cfg["evaluation"])
         # --seed-offset (default 0, identical behaviour) shifts the base
         # seed for the random proposer, the per-round shuffle (self.seed +
         # round_no) and the confirmation batch (self.seed + 100000 +
@@ -4048,6 +4106,56 @@ class Search:
                      "plan_sig": plan_signature([], []), "batches": []}
         self.jev = None
         self.t0 = time.time()
+
+    def resolve_protocol(self, args, ev):
+        """confirm_when / aa_leg / reps_oracle / mde: flag > config >
+        --protocol preset > protocol v1 (results.md 170)."""
+        preset = PROTOCOLS[getattr(args, "protocol", None) or "v1"]
+        explicit = {"confirm_when": getattr(args, "confirm_when", None),
+                    "aa_leg": {"on": True, "off": False}.get(
+                        getattr(args, "aa_leg", None)),
+                    "reps_oracle": getattr(args, "reps_oracle", None)}
+        got = {}
+        for k in ("confirm_when", "aa_leg", "reps_oracle"):
+            if explicit[k] is not None:
+                got[k] = explicit[k]
+            elif getattr(args, "protocol", None):
+                got[k] = preset[k]
+            else:
+                got[k] = ev.get(k, DEFAULTS["evaluation"][k])
+        if got["confirm_when"] not in CONFIRM_RULES:
+            sys.exit("[evaluation] confirm_when must be one of %s, got %r"
+                     % (CONFIRM_RULES, got["confirm_when"]))
+        if isinstance(got["aa_leg"], str):
+            got["aa_leg"] = got["aa_leg"].lower() in ("true", "on", "1")
+        self.confirm_when = got["confirm_when"]
+        self.aa_leg = bool(got["aa_leg"])
+        self.reps_oracle = int(got["reps_oracle"]) if got["reps_oracle"] \
+            else self.reps
+        mde = getattr(args, "mde", None)
+        if mde is None:
+            mde = ev.get("mde")
+        self.mde = float(mde) if mde is not None else None
+        v1 = (self.confirm_when == "ci" and self.aa_leg
+              and self.reps_oracle == self.reps)
+        v2 = (self.confirm_when == "mde" and not self.aa_leg
+              and self.reps_oracle < self.reps)
+        self.protocol = {"name": "v1" if v1 else ("v2" if v2 else "custom"),
+                         "preset": getattr(args, "protocol", None),
+                         "confirm_when": self.confirm_when,
+                         "aa_leg_oracle_arms": self.aa_leg,
+                         "reps": self.reps, "reps_oracle": self.reps_oracle,
+                         "mde": self.mde,
+                         "mde_source": ("frozen" if self.mde is not None
+                                        else "per batch, max(2 x worst "
+                                        "half-width, 3%)")}
+        if not v1:
+            print("[protocol] %s: confirm_when=%s, A/A leg in oracle "
+                  "one-factor arms %s, reps %d (oracle arms %d), MDE %s"
+                  % (self.protocol["name"], self.confirm_when,
+                     "on" if self.aa_leg else "off", self.reps,
+                     self.reps_oracle, "%.4f" % self.mde if self.mde
+                     else "per batch"))
 
     # -- baseline ---------------------------------------------------------
 
@@ -4135,6 +4243,47 @@ class Search:
             return items
         return [i for i in items if i.id in self.site_allow]
 
+    def batch_plan(self, arm):
+        """(repetitions, A/A leg?) of a round's first timing batch. Only an
+        oracle one-factor arm takes `reps_oracle` and may drop the A/A leg
+        (protocol v2); search rounds and the combination arm do not."""
+        one_factor = (arm or {}).get("kind") == "one-factor"
+        return ((self.reps_oracle if one_factor else self.reps),
+                bool(self.aa_leg or not one_factor))
+
+    def oracle_loops(self, loops):
+        """`--site-filter vectorized`: the oracle's loop arms only at the
+        loops the baseline dump's `post_vectorize` record says LLVM
+        vectorized (results.md 170, staging). Arms only: the round's plan
+        and its phase-B items are unchanged, so an arm is still one
+        candidate at one site with every other site at KEEP_DEFAULT.
+
+        This filter is lossy by construction: on zopfli the only gains and
+        losses were `unroll_count` arms on UNvectorized loops (results.md
+        168), so it is meant for the width / interleave / unroll_disable
+        stage, not for a whole loop sweep (docs/search-driver.md)."""
+        mode = getattr(self.args, "site_filter", "all") or "all"
+        if mode == "all":
+            return loops
+        if self.args.proposer != "oracle":
+            sys.exit("--site-filter is an oracle staging option; jev, random "
+                     "and oracle must share one site set (SPEC.ja.md 2)")
+        recs = [i for i in loops
+                if isinstance(i.meta.get("post_vectorize"), dict)
+                and i.meta["post_vectorize"].get("watched")]
+        if not recs:
+            sys.exit("--site-filter vectorized: no loop in the baseline dump "
+                     "carries a post_vectorize record (baseline built with an "
+                     "older plugin?); rebuild the baseline or use --site-set")
+        kept = [i for i in recs
+                if i.meta["post_vectorize"].get("exists")
+                and i.meta["post_vectorize"].get("isvectorized")]
+        print("[sites] --site-filter vectorized keeps %d of %d loop sites "
+              "for the oracle's arms: %s" % (len(kept), len(loops),
+                                              ", ".join(i.id for i in kept)
+                                              or "none"))
+        return kept
+
     def plugin_knobs(self, extra=()):
         # -Zllvm-plugins and the pinned reordering flag. build_variant drops
         # an exact duplicate, so passing the reordering flag here is safe even
@@ -4147,6 +4296,12 @@ class Search:
     def run(self):
         if not os.path.isfile(PLUGIN):
             sys.exit("no plugin at %s (scripts/build_plugin.sh)" % PLUGIN)
+        if (getattr(self.args, "site_filter", "all") != "all"
+                or getattr(self.args, "oracle_candidates", None)) \
+                and self.args.proposer != "oracle":
+            sys.exit("--site-filter / --oracle-candidates are oracle staging "
+                     "options; jev, random and oracle must share one site "
+                     "set and vocabulary (SPEC.ja.md 2)")
         meta = self.baseline()
         base_reports = read_reports(meta["reports"])
         missing = unmatched_marks(base_reports)
@@ -4277,8 +4432,19 @@ class Search:
 
         proposer = self.make_proposer()
         if self.args.proposer == "oracle":
-            arms = proposer.plan_arms(self.fn_list, self.base_loops,
+            arms = proposer.plan_arms(self.fn_list,
+                                      self.oracle_loops(self.base_loops),
                                       self.build_list, self.args.oracle_phase)
+            cand_glob = getattr(self.args, "oracle_candidates", None)
+            if cand_glob:
+                import fnmatch
+                pats = [g.strip() for g in cand_glob.split(",") if g.strip()]
+                kept = [a for a in arms if any(fnmatch.fnmatchcase(
+                    a["candidate"], g) for g in pats)]
+                print("[oracle] --oracle-candidates %s keeps %d of %d arms "
+                      "(the same filter at every site)"
+                      % (cand_glob, len(kept), len(arms)))
+                proposer.arms = arms = kept
             print("[oracle] phase %s: %d one-factor arms + 1 combination arm "
                   "(+1 baseline build already done)"
                   % (self.args.oracle_phase, len(arms)))
@@ -4373,7 +4539,11 @@ class Search:
         # Not len(self.history): a lost round (decision 92 d) is recorded
         # and counted but is not history.
         round_no = self.n_rounds
-        limit = (10 ** 9 if self.args.proposer == "oracle"
+        # For the oracle --rounds is a cap on the arms (results.md 170: a
+        # single-arm verification); without it the whole sweep runs, as
+        # before. Frozen oracle runs never passed it.
+        limit = ((self.args.rounds or 10 ** 9)
+                 if self.args.proposer == "oracle"
                  else int(self.args.rounds or self.cfg["search"]["rounds"]))
         while round_no < limit:
             arm = None
@@ -4400,10 +4570,41 @@ class Search:
                 continue
             self.history.append(self.history_entry(rec))
             self.update_best(rec)
+            if self.args.proposer == "oracle":
+                self.oracle_progress(proposer, limit)
 
         self.measure_holdout()
         self.finish()
         return 0
+
+    def oracle_progress(self, proposer, limit):
+        """One line per oracle arm: skipped / measured / remaining and an
+        ETA from the running mean wall clock of each kind (results.md 170).
+        A no-op arm still costs a build + correctness + code_class."""
+        try:
+            rows = [json.loads(l) for l in open(self.rounds_path)]
+        except OSError:
+            return
+        sk = [r["wall_s"] for r in rows
+              if r.get("status") == "identical_to_baseline" and "wall_s" in r]
+        me = [r["wall_s"] for r in rows if r.get("measured") and "wall_s" in r]
+        other = len(rows) - len(sk) - len(me)
+        # every one-factor arm plus the combination arm, or the --rounds cap
+        total = min(len(proposer.arms) + 1, limit)
+        left = max(total - len(rows), 0)
+        mean = lambda xs: sum(xs) / len(xs) if xs else None
+        done = len(sk) + len(me)
+        if done:
+            p_skip = len(sk) / done
+            ms, mm = mean(sk) or 0.0, mean(me) or (mean(sk) or 0.0)
+            eta = left * (p_skip * ms + (1 - p_skip) * mm)
+        else:
+            ms = mm = eta = None
+        print("[oracle] progress: %d skipped (no-op, mean %s s), %d measured "
+              "(mean %s s), %d other, %d remaining, ETA %s"
+              % (len(sk), "%.0f" % ms if sk else "-", len(me),
+                 "%.0f" % mm if me else "-", other, left,
+                 ("%.0f min" % (eta / 60.0)) if eta is not None else "-"))
 
     def measure_holdout(self):
         """The one holdout measurement of SPEC.ja.md 7, opt-in.
@@ -4526,6 +4727,8 @@ class Search:
                "readout": self.args.readout,
                "case_set": self.shell["bench_set"], "arm": arm,
                "reps": self.reps, "warmup": self.warmup,
+               "protocol": self.protocol["name"],
+               "confirm_rule": self.confirm_when,
                "smoke": bool(self.args.smoke)}
         print("\n=== round %d (%s) ===" % (round_no, self.args.proposer))
 
@@ -4727,9 +4930,16 @@ class Search:
                                  [w.split("=", 1)[0]
                                   for w in self.shell["workloads"]])
         rec["own_workload"] = own_wl
+        # Protocol v2 (results.md 170): an oracle one-factor arm may be timed
+        # without the A/A leg and with `reps_oracle` repetitions. Search
+        # rounds, the combination arm, confirmation batches and the holdout
+        # keep the A/A leg; the combination and search rounds keep `reps`.
+        reps, aa = self.batch_plan(arm)
+        rec["reps"] = reps
+        rec["confirm_rule"] = self.confirm_when
         stats, err = measure(binary, self.baseline_bin(), self.shell, rdir,
-                             self.reps, self.warmup, self.seed + round_no,
-                             self.resamples)
+                             reps, self.warmup, self.seed + round_no,
+                             self.resamples, aa=aa)
         if stats is None:
             rec["status"] = "measure-failed"
             rec["error"] = err
@@ -4740,14 +4950,18 @@ class Search:
         self.record_batch(rec, stats, own_wl, key=None)
         rec["mde"] = stats["mde"]
         rec["status"] = "measured"
-        print("[B] ratio %.4f  CI [%.4f, %.4f]  (in-run A/A %.4f +-%.4f)"
+        print("[B] ratio %.4f  CI [%.4f, %.4f]  %s  [n=%d, %d labels]"
               % (rec["ratio"], rec["ci95"][0], rec["ci95"][1],
-                 rec["aa"]["ratio"], rec["aa"]["halfwidth"]))
+                 ("(in-run A/A %.4f +-%.4f)"
+                  % (rec["aa"]["ratio"], rec["aa"]["halfwidth"]))
+                 if rec.get("aa") else "(no A/A leg)",
+                 reps, len(rec.get("labels") or [])))
         if rec.get("kernel"):
             k = rec["kernel"]
-            print("[B] %s only: ratio %.4f CI [%.4f, %.4f]  (A/A %.4f)"
+            print("[B] %s only: ratio %.4f CI [%.4f, %.4f]  (A/A %s)"
                   % (own_wl, k["ratio"], k["ci95"][0], k["ci95"][1],
-                     k["aa_ratio"]))
+                     "%.4f" % k["aa_ratio"] if k.get("aa_ratio") is not None
+                     else "-"))
 
         # Decision 80 (a): one batch does not decide. An arm whose interval
         # excludes 1 --- on the aggregate, or on its own kernel's workload,
@@ -4757,21 +4971,33 @@ class Search:
         # only believed if both batches exclude 1 with the same sign. The
         # second batch lives inside the same round record: a round is still
         # one arm, and `--resume` still counts rounds.
-        fired = []
-        if excludes_one(rec["ci95"]):
-            fired.append("aggregate")
-        if rec.get("kernel") and excludes_one(rec["kernel"]["ci95"]):
-            fired.append(own_wl)
+        # Protocol v2 replaces "the interval excludes 1" by "the difference
+        # reached the MDE" (`confirm_when = "mde"`). What v1 would have
+        # fired is recorded beside it, so the saving can be counted.
+        fired = confirm_trigger(rec, own_wl, self.confirm_when, self.mde)
         rec["confirm_trigger"] = fired
+        if self.confirm_when != "ci":
+            ci_fired = confirm_trigger(rec, own_wl, "ci")
+            rec["confirm_trigger_ci_rule"] = ci_fired
+            rec["confirm_mde"] = max(float(self.mde if self.mde is not None
+                                           else rec.get("mde") or 0.03), 0.03)
+            if ci_fired and not fired:
+                rec["flat_below_mde"] = True
+                print("[B] CI excludes 1 but |ratio - 1| < MDE %.4f: "
+                      "reported flat, no confirmation batch (confirm_when "
+                      "= mde)" % rec["confirm_mde"])
         if fired and not self.args.no_confirm_batch:
             cdir = os.path.join(rdir, "confirm")
             os.makedirs(cdir, exist_ok=True)
             cseed = self.seed + 100000 + round_no
-            print("[B] confirmation batch (%s excluded 1), fresh seed %d"
-                  % ("+".join(fired), cseed))
+            print("[B] confirmation batch (%s %s), fresh seed %d"
+                  % ("+".join(fired), "excluded 1" if self.confirm_when ==
+                     "ci" else "reached the MDE", cseed))
+            # A confirmation batch always carries the A/A leg; it uses the
+            # first batch's repetitions.
             cstats, cerr = measure(binary, self.baseline_bin(), self.shell,
-                                   cdir, self.reps, self.warmup, cseed,
-                                   self.resamples)
+                                   cdir, reps, self.warmup, cseed,
+                                   self.resamples, aa=True)
             if cstats is None:
                 rec["confirm"] = {"error": cerr, "seed": cseed}
                 print("[B] confirmation batch failed: %s" % cerr)
@@ -4835,8 +5061,10 @@ class Search:
         into["argv0"] = argv0_record(stats)
         into["ratio"] = agg["cand"]["ratio"]
         into["ci95"] = agg["cand"]["ci95"]
-        into["aa"] = {"ratio": agg["aa"]["ratio"], "ci95": agg["aa"]["ci95"],
-                      "halfwidth": agg["aa"]["halfwidth"]}
+        into["labels"] = list(stats.get("labels") or [])
+        into["aa"] = ({"ratio": agg["aa"]["ratio"], "ci95": agg["aa"]["ci95"],
+                       "halfwidth": agg["aa"]["halfwidth"]}
+                      if "aa" in agg else None)
         # Experiment 4: every case's own reading, not only the arm's. A
         # search round moves several sites at once, so `own_workload_of` has
         # nothing to key on (`arm` is None) and the per-site feedback the
@@ -4852,11 +5080,11 @@ class Search:
             for w, c in sorted(percase.items())}
         if own_wl and own_wl in percase:
             c = percase[own_wl]
-            a = aacase[own_wl]
+            a = aacase.get(own_wl) or {}
             into["kernel"] = {"workload": own_wl, "ratio": c["ratio_vs_base"],
                               "ci95": c["ci95"], "halfwidth": c["halfwidth"],
-                              "aa_ratio": a["ratio_vs_base"],
-                              "aa_ci95": a["ci95"]}
+                              "aa_ratio": a.get("ratio_vs_base"),
+                              "aa_ci95": a.get("ci95")}
         return into
 
     @staticmethod
@@ -5052,6 +5280,8 @@ class Search:
             "taskset_cpu": self.shell["bench_cpu"],
             "gap_ms": self.shell["bench_gap_ms"],
             "repetitions": self.reps, "warmup": self.warmup,
+            # results.md 170: which measurement protocol the run used.
+            "protocol": self.protocol,
             # "seed" is the effective base seed (config seed + seed_offset);
             # seed_offset is recorded separately so a manifest shows both
             # what was configured and what --seed-offset shifted it by
@@ -5099,6 +5329,19 @@ class Search:
                       self.shell["bench_gap_ms"], V.VOCAB_VERSION,
                       STATE_FORMAT_VERSION, self.args.readout))
         out.append("")
+        pr = self.protocol
+        out.append("Measurement protocol %s (results.md 170): confirmation "
+                   "batch when %s; oracle one-factor arms timed %s, n=%d. "
+                   "Search rounds, the combination arm, confirmation "
+                   "batches and the holdout keep the A/A leg."
+                   % (pr["name"], "the 95% CI excludes 1" if
+                      pr["confirm_when"] == "ci" else
+                      "|ratio - 1| >= MDE (sub-MDE differences are reported "
+                      "flat without a second batch)",
+                      "with base + cand + aa" if pr["aa_leg_oracle_arms"]
+                      else "with base + cand only (no A/A leg)",
+                      pr["reps_oracle"]))
+        out.append("")
         out.append("Acceptance rule, fixed before the first round: a round "
                    "becomes the best so far only if its plan differs from "
                    "the incumbent's, its output matches the baseline on "
@@ -5136,7 +5379,8 @@ class Search:
                                   else "-")) if r.get("confirmed") else (
                 "no" if r.get("confirm") else
                 ("n/a" if r.get("status") == "identical_to_baseline"
-                 else "not triggered"))
+                 else ("flat (<MDE)" if r.get("flat_below_mde")
+                       else "not triggered")))
             explored = []
             for ph in (pa, pb):
                 for sid, pick in ((ph.get("exploration") or {})
@@ -5354,6 +5598,36 @@ def main():
                         "arms (A), the loop arms (B) or both (default). The "
                         "rounds themselves are unchanged: both phases are "
                         "still built.")
+    p.add_argument("--site-filter", default="all",
+                   choices=("all", "vectorized"),
+                   help="oracle only: vectorized restricts the loop ARMS to "
+                        "loops the baseline dump's post_vectorize record "
+                        "says LLVM vectorized. Lossy (zopfli's only moving "
+                        "arms were unroll_count on unvectorized loops); a "
+                        "staging aid, see docs/search-driver.md")
+    p.add_argument("--oracle-candidates", default=None, metavar="GLOB[,GLOB]",
+                   help="oracle only: keep the one-factor arms whose "
+                        "candidate matches one of these fnmatch globs "
+                        "(e.g. 'unroll_count_*'), at every site alike")
+    p.add_argument("--protocol", default=None, choices=sorted(PROTOCOLS),
+                   help="measurement protocol preset (results.md 170): v1 = "
+                        "decision 80 (confirm when the CI excludes 1, A/A leg "
+                        "everywhere, oracle reps = reps); v2 = confirm_when "
+                        "mde, no A/A leg in oracle one-factor arms, "
+                        "reps_oracle 8. Without it the [evaluation] keys "
+                        "decide (default v1)")
+    p.add_argument("--confirm-when", default=None, choices=CONFIRM_RULES,
+                   help="override [evaluation] confirm_when: ci (v1) or mde")
+    p.add_argument("--aa-leg", default=None, choices=("on", "off"),
+                   help="override [evaluation] aa_leg for the oracle's "
+                        "one-factor arm batches")
+    p.add_argument("--reps-oracle", type=int, default=None, metavar="N",
+                   help="override [evaluation] reps_oracle: repetitions of "
+                        "an oracle one-factor arm batch and its confirmation")
+    p.add_argument("--mde", type=float, default=None,
+                   help="frozen MDE for confirm_when=mde (floor 0.03); "
+                        "default [evaluation] mde, else each batch's own "
+                        "max(2 x worst half-width, 3%%)")
     p.add_argument("--fn-attr-scope", default="own", choices=("own", "all"),
                    help="own (default): a function attribute goes on the "
                         "mark's own functions and every monomorphization, "
@@ -5381,7 +5655,7 @@ def main():
 
     cfg = load_config(args.config)
     if args.proposer == "oracle" and args.rounds:
-        print("[note] --rounds is ignored for the oracle")
+        print("[note] --rounds %d caps the oracle's arms" % args.rounds)
     return Search(args, cfg).run()
 
 

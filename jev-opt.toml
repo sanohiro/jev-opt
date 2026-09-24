@@ -43,6 +43,28 @@ repetitions = 15
 warmup = 3
 seed = 20260921
 resamples = 10000
+# Measurement protocol (results.md 170). The values below are protocol v1,
+# decision 80, the protocol every frozen comparison used. Protocol v2 is
+# selected explicitly (`jev_search.py --protocol v2`, or these keys / the
+# matching flags) and changes cost only where noted:
+#   confirm_when  "ci": a confirmation batch whenever the first batch's 95%
+#                 CI excludes 1 (v1). "mde": only when |ratio - 1| >= MDE
+#                 (`mde` below if set, else the batch's own max(2 x worst
+#                 half-width, 3%)); a sub-MDE difference is reported flat
+#                 with one batch --- and so can never be accepted by a
+#                 search, since acceptance needs the confirmation.
+#   aa_leg        true: every batch carries the in-run A/A copy of the
+#                 baseline. false: the oracle's one-factor arm batches are
+#                 timed base + cand only; search rounds, the combination
+#                 arm, confirmation batches and the holdout keep it.
+#   reps_oracle   repetitions of an oracle one-factor arm batch (and its
+#                 confirmation). Unset = `repetitions` / `-n`.
+#   mde           a frozen MDE for confirm_when = "mde" (floor 0.03). Unset
+#                 = per batch.
+confirm_when = "ci"
+aa_leg = true
+# reps_oracle = 8
+# mde = 0.03
 
 [jev]
 base_url = "https://ai-gateway.vercel.sh/typesafe"

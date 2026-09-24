@@ -227,6 +227,9 @@ further.
 
 `--ignore-apply-failures` relaxes rule 2 for debugging and
 `--no-confirm-batch` drops rule 4; the outcome is recorded either way.
+Under measurement protocol v2 (`confirm_when = "mde"`, see "Measurement")
+the confirmation batch of rule 4 is only taken when the first batch reached
+the MDE, so a sub-MDE round fails rule 4 by construction.
 
 ### No-op arms are not measured (decision 80 b)
 
@@ -255,7 +258,8 @@ Per round, in `round-NN/`:
 * the candidate binary is copied out unstripped (for `norm_code_diff.py`) and
   three stripped copies are made for timing: `base`, `cand` and `aa`, the
   last a second copy of the baseline binary, which is the in-run A/A of
-  SPEC.ja.md 2.
+  SPEC.ja.md 2. Protocol v2 drops `aa` from the oracle's one-factor arm
+  batches only (next section).
 * `bench.py run --shuffle <seed+round> --gap-ms <target's> --cpu <target's>
   --runs <n> --warmup <w> --stdout <target's>`; the CPU, the gap and the
   stdout policy come from `target_common.sh`, so jaq gets CPU 4, 250 ms and
@@ -274,6 +278,109 @@ Per round, in `round-NN/`:
   acceptance rule is untouched.
 * each round record carries `wall_s`, written at the call site in `run()`
   because `one_round` has six early returns. Nothing reads it back.
+
+### Measurement protocol v1 and v2 (results.md 170)
+
+Protocol **v1** is decision 80 as every frozen comparison ran it, and it is
+the default. Protocol **v2** is selected explicitly and exists because, on
+zopfli, 95% of the measurement time was repeated timing rather than builds,
+and 20 of 22 confirmation batches confirmed differences below the MDE
+(results.md 168-169). v2 changes cost, not what the MDE rule reads.
+
+| | v1 (default) | v2 (`--protocol v2`) |
+|---|---|---|
+| confirmation batch when | first batch's 95% CI excludes 1 (aggregate, or own kernel) | \|ratio - 1\| >= MDE (aggregate, or own kernel) |
+| oracle one-factor arm batch | base + cand + aa, `n` reps | base + cand, `reps_oracle` reps (8) |
+| confirmation batch | base + cand + aa, `n` | base + cand + aa, the first batch's reps |
+| search round (`jev` / `random`), combination arm, holdout | base + cand + aa, `n` | unchanged |
+
+Keys (`jev-opt.toml [evaluation]`) and flags; a flag beats the key, and an
+explicit key or flag beats the `--protocol` preset:
+
+| key | flag | v1 | v2 |
+|---|---|---|---|
+| `confirm_when` | `--confirm-when ci\|mde` | `"ci"` | `"mde"` |
+| `aa_leg` | `--aa-leg on\|off` | `true` | `false` |
+| `reps_oracle` | `--reps-oracle N` | = `repetitions` / `-n` | 8 |
+| `mde` | `--mde X` | (unused) | unset: each batch's own `max(2 x worst half-width, 3%)`; set: that value, floor 0.03 |
+
+What is recorded: every round carries `protocol` (`v1`, `v2` or `custom`),
+`confirm_rule`, `reps` (the reps of its first batch) and `labels` (the
+labels its first batch was timed with). Under `confirm_when = "mde"` a round
+also carries `confirm_trigger_ci_rule` (what v1 would have fired),
+`confirm_mde` (the threshold used) and `flat_below_mde: true` when v1 would
+have confirmed and v2 did not; `summary.md`'s confirmed column says
+`flat (<MDE)`. An arm timed without the A/A leg has `aa: null` and
+`kernel.aa_ratio: null`; `scripts/hintbench_oracle_report.py` and
+`scripts/jaq_oracle_table2.py` index `aa` and have only been run on v1
+rounds. The manifest has a `protocol` block with the resolved values.
+
+Three consequences to state when v2 is used:
+
+* **acceptance.** Rule 4 needs the confirmation, so under `confirm_when =
+  "mde"` a round below the MDE can never become the incumbent of a
+  `jev` / `random` search. Under v1 it could (both intervals excluding 1 is
+  enough). Decisions 96 and 100 already refuse to call a sub-MDE difference
+  an effect; v2 makes the driver agree.
+* **MDE without the A/A leg.** `bench.py stats` takes the worst half-width
+  over the non-base labels, so without `aa` it is cand's half-width alone.
+  That is still the batch's paired noise, and a smaller MDE only means more
+  confirmations.
+* **n = 8 widens the per-batch MDE where a case is noisy.** On the existing
+  samples, re-read at their first 8 rounds (results.md 170), zopfli's
+  per-batch MDE stays at the 3% floor (median 3.0%, max 3.1%) but
+  hintbench's rises from a median 4.2% to 5.3% (max 10.8%, all from k8). On
+  a target like that, freeze `mde` (the target's A/A MDE, floor 3%) or keep
+  `reps_oracle` = `n`, or a real 4-5% effect is reported flat.
+
+`--rounds N` caps the oracle's arms (it was ignored before; no frozen run
+passed it), and `--oracle-candidates GLOB[,GLOB]` keeps only the one-factor
+arms whose candidate matches, at every site alike. Together with a marks
+subset they time one named arm (results.md 170 did `k2_mix inline_always`).
+
+### Staging an oracle, and what a no-op arm costs
+
+A no-op arm is not timed (decision 80 b), but it still costs a phase-B build,
+the correctness run and `norm_code_diff` + `nm`: 29 s each on zopfli, 38 of
+68 arms, 18 minutes of a 4.4 h sweep. That is the only sound no-op test and
+it stays. After every arm the oracle prints
+
+```
+[oracle] progress: 12 skipped (no-op, mean 29 s), 9 measured (mean 124 s), 0 other, 47 remaining, ETA 58 min
+```
+
+(ETA = remaining x the running mix of skipped and measured means.)
+
+On a real program, stage the sweep instead of running `--oracle-phase all`
+(decision 103):
+
+1. **`--oracle-phase A`**: function attributes only (the `__build__`
+   pseudo-site, if any, is in phase A). On zopfli that was 12 arms, about
+   1 h under v1, and reached the same conclusion as the whole sweep.
+2. **Loops, `unroll_count_*` on every site**: `--oracle-phase B
+   --oracle-candidates 'unroll_count_*'`. On zopfli these were the only loop
+   arms that moved either way (`squeeze.rs:325` unroll 8 +1.3%, `275`
+   unroll 4 / 8 -3.4% / -8.4%), and all four of their loops are
+   **unvectorized**.
+3. **Loops, width / interleave / `unroll_disable` only where LLVM
+   vectorized**: `--oracle-phase B --site-filter vectorized
+   --oracle-candidates 'vectorize_width_*,interleave_count_*,unroll_disable'`.
+   `--site-filter vectorized` keeps the loops whose baseline-dump
+   `post_vectorize` record has `exists` and `isvectorized`; it refuses to run
+   when the dump has no such record (a baseline built by an older plugin) and
+   is refused for `jev` / `random`, which must share the oracle's site set
+   (SPEC.ja.md 2). On zopfli it would have skipped exactly the 32 no-op arms
+   on the four unvectorized loops (§168.2). It is **lossy for
+   `unroll_count`** (step 2 is why), and `unroll_disable` on an unvectorized
+   loop is not always a no-op: zopfli's Stage-0 lever, `-unroll-max-count=1`
+   at `cache.rs:108` (+1.6%, decision 98), is exactly that, on a loop outside
+   the frozen site set. Drop step 3's filter when such a loop is in the set.
+
+Each stage is its own `--out` directory with its own combination arm; the
+combination across stages is a separate arm by hand (a plan file from the
+confirmed winners), measured once. The manual alternative to
+`--site-filter` is a `--site-set` list in `sites.json`, written before the
+run and recorded like any other frozen site set.
 
 ## The state format (frozen)
 

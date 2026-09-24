@@ -13564,3 +13564,176 @@ timing alone". The six runs took 19 005.8 s = 5.28 h of `wall_s`, and 06:37:08�
   in this vocabulary and site set (§168: ceiling +1.8%, under the MDE).
   Also not established: anything about `cache.rs:108`, which lies outside
   this site set.
+
+### 170. Measurement protocol v2 (confirm at MDE, no A/A leg in oracle arms, fewer reps): verification on toy and hintbench
+
+**Why.** On zopfli 95% of the measurement time was timing, not builds, and
+20 of the 22 confirmation batches of the oracle confirmed differences below
+the MDE (§168; decision 103). Protocol v2 cuts the timing without changing
+what the MDE rule reads. Protocol v1 (decision 80) stays the default and
+every frozen comparison keeps it. `jev-opt.toml` gained the keys
+`confirm_when = "ci"` and `aa_leg = true` (v1 values) plus comments, so a
+run's `config_sha256` changes from this commit on **without any frozen
+value changing**.
+
+**What v2 is** (`scripts/jev_search.py --protocol v2`, or the
+`[evaluation]` keys / flags `confirm_when`, `aa_leg`, `reps_oracle`, `mde`;
+`docs/search-driver.md` "Measurement protocol v1 and v2"):
+
+| | v1 (default) | v2 |
+|---|---|---|
+| confirmation batch when | first batch's 95% CI excludes 1 (aggregate or own kernel) | \|ratio − 1\| ≥ MDE (aggregate or own kernel); MDE = frozen `mde` if set, else the batch's own max(2 × worst half-width, 3%) |
+| oracle one-factor arm batch | base + cand + aa, n = 15 | base + cand, `reps_oracle` = 8 |
+| confirmation batch | 3 labels, n | 3 labels, the first batch's n |
+| search rounds, combination arm, holdout | 3 labels, n | unchanged |
+
+Rules stated before the numbers: (1) correctness must pass on every arm
+under both protocols; (2) on the k2 arm both protocols must fire the
+confirmation and confirm the same sign; (3) the wall clock is read from
+`rounds.jsonl` `wall_s`; batch times from file mtimes (`correctness.txt` →
+`samples.json`, `stats.json` → `confirm/samples.json`). No speed claim is
+made from any of these runs.
+
+#### 170.1 Stub checks (no timing)
+
+```
+python3 -m py_compile scripts/jev_search.py
+python3 <scratchpad>/test_protocol.py     # stubbed bench.py / stats
+```
+
+`confirm_trigger(rule="mde")` fires at ratio 1.031 and 0.969 and not at
+1.029 / 0.971 (MDE 3%; `ci` fires on all four), uses a per-batch MDE above
+the floor (4.41%: 1.035 aggregate not fired, own kernel 1.10 fired), and
+floors a frozen `mde` of 0.01 to 0.03. `batch_plan()`: under v2 an oracle
+one-factor arm is (n 8, no A/A), a search round and the combination arm
+(15, A/A); under v1 everything is (15, A/A); a `--aa-leg on` flag beats the
+preset (protocol `custom`). `measure()` with a stubbed `bench.py run`
+passed 2 `--label`s with `aa=False` and 3 with `aa=True`. All passed.
+
+#### 170.2 toy: the function-attribute oracle under v1 and v2
+
+```
+export TARGET=toy
+scripts/jev_search.py --target toy --marks artifacts/plugin-day3/marks/toy-all.txt \
+    --proposer oracle --oracle-phase A --vocab v6 --protocol v2 \
+    --out artifacts/toy-search/protocol-v2          # fresh baseline (plugin of today)
+scripts/jev_search.py --target toy --marks artifacts/plugin-day3/marks/toy-all.txt \
+    --proposer oracle --oracle-phase A --vocab v6 \
+    --baseline-dir artifacts/toy-search/protocol-v2/baseline \
+    --out artifacts/toy-search/protocol-v1
+```
+
+7 rounds each (6 one-factor arms + the combination). `inline_always` on all
+three functions and the combination were `identical` (no-op, 7.8–8.3 s
+each, not timed). Correctness 7/7 and 7/7.
+
+| arm | v1 wall s | v1 ratio / hw / MDE | v2 wall s | v2 ratio / hw / MDE | v2 note |
+|---|--:|---|--:|---|---|
+| `count_quotes inline_never` | 69.1 | 0.9980 / 0.0085 / 6.44% | 33.0 | 1.0016 / 0.0062 / 3.44% | |
+| `dot_f64 inline_never` | 69.2 | 0.9994 / 0.0058 / 3.88% | 32.9 | 1.0051 / 0.0042 / 3.00% | CI [1.0009, 1.0093] excludes 1: v1 would confirm, v2 `flat_below_mde` |
+| `find_special inline_never` | 69.2 | 1.0019 / 0.0035 / 3.00% | 32.9 | 0.9955 / 0.0085 / 6.92% | |
+| run `wall_s` | 239.3 | | 136.6 | | |
+
+(hw = aggregate CI half-width.) A measured arm costs 69.1 s under v1 and
+32.9 s under v2; minus the ~7.8 s build + correctness + code_class, the
+timing is 61.3 s → 25.1 s (**0.41×**; the label × rep count predicts
+16/45 = 0.36, warmup and per-batch fixed cost make up the rest). For
+scale, the "Search driver (smoke)" round (n = 3, warmup 1, 3 labels, two
+builds) was 26 s. Every per-batch MDE above 3% here comes from one noisy
+case of the four.
+
+#### 170.3 hintbench: one known arm (`k2_mix inline_always`) under v1 and v2
+
+```
+export TARGET=hintbench
+# marks file with the single line hbkernels::k2_mix
+scripts/jev_search.py --target hintbench --marks <scratchpad>/hb-k2.txt \
+    --sites artifacts/hintbench-sites/sites.json \
+    --site-set oracle.selected_keys_loop_hint_kernels \
+    --proposer oracle --oracle-phase A --oracle-candidates inline_always --rounds 1 \
+    --vocab v6 -n 15 --warmup 3 --baseline-dir artifacts/hintbench-sites/baseline \
+    --out artifacts/hintbench-search/protocol-v1-k2
+# the same + --protocol v2 --out artifacts/hintbench-search/protocol-v2-k2
+```
+
+Case set `holdout-as-search` (hintbench declares no training set), argv0
+len 80 / class 96 on every batch, `code_class: code`, correctness OK in both.
+
+| | v1 | v2 |
+|---|---|---|
+| first batch | 15 reps, base/cand/aa, **146.9 s** | 8 reps, base/cand, **59.9 s** |
+| aggregate ratio, CI hw | 1.0654, ±0.0035 | 1.0628, ±0.0035 |
+| k2 ratio, CI hw | 1.6721, ±0.0063 | 1.6747, ±0.0099 |
+| in-run A/A hw | 0.0030 | (no leg) |
+| batch MDE | 4.63% | 5.13% |
+| trigger | CI excludes 1: aggregate + k2 | ≥ MDE: aggregate + k2 |
+| confirmation batch | 15 reps, 3 labels, 146.4 s: 1.0640 ±0.0019, k2 1.6737 ±0.0062 | 8 reps, 3 labels, 89.5 s: 1.0639 ±0.0022, k2 1.6695 ±0.0073, A/A hw 0.0043 |
+| `confirmed` / `confirmed_aggregate` | true / true | true / true |
+| arm `wall_s` | **303.4** | **159.2** |
+
+The +67% arm is found and confirmed both ways (rule 2 holds), and it is the
+oracle's §85 arm at the same size. First batch 0.41× (as on the toy),
+confirmation 0.61× (8/15 reps, labels unchanged), arm with its confirmation
+0.52×.
+
+#### 170.4 CI half-width at n = 8 vs n = 15, from existing batches (no new timing)
+
+Each of the first 12 `samples.json` of `artifacts/hintbench-oracle` and of
+`artifacts/zopfli-search/oracle` re-read by `bench.py stats` (2000
+resamples, seed 1) on all 15 rounds and on the first 8 rounds only (rounds
+are shuffled and interleaved, so the first 8 are a valid 8-rep batch):
+
+| batches | n | cand aggregate hw (median) | A/A aggregate hw | worst per-case hw | batch MDE median / max |
+|---|--:|--:|--:|--:|---|
+| hintbench oracle (12) | 15 | 0.0028 | 0.0028 | 0.0211 | 4.21% / 7.40% |
+| hintbench oracle (12) | 8 | 0.0027 | 0.0034 | 0.0264 | 5.28% / 10.77% |
+| zopfli oracle (12) | 15 | 0.0033 | 0.0036 | 0.0074 | 3.00% / 3.00% |
+| zopfli oracle (12) | 8 | 0.0047 | 0.0051 | 0.0112 | 3.00% / 3.10% |
+
+Median ratio of the 8-rep to the 15-rep half-width: zopfli 1.39 (worst
+case 1.47), hintbench 1.24 (1.26), against √(15/8) = 1.37. On zopfli the
+8-rep aggregate half-width (~0.5%) is a sixth of the 3% MDE and the MDE
+stays at the floor: v2 loses nothing the MDE rule needs. **On hintbench it
+does**: the per-batch MDE is set by k8 (per-case hw 1.3–3.6% at n = 15) and
+rises to a median 5.3%, max 10.8%, so the known k3 `unroll 4` (+4.4%) would
+not reach its batch's MDE and would be reported flat. On such a target run
+v2 with a frozen `--mde` (the target's A/A MDE, floor 3%) or with
+`--reps-oracle 15`. This is documented in `docs/search-driver.md`.
+
+#### 170.5 Projected cost under v2 (projection, not a measurement)
+
+Inputs are `artifacts/zopfli-search/*/rounds.jsonl` `wall_s` and the 0.41 /
+0.61 factors measured in 170.2–170.3.
+
+* **zopfli-sized oracle (68 arms), v1 as run: 4.40 h.** 38 no-ops × 29.4 s;
+  29 one-factor measured arms at 294.6 s (no confirmation; 265 s of it
+  timing) or 562.0 s (confirmed; 22 of 30); the combination 1 arm.
+  **v2:** 38 × 29.4 s = 0.31 h; 29 × (29.4 + 0.41 × 265.2 = 138 s) = 1.11 h;
+  confirmations only where |ratio − 1| ≥ MDE = 2 of 22 (rounds 25, 26:
+  `squeeze.rs:275` unroll 4 / 8) × 0.61 × 267 s = 0.09 h; the combination
+  at v1 cost 0.16 h. **≈ 1.67 h (2.6×).** A measured one-factor arm goes from
+  491 s (mean, confirmations included) to ~149 s (**3.3×**). Staged with
+  `--site-filter vectorized` for the width / interleave / disable arms, the
+  32 no-op builds on the four unvectorized loops are not built either:
+  **≈ 1.41 h (3.1×)**. The owner's ~5× is not reached at n = 8: what remains
+  is the fixed 29 s build + correctness + code_class per arm and the 8 reps.
+* **5-round search (jev or random), v2:** round batches keep 3 labels and
+  n = 15, so only the confirmation rule saves. The six zopfli runs (§169)
+  took 2475–3078 s (mean 2781 s) with 27 confirmations in 30 rounds, 9 of
+  them at ≥ MDE. Dropping 18 confirmations × ~270 s ≈ 810 s per run gives
+  **≈ 1970 s (33 min) per run, 1.4×**.
+
+#### 170.6 What changed in the driver
+
+`--protocol v1|v2`, `--confirm-when`, `--aa-leg`, `--reps-oracle`,
+`--mde`; `rounds.jsonl` rows carry `protocol`, `confirm_rule`, `reps`,
+`labels`, and under `mde` also `confirm_trigger_ci_rule`, `confirm_mde`,
+`flat_below_mde`; the manifest has a `protocol` block; `summary.md` states
+the protocol. An arm without the A/A leg has `aa: null`. For the oracle,
+`--rounds N` now caps the arms (it was ignored), `--oracle-candidates GLOB`
+filters arms by candidate at every site alike, `--site-filter vectorized`
+keeps only loops the baseline dump's `post_vectorize` says were vectorized
+(oracle only; refuses a dump without the record), and every arm prints
+`[oracle] progress: skipped / measured / other / remaining, ETA`. Under
+`confirm_when = "mde"` a sub-MDE round cannot pass acceptance rule 4, so a
+search can no longer promote it (v1 could).
