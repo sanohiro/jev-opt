@@ -14351,3 +14351,29 @@ unchanged re-sends after 10 s; a request that never lands is recorded as
 lost and its site's answers count as missing (not as KEEP). Every request and
 response is logged as JSONL plus one `.log` line (latency, tokens, cost);
 the Authorization header is never logged.
+
+#### 173.7 Deviations registered during sending (before the affected requests)
+
+Written 2026-09-24 15:30 JST, after 9 hintbench and 10 zopfli phase-1
+requests of repeat 1 had landed and before any further request.
+
+1. **Concurrency.** The first launch (one process, targets in series) was
+   stopped after 10 hintbench requests to run the targets in parallel; its
+   JSONL is kept as `aborted-ps2-hintbench.jsonl` and is **not scored**
+   (the scored repeats all come from the relaunch). Running three targets at
+   once brought HTTP 429s; jaq was stopped (1 landed + 1 lost request,
+   kept as `aborted-ps2-jaq.*`, not scored) and is re-run after hintbench,
+   so at most two targets send at a time.
+2. **Score (L7) requests are split.** The whole-phase Score requests are
+   62-160 KB (every (site, candidate) question carries the site's verdict
+   block). hintbench L7.A (98.7 KB) failed 3 sends of 91-116 attempts each
+   (503/429) and zopfli L7.B (60 questions) was exhausting too; zopfli L7.A
+   (18 questions) landed whole. From now on an L7 request is split into
+   chunks of at most 60 000 bytes that share the **same state** and carry
+   the same questions (tags `A.c0`, `A.c1`, ...). Questions in one request
+   are answered independently (`docs/jev-samples/README.md`), so the
+   questions asked do not change; only their grouping does. zopfli repeat
+   1's whole L7.A is superseded by its chunked re-send and not scored.
+3. **Resume.** `run --resume` skips a (repeat, variant, tag) request that
+   already landed in the target's JSONL, so the relaunch does not re-ask
+   what was answered; exhausted lines stay in the JSONL and are not scored.

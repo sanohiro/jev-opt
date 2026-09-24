@@ -381,6 +381,7 @@ INVERSE_Q = {
 }
 
 RANDOM_ORDER_SEED = 20260924
+SCORE_CHUNK_BYTES = 60000
 
 # Phase 2 (false positives): the known ways each hint hurts, appended to its
 # description identically at every site (H1).
@@ -837,8 +838,26 @@ def build_requests(search, variant, phase):
                           "criteria": list(SCORE_LEVELS)}
                 sm[qn] = {"site_id": it.id, "kind": it.kind,
                           "label": it.label, "candidate": cid}
-        return [{"tag": phase, "state": state, "questions": qs,
-                 "site_map": sm, "readout": "score"}]
+        # results.md 174 deviation: Score requests above ~60 KB did not land
+        # (503/429 for 30 min per send), so the SAME questions are split
+        # into chunks that share the same state; questions in one request
+        # are answered independently anyway (docs/jev-samples/README.md).
+        chunks, cur = [], {}
+        base = len(json.dumps({"model": "typesafe-ai/jev", "state": state}))
+        size = base
+        for qn, q in qs.items():
+            n = len(json.dumps({qn: q}))
+            if cur and size + n > SCORE_CHUNK_BYTES:
+                chunks.append(cur)
+                cur, size = {}, base
+            cur[qn] = q
+            size += n
+        if cur:
+            chunks.append(cur)
+        return [{"tag": phase if len(chunks) == 1 else "%s.c%d" % (phase, i),
+                 "state": state, "questions": c,
+                 "site_map": {k: sm[k] for k in c}, "readout": "score"}
+                for i, c in enumerate(chunks)]
     if shape == "L8":
         q1, q2 = {}, {}
         for it in items:
@@ -909,6 +928,15 @@ def cmd_run(a):
                     % (STUDY, target, V.VOCAB_VERSION,
                        S.STATE_FORMAT_VERSION, "clean" if not hits else hits))
         t0 = time.time()
+        landed = set()
+        if a.resume and os.path.isfile(client.jsonl_path):
+            for line in open(client.jsonl_path):
+                r = json.loads(line)
+                if not r.get("exhausted"):
+                    landed.add((r["round"], re.sub(r"\.retry\d*$", "",
+                                                   r["phase"])))
+            print("[resume] %d landed requests already in %s"
+                  % (len(landed), client.jsonl_path))
         for rep in range(1, a.repeats + 1):
             for variant in a.variants:
                 vph = variant_phases(variant)
@@ -919,6 +947,8 @@ def cmd_run(a):
                     if a.smoke:
                         reqs = reqs[:1]
                     for req in reqs:
+                        if (rep, "%s.%s" % (variant, req["tag"])) in landed:
+                            continue
                         ans, ln = send(client, req, rep, variant)
                         print("[%s r%d] %s %s -> %s (line %d)"
                               % (target, rep, variant, req["tag"][:40],
@@ -968,6 +998,13 @@ def site_dists(records, variant, repeat, phase):
             and r["phase"].split(".")[1] == phase
             and not r.get("exhausted")]
     # A later retry supersedes an exhausted line; keep landed lines only.
+    # results.md 174 deviation: a Score (L7) request sent whole before the
+    # chunking rule is superseded by the chunked requests of the same round.
+    tags = {r["phase"] for r in recs}
+    if any(".c" in t.split(".", 2)[-1] for t in tags if "." in t):
+        recs = [r for r in recs if not (
+            r["phase"].split(".")[0].split("+")[-1] == "L7"
+            and not re.search(r"\.c\d+", r["phase"]))]
     out = {}
     step1, step2 = {}, {}
     for r in recs:
@@ -1148,8 +1185,10 @@ def dists_for(records, variant, rep, phase):
         h = site_dists(records, "L9", rep, phase)
         out = {}
         for sid, d in b.items():
+            if sid not in h:
+                continue
             P = dict(d["P"])
-            ph = (h.get(sid) or {}).get("P") or {}
+            ph = h[sid].get("P") or {}
             for c in list(P):
                 if c != KEEP:
                     P[c] = P[c] * (1.0 - ph.get(c, 0.0))
@@ -1339,6 +1378,8 @@ def main():
     ru.add_argument("--variants", nargs="+", default=list(VARIANTS))
     ru.add_argument("--repeats", type=int, default=3)
     ru.add_argument("--run-prefix", default="ps2")
+    ru.add_argument("--resume", action="store_true",
+                    help="skip (repeat, variant, tag) requests that landed")
     ru.add_argument("--smoke", action="store_true",
                     help="one request per (variant, phase): wire check")
     sc = sub.add_parser("score")
