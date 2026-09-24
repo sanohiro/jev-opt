@@ -15160,3 +15160,106 @@ characters, not 214 / 229 as written there; the texts are as quoted.
 
 186 requests, none lost, $0 billed ($0.15 at list price), about 2 h of
 wall clock, almost all of it retrying the ~60 KB jaq requests.
+
+### 179. Marks by rule ∪ Jev gray zone: implementation and API check
+
+#### 179.1 Pre-registration
+
+Written 2026-09-25 before any request of this check was sent. API only: no
+build, no timing, no cargo, no binary run (local work: reading the perf
+tables and structure tables already on disk, `nm` / `objcopy` on the
+profiled binaries). Script: `scripts/target_marks.py` (new); logs
+`artifacts/jev-marks/<target>/tm-<target>.{jsonl,log}` (copied gzip'd to
+`docs/experiments/jev-marks-study/impl/` at the end).
+
+**What is adopted (owner, 2026-09-25; decision 109).** Marks = a mechanical
+seed ∪ a Jev gray zone, on the marks study's input set v2 (176.7):
+
+* **Listed**: every row of the perf inline table with reach >= 1% or self
+  >= 1% in the training or the holdout set (max of the two), C rows
+  removed. Same rows, ids (alphabetical) and state as the study's v2; the
+  rendered state is **byte-identical** to the `ms2-*` requests (sha256
+  prefixes jaq `99e52fc3cc9e40e6`, zopfli `c0e751e12a1768ad`, hintbench
+  `27271d841a2cbc97`), and every row field (self, reach, own symbol, size,
+  crate, per-case reach, insns, loops, hosts) equals `inputs-v2.json`.
+* **Excluded** (never marked, never asked): no IR / C (`lang c`, or a name
+  without `::` / `<`; not in the list at all), **thunks** = `insns` <= 8
+  (the study's 176.7 threshold, `--thunk-insns`; the owner's words were
+  "one-instruction thunks", and on these tables the literal 1 would exclude
+  nothing and send six 4-8 instruction helpers as questions), and rows below
+  the 1% floor in both reach and self.
+* **Seed** (always marked, no question): top N by **training** reach ∪ top N
+  by **training** self, ranked among the listed rows that are neither
+  excluded nor compiler-generated (`drop_glue` / `drop_in_place` / vtable
+  shims, regex `(^|::)drop_(glue|in_place)(::<|$)|{vtable.shim}|{shim:`);
+  ties broken alphabetically. **"Own IR symbol" is read as "a Rust function
+  the plugin has IR for"** (= not C, not a thunk, not compiler-generated),
+  **not** as the study's `own symbol` column (a text symbol in the final
+  binary): Claude's frozen marks `seq`, `str_fold`, `get_best_lengths`,
+  `lz77_optimal_run` and 6 of the 8 hintbench kernels have no final-binary
+  symbol and were resolved by the plugin and measured by the oracles; the
+  `own symbol` column stays a fact in the state and the rationale.
+  Compiler-generated rows are not excluded; they go to the gray zone.
+* **Gray zone**: every other listed row whose marks line is not already
+  matched by a seed line. One Choice {mark, skip} each, the study's Q1 text
+  and criteria unchanged (the questions of 176.7's Q3), on the whole v2
+  state; no verdict lines, no criteria block (108 addendum). **3 repeats;
+  marked if the median P(mark) over the landed repeats is >= 0.5** (the
+  owner's ">="; the study used "> 0.5" --- no study value sits at exactly
+  0.50 for these rows, so the two agree unless an answer lands on 0.50,
+  which will be reported).
+* **Marks lines**: a row's name with the depth-0 `::<…>` groups removed
+  when that still matches the row under the plugin's rule (equal /
+  continues with `::` / ends with `::` + line, `plugin/README.md`), else the
+  full name; a line matched by another selected line is folded into it
+  (e.g. `jaq_json::read::parse::<…>::{closure#1}` into
+  `jaq_json::read::parse`). The final set may exceed N.
+* **N** = the size of Claude's frozen marks: jaq 15, zopfli 6, hintbench 8
+  (`--marks-n`).
+
+**Inputs.** jaq `artifacts/jaq-marks/perf-{self,inline}.tsv`, zopfli
+`artifacts/zopfli-marks/perf-{self,inline}-{train,hold}.tsv`, structure
+`artifacts/jev-marks-study/<t>-inline-structure.tsv`, binaries as in 176.1
+(`.text` prefixes checked: `642dd55e`, `9aca86fc`, `df5968bc`). hintbench
+has no perf table: as in the study, the 8 functions of
+`targets/hintbench/jev-marks.txt` at 12.5% each (`--equal-shares`). That
+row list **is** the frozen marks, so hintbench cannot test selection; it
+only checks that the rule does not drop a kernel.
+
+**Dry run (mechanical; `scripts/target_marks.py --target <t> --dry-run`),
+computed before any request:**
+
+| target | listed | seed rows / lines | covered by a seed line | gray (questions) | excluded (thunk) | requests per repeat |
+|---|--:|--:|--:|--:|--:|--:|
+| jaq | 124 | 27 / 26 | 7 | 85 | 5 | 2 (59 863 B, 57 081 B) |
+| zopfli | 26 | 10 / 10 | 1 | 14 | 1 | 1 (15 784 B) |
+| hintbench | 8 | 8 / 8 | 0 | **0** | 0 | **0** |
+
+Seed-level facts (no Jev): jaq covers all 15 frozen marks and **both
+oracle positives** (`Val::hash` self rank 13, `write_until` reach rank 10);
+zopfli covers 5 of 6 frozen marks (`find_longest_match`, reach rank 7, is
+gray) and `lz77_optimal` + `find_longest_match_loop`; hintbench seeds all 8
+(top 8 by reach of 8 tied rows) and so covers k2 / k3 / k8 **without a
+question**.
+
+**Expectations (written now; they are checks, not verdicts):**
+
+1. jaq: final set covers both positives (via the seed, independent of Jev)
+   and all 15 frozen marks. Size: 26 seed lines + the gray rows Jev marks;
+   the study's v2 Q1 marked about 10 rows outside every control (177.1),
+   most of them gray here, so about 30-40 lines.
+2. zopfli: `lz77_optimal` covered (seed); the frozen 6 all covered if Jev
+   marks `find_longest_match` in the gray zone (v2 Q1 marked it, 177.2).
+3. hintbench: **the coordinator's expectation ("k2 rescued by Jev in the
+   gray zone, as in 177") does not apply to the adopted rule** and is
+   corrected here: that rescue came from 176.7's hybrid (mark only with
+   reach >= 5% **and** loops > 0), which was not adopted. Under the
+   adopted rule hintbench has seed 8 / gray 0, and no request is sent.
+
+**Reported per target**: seed set, gray-zone size and Jev's answers (P per
+repeat, median), final set size, overlap with Claude's frozen marks (a
+frozen mark is covered if a listed row it matches is matched by a selected
+line), oracle-positive coverage (jaq `Val::hash`, `write_until`; zopfli
+`lz77_optimal`, separately `find_longest_match_loop`; hintbench k2 / k3 /
+k8), the lines Claude did not mark with their facts, requests / HTTP 503 /
+cost. Deviations will be recorded as 179.2 before any request they affect.
