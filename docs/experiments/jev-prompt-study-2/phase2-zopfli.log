@@ -1,0 +1,22 @@
+[leak-check] static variant texts: clean
+[resume] 121 landed requests already in /home/hiro/prj/jev-optimize/artifacts/jev-prompt-study-2/ps2-zopfli.jsonl
+[zopfli r1] H1 A -> ok (line 123)
+[zopfli r1] H1 B -> ok (line 124)
+[zopfli r1] H2 A -> ok (line 125)
+[zopfli r1] H2 B -> ok (line 126)
+[zopfli r1] H3 A -> ok (line 127)
+[zopfli r1] H3 B -> ok (line 128)
+[zopfli r2] H1 A -> ok (line 129)
+[zopfli r2] H1 B -> ok (line 130)
+[zopfli r2] H2 A -> ok (line 131)
+[zopfli r2] H2 B -> ok (line 132)
+[zopfli r2] H3 A -> ok (line 133)
+[zopfli r2] H3 B -> ok (line 134)
+[zopfli r3] H1 A -> ok (line 135)
+[zopfli r3] H1 B -> ok (line 136)
+[zopfli r3] H2 A -> ok (line 137)
+[zopfli r3] H2 B -> ok (line 138)
+[zopfli r3] H3 A -> ok (line 139)
+[zopfli r3] H3 B -> ok (line 140)
+[zopfli] totals {'requests': 18, 'questions': 99, 'latency_ms': 30194.539193013043, 'max_latency_ms': 2104.81283399713, 'input_tokens': 325953, 'output_tokens': 9120, 'cost_usd': 0.0} gateway {'requests': 18, 'attempts': 124, 'landed': 18, 'exhausted': 0, 'lost_phases': 0, 'lost_rounds': 0, 'seconds_waiting': 318.0}
+phase2 exit 0

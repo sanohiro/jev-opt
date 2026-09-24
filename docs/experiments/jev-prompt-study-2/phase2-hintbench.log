@@ -1,0 +1,22 @@
+[leak-check] static variant texts: clean
+[resume] 126 landed requests already in /home/hiro/prj/jev-optimize/artifacts/jev-prompt-study-2/ps2-hintbench.jsonl
+[hintbench r1] H1 A -> ok (line 129)
+[hintbench r1] H1 B -> ok (line 130)
+[hintbench r1] H2 A -> ok (line 131)
+[hintbench r1] H2 B -> ok (line 132)
+[hintbench r1] H3 A -> ok (line 133)
+[hintbench r1] H3 B -> ok (line 134)
+[hintbench r2] H1 A -> ok (line 135)
+[hintbench r2] H1 B -> ok (line 136)
+[hintbench r2] H2 A -> ok (line 137)
+[hintbench r2] H2 B -> ok (line 138)
+[hintbench r2] H3 A -> ok (line 139)
+[hintbench r2] H3 B -> ok (line 140)
+[hintbench r3] H1 A -> ok (line 141)
+[hintbench r3] H1 B -> ok (line 142)
+[hintbench r3] H2 A -> ok (line 143)
+[hintbench r3] H2 B -> ok (line 144)
+[hintbench r3] H3 A -> ok (line 145)
+[hintbench r3] H3 B -> ok (line 146)
+[hintbench] totals {'requests': 18, 'questions': 108, 'latency_ms': 30633.176003982953, 'max_latency_ms': 2055.5929909969564, 'input_tokens': 353388, 'output_tokens': 8519, 'cost_usd': 0.0} gateway {'requests': 18, 'attempts': 176, 'landed': 18, 'exhausted': 0, 'lost_phases': 0, 'lost_rounds': 0, 'seconds_waiting': 584.0}
+phase2 exit 0

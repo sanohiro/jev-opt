@@ -1,0 +1,11 @@
+[leak-check] static variant texts: clean
+[hintbench r1] B0 A -> ok (line 1)
+[hintbench r1] B0 B -> ok (line 2)
+[hintbench r1] L1 B -> ok (line 3)
+[hintbench r1] L2 B -> ok (line 4)
+[hintbench r1] L3 B -> ok (line 5)
+[hintbench r1] L4 B -> ok (line 6)
+[hintbench r1] L5 B -> ok (line 7)
+[hintbench r1] L6 A -> ok (line 8)
+[hintbench r1] L6 B -> ok (line 9)
+[hintbench r1] L7 A -> ok (line 10)

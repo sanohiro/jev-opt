@@ -1037,11 +1037,10 @@ def site_dists(records, variant, repeat, phase):
     # A later retry supersedes an exhausted line; keep landed lines only.
     # results.md 174 deviation: a Score (L7) request sent whole before the
     # chunking rule is superseded by the chunked requests of the same round.
-    tags = {r["phase"] for r in recs}
-    if any(".c" in t.split(".", 2)[-1] for t in tags if "." in t):
-        recs = [r for r in recs if not (
-            r["phase"].split(".")[0].split("+")[-1] == "L7"
-            and not re.search(r"\.c\d+", r["phase"]))]
+    chunked = {re.sub(r"\.c\d+.*$", "", r["phase"]) for r in recs
+               if re.search(r"\.c\d+", r["phase"])}
+    recs = [r for r in recs if re.search(r"\.c\d+", r["phase"])
+            or re.sub(r"\.retry\d*$", "", r["phase"]) not in chunked]
     out = {}
     step1, step2 = {}, {}
     for r in recs:
@@ -1400,6 +1399,34 @@ def cmd_stability(a):
                      g["flips"]))
 
 
+def cmd_gateway(a):
+    """Request / attempt / 503 / 429 / token / cost totals from the JSONL."""
+    for path in sorted(a.paths):
+        recs = read_jsonl(path)
+        att = [x for r in recs for x in (r.get("attempt_log") or [])]
+        tin = sum(int(((r.get("response") or {}).get("usage") or {})
+                      .get("input_tokens") or 0) for r in recs)
+        tout = sum(int(((r.get("response") or {}).get("usage") or {})
+                       .get("output_tokens") or 0) for r in recs)
+        cost = 0.0
+        for r in recs:
+            try:
+                cost += float((((r.get("response") or {}).get(
+                    "provider_metadata") or {}).get("gateway") or {})
+                    .get("cost") or 0)
+            except (TypeError, ValueError):
+                pass
+        print("%-40s requests %4d landed %4d exhausted %3d attempts %5d "
+              "503 %5d 429 %3d waited %6.0f s tokens %d/%d cost $%.4f"
+              % (os.path.basename(path), len(recs),
+                 sum(1 for r in recs if not r.get("exhausted")),
+                 sum(1 for r in recs if r.get("exhausted")), len(att),
+                 sum(1 for x in att if x.get("http_status") == 503),
+                 sum(1 for x in att if x.get("http_status") == 429),
+                 sum(float(r.get("seconds_waiting") or 0) for r in recs),
+                 tin, tout, cost))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1435,7 +1462,11 @@ def main():
         rp.add_argument("--run-prefix", default="ps2")
         rp.add_argument("--log-dir", default=OUT_DIR)
         rp.add_argument("--out", default=None)
+    gw = sub.add_parser("gateway")
+    gw.add_argument("paths", nargs="+")
     a = p.parse_args()
+    if a.cmd == "gateway":
+        return cmd_gateway(a)
     if a.cmd == "report":
         return cmd_report(a)
     if a.cmd == "stability":

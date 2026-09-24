@@ -1,0 +1,33 @@
+# jev-opt request log, run ps2smoke-hintbench
+# ts round phase questions http_status latency_ms input_tokens output_tokens cost_usd
+# prompt-study-2-2026-09-24, target hintbench, vocab v6-2026-09-23, state state-v6.0-2026-09-23, leak check clean
+2026-09-24T14:37:15.805545+09:00 r1 B0.A      8 200   2179.7   23630    341 0.00000000  (after 18 failed attempt(s): HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503)
+#   request 65317 bytes sha256 4e94924a2e535f41, 19 attempt(s), 36.0 s waited
+#   attempt 1 2026-09-24T14:36:05.066877+09:00 http 503 2233.3 ms gen gen_01M38YKXT19SH4QQHKPWXJBKQ6 then sleep 2.0 s
+#   attempt 2 2026-09-24T14:36:09.300401+09:00 http 503 1680.1 ms gen gen_01M38YM1SB20P5YY5A70NTXWME then sleep 2.0 s
+#   attempt 3 2026-09-24T14:36:12.980693+09:00 http 503 2209.9 ms gen gen_01M38YM5NWABYPD5DZQWH5PK20 then sleep 2.0 s
+#   attempt 4 2026-09-24T14:36:17.189053+09:00 http 503 1969.1 ms gen gen_01M38YM9KGEMHQN3Y0FH74MMYX then sleep 2.0 s
+#   attempt 5 2026-09-24T14:36:21.158370+09:00 http 503 1827.1 ms gen gen_01M38YMDM5B5N62YQKQ8TW01H0 then sleep 2.0 s
+#   attempt 6 2026-09-24T14:36:24.985657+09:00 http 503 1613.3 ms gen gen_01M38YMH4PRAWBXNZHEVPBWY9A then sleep 2.0 s
+#   attempt 7 2026-09-24T14:36:28.599108+09:00 http 503 1773.0 ms gen gen_01M38YMMSKR4HV203770SJRB50 then sleep 2.0 s
+#   attempt 8 2026-09-24T14:36:32.372350+09:00 http 503 1699.0 ms gen gen_01M38YMRE3E1FRW56FSWCKGD27 then sleep 2.0 s
+#   attempt 9 2026-09-24T14:36:36.071472+09:00 http 503 1615.1 ms gen gen_01M38YMVZ7XQ7QHTZ594MGASGF then sleep 2.0 s
+#   attempt 10 2026-09-24T14:36:39.686737+09:00 http 503 1706.4 ms gen gen_01M38YMZGZR85WVJFZGTV7G9EX then sleep 2.0 s
+#   attempt 11 2026-09-24T14:36:43.393319+09:00 http 503 1789.7 ms gen gen_01M38YN352D6E80KNF2CVJV7W3 then sleep 2.0 s
+#   attempt 12 2026-09-24T14:36:47.181749+09:00 http 503 2137.1 ms gen gen_01M38YN79RCWHPQ1300JW47KBA then sleep 2.0 s
+#   attempt 13 2026-09-24T14:36:51.318994+09:00 http 503 1912.7 ms gen gen_01M38YNB25Q0P7TV5KJZNREHV6 then sleep 2.0 s
+#   attempt 14 2026-09-24T14:36:55.231813+09:00 http 503 1692.9 ms gen gen_01M38YNER5CGH4NENFS112SJJV then sleep 2.0 s
+#   attempt 15 2026-09-24T14:36:58.924894+09:00 http 503 1471.0 ms gen gen_01M38YNJCNKA06VP1C9QBKZ70B then sleep 2.0 s
+#   attempt 16 2026-09-24T14:37:02.396090+09:00 http 503 1677.9 ms gen gen_01M38YNNJN51F1EN3G652E2S4R then sleep 2.0 s
+#   attempt 17 2026-09-24T14:37:06.074207+09:00 http 503 1954.0 ms gen gen_01M38YNSA24CABRNPYNB5KEPEC then sleep 2.0 s
+#   attempt 18 2026-09-24T14:37:10.028400+09:00 http 503 1599.1 ms gen gen_01M38YNX2K0RR0ZXPH8QMEQHY3 then sleep 2.0 s
+#   attempt 19 2026-09-24T14:37:13.627667+09:00 http 200 2179.7 ms gen gen_01M38YP0MBDZ0DWKEMR477ZNZP
+
+# totals for run ps2smoke-hintbench
+# http requests      1
+# choice questions   8
+# latency total/avg/max ms  2179.7 / 2179.7 / 2179.7
+# tokens in/out      23630 / 341
+# cost usd           0.00000000
+# wall clock of the run s   70.7
+# jev share of the run      3.0811%

@@ -14388,3 +14388,205 @@ requests of repeat 1 had landed and before any further request.
    batches of 5 / 8 / 2 function sites, each with the full state header.
    L10 (one site per request) is unchanged. hintbench and zopfli are not
    batched (their phase states are 22-54 KB and landed).
+
+### 174. Prompt study 2: results
+
+Rules: §173 (unchanged) plus the §173.7 deviations. All numbers from:
+
+```
+scripts/jev_prompt_study2.py run --resume --targets <t> --variants B0 L1 ... L13 --repeats 3 --run-prefix ps2
+scripts/jev_prompt_study2.py run --resume --targets <t> --variants H1 H2 H3 --repeats 3 --run-prefix ps2
+scripts/jev_prompt_study2.py report  --out artifacts/jev-prompt-study-2/report.md
+scripts/jev_prompt_study2.py stability
+scripts/jev_prompt_study2.py gateway artifacts/jev-prompt-study-2/*.jsonl
+```
+
+Logs (gzip) and the full report: `docs/experiments/jev-prompt-study-2/`
+(`ps2-<target>.jsonl.gz`, `.log`, `report.md`, `truth.json`). Cells are
+median [min, max] over the 3 repeats. "P(best)" is Jev's Choice probability
+on the truth-best arm, **except** L7 (expected Score level, 0 = much slower,
+2 = no change, 4 = much faster) and L9 (P that the truth-best arm is the
+MOST HARMFUL hint). "harm" = P mass on oracle-harmful arms, averaged over the
+sites that have any. Loop-only variants (L1-L5) send nothing in phase A; their
+function half is B0 by construction and is not repeated below.
+
+#### 174.1 Loops
+
+**hintbench** (truth: k3 `unroll_count_4` (good set {2, 4}), k5 / k8
+`vectorize_width_16`, k4 KEEP)
+
+| variant | P(best) k3 | P(best) k5 | P(best) k8 | argmax hits /4 | harm | harm argmax /4 |
+|---|---|---|---|---|---|---|
+| B0 | 0.14 [0.14, 0.17] | 0.00 | 0.00 | 1 (k4 KEEP) | 0.12 | 0 |
+| L1 v7 texts | 0.12 [0.12, 0.14] | 0.01 [0.01, 0.01] | 0.03 [0.02, 0.04] | 1 [0, 1] | 0.19 | 0 [0, 1] |
+| L2 raw facts | 0.06 | 0.00 | 0.00 | 1 [0, 1] | 0.25 | 0 [0, 1] |
+| L3 no lane line | 0.13 | 0.00 | 0.00 | 1 | 0.07 | 0 |
+| L4 neutral not-found | 0.15 | 0.00 | 0.00 | 1 | 0.14 | 0 |
+| L5 unroll facts | 0.11 | 0.00 | 0.00 | 1 | 0.15 | 0 |
+| L6 remarks in question | 0.08 | 0.00 | 0.00 | 1 | 0.13 | 0 |
+| L7 Score | 1.97 | 1.69 | 1.84 | 0 | - | 1 [1, 2] |
+| L8 two-step | 0.01 | 0.00 | 0.00 | 1 | 0.01 | 0 |
+| L9 inverse (P harmful) | 0.04 | 0.28 | 0.26 | 0 | 0.51 | 0 |
+| L10 per site | 0.14 [0.11, 0.14] | 0.00 | 0.00 | 1 [0, 1] | 0.13 | 0 [0, 1] |
+| L11 random order | 0.19 [0.17, 0.22] | 0.00 | 0.01 | 0 [0, 1] | 0.15 | 1 [0, 1] |
+| L12 no-hint-measured | 0.14 | 0.00 | 0.00 | 1 | 0.14 | 0 |
+| L13 no source | 0.15 [0.14, 0.18] | 0.00 | 0.00 | 0 [0, 1] | 0.16 | 1 [0, 1] |
+
+**zopfli** (truth: `squeeze.rs:325` `unroll_count_8`; the other 4 loops KEEP)
+
+| variant | P(best) 325 | argmax hits /5 | harm | harm argmax /2 | KEEP argmax at KEEP sites /4 |
+|---|---|---|---|---|---|
+| B0 | 0.00 | 4 | 0.22 | 0 | 4 |
+| L1 | 0.05 [0.05, 0.06] | 4 | 0.08 | 0 | 4 |
+| L2 | 0.01 [0.01, 0.02] | 4 | 0.13 | 0 | 4 |
+| L3 | 0.00 | 4 | 0.24 | 0 | 4 |
+| L4 | 0.01 | 4 | 0.21 | 0 | 4 |
+| L5 | 0.01 | 4 | 0.25 | 0 | 4 |
+| L6 | 0.00 | 4 | 0.13 | 0 | 4 |
+| L7 (score) | 1.98 | 0 [0, 1] | - | 0 [0, 1] | 0 [0, 1] |
+| L8 | 0.00 | 4 | 0.01 | 0 | 4 |
+| L9 (P harmful) | 0.52 [0.43, 0.54] | 0 | 0.36 | 0 | 0 |
+| L10 / L11 / L12 / L13 | 0.00 | 4 | 0.17 / 0.21 / 0.20 / 0.24 | 0 | 4 |
+
+The 4 hits are the 4 KEEP-truth loops; `squeeze.rs:325` is KEEP_DEFAULT in
+every repeat of every Choice variant.
+
+**Pre-registered readings (173.5).** *Finds* (argmax hit >= 2/3) any loop
+target: **no variant, at any of the 4 targets** (k3, k5, k8, zopfli 325).
+*Moves* (median above B0's max, ranges disjoint): L1 at k5 (0.01 vs 0.00),
+k8 (0.03 vs 0.00) and zopfli 325 (0.05 vs 0.00); L2 at 325 (0.01); L4 and L5
+at 325 (0.01). Every "move" leaves P <= 0.05. L11 at k3 (0.19 [0.17, 0.22])
+touches B0's max 0.17 and does not count. **Nothing moves a loop truth to a
+pick.** L3 (lane line removed) did not raise k5 width 16 (0.00) and L4 (the
+contradicted "nothing left to act on" inference replaced) did not raise 325
+(0.01): the two suspect state facts of 173.2 are not what holds the loop
+truths down.
+
+What Jev believes about the truth arms, read from the non-Choice framings:
+the inverse question gives the truth arm P(most harmful) 0.28 (k5 width 16),
+0.26 (k8 width 16) and 0.52 (325 `unroll_count_8`, the top harm pick there);
+the Score question puts them at 1.69-1.98 on the 0-4 scale, i.e. "no change"
+to "slower". Jev does not rank these hints low by accident of wording: it
+expects them to hurt.
+
+#### 174.2 Functions (regression bar)
+
+| target | variant | P(best) | strict argmax hits | harm | harm argmax | KEEP argmax at KEEP sites |
+|---|---|---|---|---|---|---|
+| hintbench | B0 | k2 0.66 [0.66, 0.68] | 7/8 (k6 `inline_always`, flat) | 0.03 | 0/2 | 6/7 |
+| hintbench | L6, L10, L11, L12, L13 | k2 0.60-0.64 | 7/8 each | 0.02-0.04 | 0 | 6/7 |
+| hintbench | L7 Score | k2 1.99 (no change) | 6 [5, 6]/8 | - | 0 | 6 [5, 6]/7 |
+| hintbench | L8 two-step | k2 0.15 | 7/8 (k2 lost, k6 fixed) | 0.03 | 0 | 7/7 |
+| hintbench | L9 inverse | - | 0/8 by construction | - | - | - |
+| zopfli | B0 | - | 3 [3, 4]/6 | 0.23 | 1 [0, 1]/4 | 3 [3, 4]/6 |
+| zopfli | L7 / L8 / L10 | - | 5 / 6 / 5 | - / 0.06 / 0.18 | 0 | 5 / 6 / 5 |
+| zopfli | L6, L11, L12, L13 | - | 3-4 | 0.24-0.26 | 1 | 3-4 |
+| jaq | B0 | Val::hash 0.08, write_until 0.76 | 13/15 (`write_until` found; `Val::hash` KEEP; `Adapter::write_str` `inline_always`, flat) | 0.08 | 0/5 | 12/13 |
+| jaq | L6, L11, L12, L13 | write_until 0.64-0.82 | 13 each (L11 [12, 14]) | 0.08-0.13 | 0 | 12 |
+| jaq | L10 per site | write_until 0.63 | 10 [9, 10] | 0.16 | 0 | 9 [8, 9] |
+| jaq | L7 Score | write_until 1.97 | 11 | - | 0 | 11 |
+| jaq | L8 two-step | write_until 0.30 | 13 (write_until lost) | 0.03 | 0 | 13/13 |
+
+fn bar (hintbench >= 7/8 and k2 argmax >= 2/3; jaq hits >= B0 and harm
+argmax <= B0): **passed** by L6, L10 (fails jaq: 10 < 13), L11, L12, L13 and,
+trivially, L1-L5; **failed** by L7 (hintbench 6/8, k2 lost), L8 (k2 lost 3/3)
+and L9 (by construction). B0 itself reproduces decision 87's function result
+on v6: 7/8, k2 found, k6 the one miss, 3/3 repeats.
+
+Loop harmful picks under B0 are already **0/4 on hintbench and 0/2 on
+zopfli** in all repeats (decision 87's k4 width 16 at P 0.85 was v4; under v6
+with the post-vectorize facts it is gone).
+
+#### 174.3 Stability and the gateway
+
+Every repeated request was byte-identical across its 3 repeats
+(`stability`: all request groups `byte-identical 3/3`). max |dP| between
+repeats per variant 0.04-0.18 (zopfli L6 0.18); Choice argmax flips 0-2 per
+variant over all its questions. Readings above use medians, so single flips
+do not decide any row.
+
+| JSONL | requests | landed | lost | HTTP attempts | 503 | 429 | seconds waiting | tokens in / out | cost |
+|---|--:|--:|--:|--:|--:|--:|--:|---|--:|
+| ps2-hintbench | 146 | 144 | 2 (L7.A whole, before 173.7(2)) | 1609 | 1389 | 76 | 5174 | 2 090 850 / 44 809 | $0 |
+| ps2-zopfli | 140 | 139 | 1 (L7.B whole, before 173.7(2)) | 1535 | 1324 | 71 | 4871 | 1 934 778 / 49 753 | $0 |
+| ps2-jaq | 162 | 162 | 0 | 940 | 778 | 0 | 1556 | 1 899 357 / 24 314 | $0 |
+| aborted (not scored) + smoke | 17 | 15 | 2 | 543 | 515 | 13 | 1443 | - | $0 |
+
+Total **465 requests** (448 scored-run + 17 aborted/smoke), 4 lost, all
+before the deviation that fixed their cause; **no scored cell has a missing
+site**. Cost $0 (free tier). Wall clock 14:37-18:09 JST.
+
+#### 174.4 Verdict (phase 1)
+
+**No way of calling Jev tried here makes it pick a loop truth.** Across 14
+uniform variants x 3 repeats, k3 `unroll_count_4`, k5 / k8
+`vectorize_width_16` and zopfli `squeeze.rs:325 unroll_count_8` are never the
+argmax; the best P on any of them is 0.19 (k3, L11, not separable from B0)
+and <= 0.05 on the other three. The v7 candidate texts (L1) move P by
+0.01-0.05 in the right direction and nothing more. The inverse and Score
+framings show why: Jev expects the truth arms to be neutral or harmful. The
+function half is robust to wording (5 variants keep 7/8 and k2), and loses k2
+exactly when the framing pushes toward KEEP (two-step, Score). **v7 is not
+proposed for freezing.**
+
+### 175. Phase 2: false positives
+
+Rules: §173.3 (e), §173.4 phase 2, §173.5 phase-2 bar. H4 and H5 are
+readouts of phase-1 requests (B0 x L9, L8); H1-H3 were sent x 3.
+
+**Harmful mass (e) down vs truths kept, one table per target** (median [range]):
+
+| target | variant | harm (all harmful arms) | named-FP mass | truth kept? |
+|---|---|---|---|---|
+| hintbench fn | B0 | 0.03 | 0.03 | k2 argmax 3/3 (P 0.66), hits 7/8 |
+| hintbench fn | H1 hurts-when texts | 0.01 | 0.01 | **k2 lost 3/3** (P 0.23); k6 fixed; 7/8 |
+| hintbench fn | H2 fact lines | 0.01 | 0.02 | **k2 lost 3/3** (P 0.38) |
+| hintbench fn | H3 KEEP-first | 0.01 | 0.00 | **k2 lost 3/3** (P 0.15) |
+| hintbench fn | H4 inverse veto | 0.00 | 0.00 | **k2 lost 3/3** (P 0.42) |
+| hintbench fn | H5 two-step | 0.03 | 0.01 | **k2 lost 3/3** (P 0.15) |
+| hintbench loops | B0 | 0.12 [0.12, 0.13] | 0.38 [0.38, 0.40] | P k3 0.14, k8 0.00 |
+| hintbench loops | H1 | 0.10 [0.09, 0.11] | 0.33 [0.27, 0.36] | k3 0.10 (lower) |
+| hintbench loops | H2 | 0.14 | 0.45 | k3 0.16, k8 0.01 |
+| hintbench loops | H3 | **0.02 [0.02, 0.04]** | **0.06 [0.06, 0.11]** | k3 **0.03** (lower) |
+| hintbench loops | H4 | 0.12 | 0.36 | k3 0.14 |
+| hintbench loops | H5 | **0.01** | **0.03** | k3 **0.01** (lower) |
+| zopfli fn | B0 | 0.23 [0.22, 0.23] | 0.90 [0.89, 0.91] | KEEP argmax 3 [3, 4]/6, harm argmax 1 [0, 1]/4 |
+| zopfli fn | H1 | **0.14** | 0.57 | KEEP 6/6, harm argmax 0 |
+| zopfli fn | H2 | 0.15 | 0.59 | KEEP 5 [5, 6]/6, harm argmax 0 |
+| zopfli fn | H3 | **0.08** | 0.33 | KEEP 6/6, harm argmax 0 |
+| zopfli fn | H4 | 0.14 | 0.54 | KEEP 6 [5, 6]/6 |
+| zopfli fn | H5 | **0.06** | 0.24 | KEEP 6/6 |
+| zopfli loops | B0 | 0.22 | 0.19 | KEEP 4/4; P 325 0.00 |
+| zopfli loops | H1 / H2 / H3 / H4 / H5 | 0.13 / 0.20 / **0.02** / 0.22 / **0.01** | 0.01 / 0.21 / 0.02 / 0.18 / 0.01 | KEEP 4/4 in all; P 325 0.00 in all |
+| jaq fn | B0 | 0.08 | 0.02 | write_until argmax 3/3 (P 0.76), hits 13/15 |
+| jaq fn | H1 | 0.08 | 0.07 | **write_until lost 3/3** (P 0.32); 13/15 |
+| jaq fn | H2 | 0.08 | 0.04 | **write_until lost 3/3** (P 0.38); 12/15 |
+| jaq fn | H3 | 0.03 | 0.02 | **write_until lost 3/3** (P 0.29) |
+| jaq fn | H4 | 0.02 | 0.02 | write_until kept 3/3 (P 0.55), **Val::hash P 0.08 -> 0.01** |
+| jaq fn | H5 | 0.03 | 0.02 | **write_until lost 3/3** (P 0.30) |
+
+**Pre-registered reading (173.5).** (e) falls below B0's range on at least
+one target for H1, H3, H4 and H5 (zopfli fn 0.23 -> 0.06-0.14; hintbench
+loops 0.12 -> 0.01-0.02 for H3/H5). But **every phase-2 variant fails the
+side-effect bar**: all five turn hintbench k2 `inline(always)` (+67.8%, the
+largest confirmed effect in the project) into KEEP in 3/3 repeats; H1, H2,
+H3 and H5 also lose jaq `write_until inline_always` 3/3; H4 keeps it but drops
+`Val::hash` from 0.08 to 0.01; H3 and H5 cut k3 `unroll_count_4` from 0.14 to
+0.01-0.03. Hence, by the rule fixed before the answers, **C1 (best loop
+variant + best phase-2 variant) was not sent**: no phase-2 variant qualified.
+
+Why, in one line: at hintbench k2 and k6 the state says the same thing (the
+baseline declines to inline; one gains +67.8%, the other is flat), and at
+zopfli `find_longest_match` it says the same again (harmful). A uniform
+change that makes Jev more cautious moves all of these together; none of the
+wording, fact lines or veto readouts gives Jev something that separates the
+true positive from the false ones. The false positives that remain under B0
+are few already (loop harmful argmax 0 on both targets; fn harmful argmax
+1 [0, 1] of 4 on zopfli, 0 on hintbench and jaq), and the ones left cannot be
+removed by wording without removing the true ones.
+
+**Verdict (phase 2):** false positives can be cut 2-10x in probability mass by
+a KEEP-first wording or the two-step ask, **but only by losing the function
+truths** (k2, `write_until`). No variant passes both bars; nothing is
+proposed for freezing. Under B0 the per-round speed gate remains what stops
+the residual false positives (decision 101).
