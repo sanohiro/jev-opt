@@ -17,8 +17,19 @@ Nothing here owns anything that already exists somewhere else:
 | rounds, caps, Jev endpoint, repetitions | `jev-opt.toml` |
 
 Python 3 standard library only; `requests` is not installed, so the HTTP
-client is `urllib`. The API key comes from `AI_GATEWAY_API_KEY` in the
-environment or from `.env`, and is never written to either log.
+client is `urllib`. Decision 111: `JevClient` can talk to either of two
+routes, `gateway` (Vercel AI Gateway, the default, every run before this
+decision) or `direct` (TypeSafe's own API, api.typesafe.ai --- implemented
+from documentation only and **not exercised against the live API in this
+project**, since no TypeSafe key exists here). The route is resolved once
+per client, in this order: `--jev-endpoint` > `JEV_ENDPOINT` (environment or
+`.env`) > `[jev] endpoint` in the config > auto-select (whichever of
+`AI_GATEWAY_API_KEY` / `TYPESAFE_API_KEY` is present; both present keeps
+`gateway`; neither is an error naming both). The API key comes from the
+resolved route's own env var, in the environment or from `.env`, and is
+never written to either log --- only the env var's *name* is (`key_env` in
+`run-manifest.json` and the `.log` header). See "Gateway and retries" below
+and `scripts/jev_search.py --jev-smoke`.
 
 ## Usage
 
@@ -78,6 +89,14 @@ Useful flags:
 --measure-holdout   after the rounds, measure the best plan once on holdout
 --smoke             mark every artifact of the run as a smoke test
 --keep-binaries all keep every round's binary, not only the accepted ones
+--jev-endpoint      gateway or direct (decision 111): overrides JEV_ENDPOINT
+                    and [jev] endpoint for this run. See "Gateway and
+                    retries" below
+--jev-smoke         send one Choice request and exit; no --target,
+                    --proposer or --out needed, nothing is built or timed.
+                    Combine with --jev-endpoint to check a route before a
+                    real run: `jev_search.py --jev-smoke --jev-endpoint
+                    direct`
 ```
 
 `--rounds` is ignored for the oracle, whose arm count is determined by the
@@ -1246,7 +1265,33 @@ shares and source locations per mark, notes and per-site candidate
 allowlists, and `search.max_sites`. Unknown keys are ignored, and a plugin
 report directory is also accepted in its place.
 
-## Gateway and retries (decision 92 d)
+## Gateway and retries (decision 92 d, 111)
+
+**Decision 111, routes.** `JevClient` resolves one of two routes once per
+client (`resolve_endpoint`, precedence `--jev-endpoint` > `JEV_ENDPOINT`
+(env/`.env`) > `[jev] endpoint` (config) > auto-select by which API key is
+present): `gateway` (Vercel AI Gateway, the default, unchanged from every
+run before this decision) or `direct` (TypeSafe's own API,
+`https://api.typesafe.ai`). Both send the same body shape (`model`, `state`,
+`questions`) to the same path (`/v1/systemone`) and read the same response
+shape back; they differ in base URL, the API key's env var
+(`AI_GATEWAY_API_KEY` vs `TYPESAFE_API_KEY`) and, direct only, the model id
+(the direct API does not accept the gateway's namespaced
+`typesafe-ai/jev`; the client sends `jev-latest`, the SDK's own default,
+`[jev] direct_model`). **The `direct` route is implemented from
+docs.typesafe.ai only and has not been exercised against the live TypeSafe
+API in this project** --- there is no TypeSafe key here. Before trusting it
+with a real key, run `scripts/jev_search.py --jev-smoke --jev-endpoint
+direct`: one Choice request, no target/marks/build, which prints the route
+chosen (and how), the HTTP status and the response's top-level keys, so a
+mismatch is obvious in one request. Resolution never raises by itself (a
+`--dry-run`/`--print-state` client is constructed and never asks); the
+error, if any (an explicit route whose key is missing, or `auto` with
+neither key present), is raised only by the first `ask()`, naming the
+missing environment variable(s). 503 is not a documented TypeSafe status;
+on the gateway route it is the gateway's own condition or a 529 it passed
+through unrelabelled (docs.typesafe.ai lists 401, 422, 429 and 529
+"TypeSafe is temporarily overloaded" as documented codes).
 
 **The measured fact.** On 2026-09-23 a probe of the gateway with Experiment
 5's own request bodies found that whether a request landed tracked its
@@ -1264,9 +1309,14 @@ a wall-clock ceiling do.
 
 `JevClient._post` makes one HTTP attempt; `JevClient.ask` retries it:
 
-* retried: any **5xx**, any **429** (honouring its `Retry-After` when
-  present --- taken as a floor, never as a shortening of the policy's own
-  pause), and any **transport error** (timeout, DNS, connection reset);
+* retried: any **5xx** (**529** "overloaded" included --- decision 111: it is
+  retried exactly like any other 5xx, nothing about the retryability check
+  singles it out), any **429** (honouring its `Retry-After` when present ---
+  taken as a floor, never as a shortening of the policy's own pause), and
+  any **transport error** (timeout, DNS, connection reset). `Retry-After` is
+  honoured on **any** retried status that sends one, not only 429: neither
+  429 nor 529 is documented as always carrying it, so the client reads it
+  when present and falls back to the fixed pause when it is not;
 * not retried: any other 4xx, which ends the request at once;
 * the pause between attempts is **fixed**, not growing: `RETRY_BACKOFF_S`
   (2 s) `+-RETRY_JITTER` (20%), capped at `[jev] backoff_cap_s` (5.0). The
@@ -1308,18 +1358,24 @@ the round**: the argmax plan is whole without it, so it is recorded as
 
 Every JSONL request-log line (`jev-log/<run-id>.jsonl`) gains
 `request_sha256`, `request_bytes`, `n_attempts`, `attempt_log` (one entry per
-HTTP attempt: `attempt`, `ts`, `http_status`, `latency_ms`, `error`,
-`request_sha256`, `request_bytes`, `retry_after`, `sleep_s`, plus whatever
-the gateway's own response says about that attempt --- `generation_id`,
-`provider_attempts`, `provider_attempt_count`, selected response headers ---
-via `gateway_trace`, which reads only the response, never the request, so
-`Authorization` cannot reach the log through this path), `seconds_waiting`
-and `exhausted`. Existing fields are unchanged. The human-readable `.log`
-line is unchanged too; a request with more than one attempt, or any error,
-gets extra `#`-prefixed comment lines under it with the per-attempt detail,
-so a reader of the one-line-per-request format is not disturbed by it.
+HTTP attempt: `attempt`, `ts`, `endpoint` (decision 111: `gateway` or
+`direct`), `http_status`, `latency_ms`, `error`, `request_sha256`,
+`request_bytes`, `retry_after`, `sleep_s`, plus whatever the gateway's own
+response says about that attempt --- `generation_id`, `provider_attempts`,
+`provider_attempt_count`, selected response headers --- via `gateway_trace`,
+which reads only the response, never the request, so `Authorization` cannot
+reach the log through this path), `seconds_waiting` and `exhausted`.
+Decision 111 also adds, to the request line itself, `endpoint`,
+`endpoint_source` (`cli`/`env`/`toml`/`auto`), `base_url` and `key_env` (the
+environment variable's *name*, never its value). Existing fields are
+unchanged. The human-readable `.log` file gains a header line, `# endpoint
+<gateway|direct> (chosen by <source>), base_url <url>, key_env <NAME>` (or
+`# endpoint: UNRESOLVED (<reason>)` when resolution failed and no request
+has been attempted yet); the per-request line format is otherwise unchanged,
+and a request with more than one attempt, or any error, still gets extra
+`#`-prefixed comment lines under it with the per-attempt detail.
 
-`run-manifest.json` gains two blocks:
+`run-manifest.json` gains three blocks:
 
 * `retry_policy`: `backoff`, `cap_s`, `jitter`, `timeout_s`, `wall_budget_s`,
   `retries_cap`, `phase_resend_max` --- the policy this run actually used,
@@ -1328,7 +1384,10 @@ so a reader of the one-line-per-request format is not disturbed by it.
   `lost_rounds`, `seconds_waiting`, and `attempts_by_phase` --- per `A`, `B`
   and `explore`, `requests`, `attempts`, `landed`, `body_bytes_total` and
   `mean_body_bytes`, which is what makes the body-size finding above
-  measurable on the next run without a separate probe.
+  measurable on the next run without a separate probe;
+* (decision 111) `jev_endpoint`, `jev_endpoint_source`, `jev_base_url`,
+  `jev_key_env` --- which route this run used, how it was chosen and which
+  env var it reads from; `null` for a non-`jev` proposer. Never the key.
 
 ## Files a run writes
 

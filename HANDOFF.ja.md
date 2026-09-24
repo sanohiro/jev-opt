@@ -135,9 +135,9 @@
 - timing バイナリの絶対パス長で k5 が約 9% 動く(glibc チャンククラスが 32 の倍数だと遅い)。bench.py が全ラベルを 80 バイト(クラス 96)に固定する(決定 97)。
 - `bench.py` は timing 用の別名パスを 80 バイトに固定するため、リポジトリの絶対パスが 75 バイトを超えると全計測が開始前に失敗する(現状 27 バイト。長いパスに clone すると壊れる。決定 97)。
 - クラス→モードの対応(c96 が遅い)はこの機械の glibc / カーネルでの実測。別の機械では `scripts/hintbench_aa_study/run.sh` を先に回し、クラス 96 が比較可能なクラスであることを確認してから信用する。
-- Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`、`model: typesafe-ai/jev`、Choice の `criteria` はオブジェクト、Score は配列(19)。503 がバーストで来る。
+- Vercel AI Gateway(既定ルート): `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`、`model: typesafe-ai/jev`、Choice の `criteria` はオブジェクト、Score は配列(19)。503 がバーストで来る。**直接 TypeSafe API も選べる**(`--jev-endpoint direct`、鍵は `TYPESAFE_API_KEY`。同じパス `/v1/systemone`、model は `jev-latest`。文書化されたエラーは 401/422/429/**529**「overloaded」で、503 は文書上のコードではない。決定 111。**このプロジェクトでは実 API に対して未検証**(TypeSafe の鍵が無い)。信用する前に `jev_search.py --jev-smoke --jev-endpoint direct` で 1 回確認する。ルート選択は CLI > `JEV_ENDPOINT`(env/.env)> `jev-opt.toml [jev] endpoint` > auto(存在する鍵で決める、両方あれば `gateway`)。
 - site key は jaq では一意でない(13 key が 2〜9 ループに解決)。plan のエントリは「key への指示」(64)。
-- Vercel/TypeSafe の 503 はその日の提供側の状態として要求サイズに単調依存する(固定の閾値ではない): phase A 85 KB は 0/6、B 51 KB は 4/18、探索 24 KB は 5/6 だったが、jaq の phase A(約 104 KB)は前日 5/5 だった。待ち時間ではなく試行回数で吸収する(2 s 固定 ±20% のバックオフ、上限 200 回 / 600 s、フェーズが落ちたら丸ごと再送し半分の plan は組まない。決定 92・95)。2026-09-25 の probe(悪い日、1 回 1 試行)でも < 30 KB 80%、30〜50 KB 56%、> 50 KB 40% の着弾。503 は提供側なので Vercel Pro では直らない。要求を小さくする `--source-excerpt none`(study 2 の L13 とバイト一致、本文 −17〜29%)は着弾 39/60 対 33/60(有意差なし)だが、hintbench のループで k4 が有害な幅 16 に倒れるので既定にせず opt-in(決定 110、`results.md` §180)。送信は必ず逐次(並行させると 429)。
+- Vercel/TypeSafe の 503 はその日の提供側の状態として要求サイズに単調依存する(固定の閾値ではない): phase A 85 KB は 0/6、B 51 KB は 4/18、探索 24 KB は 5/6 だったが、jaq の phase A(約 104 KB)は前日 5/5 だった。待ち時間ではなく試行回数で吸収する(2 s 固定 ±20% のバックオフ、上限 200 回 / 600 s、フェーズが落ちたら丸ごと再送し半分の plan は組まない。決定 92・95)。2026-09-25 の probe(悪い日、1 回 1 試行)でも < 30 KB 80%、30〜50 KB 56%、> 50 KB 40% の着弾。503 は提供側なので Vercel Pro では直らない。要求を小さくする `--source-excerpt none`(study 2 の L13 とバイト一致、本文 −17〜29%)は着弾 39/60 対 33/60(有意差なし)だが、hintbench のループで k4 が有害な幅 16 に倒れるので既定にせず opt-in(決定 110、`results.md` §180)。送信は必ず逐次(並行させると 429)。**503 の正体は文書上の 529(provider の過負荷)がゲートウェイを素通りしたものらしい**: 手元の頻度は探索走行 1 本あたり 19〜120 回(壁時計の 1〜8%)、API のみの study では対象 3 つ並行・大きな要求の連続送信で数千回。TypeSafe のステータスページの障害解消時刻(2026-09-23 20:56 UTC・2026-09-24 07:18 UTC)は悪い日のプローブの時間帯と重なる。529 は既存の 5xx リトライにそのまま入り、`Retry-After` は 429 だけでなく 529 でも読む。Vercel Pro は対策にならない(決定 111、`docs/decisions.ja.md` 111)。
 - **採用 0 の走行では `best-plan.json` が書かれないのに、`summary.md` は「コピーした」と言う。** zopfli の Jev vs ランダム 6 走行はすべて採用 plan 0(基準のまま)で、`jev_search.py` は `best-plan.json` を一切出力しなかったが、`summary.md` の文言は「コピーした」ことになっている。driver の不整合として記録のみ(修正は未着手、決定 102(c))。読み手はこの文言を信用せず、まず実際にファイルがあるかを見ること。
 - **zopfli の holdout バッチ 3 本で MDE が 8.9〜18.3% と出た**(A/A では 0.05% の対象で)。いずれも基準 vs 基準の null arm 同士の比較だったので採否や見出しには影響していないが、原因は未調査(`results.md` §169 の「非決定性」節)。
 - **zopfli oracle のラウンド 68 は WSL 再起動(05:53)で計測が途切れ、`--resume` で再計測した(§168 参照)。再起動前に計測していたバイナリの sha256 は記録されておらず、「再起動前後で同一」という主張はビルドの決定性(同じ入力から同じバイトが出る)に依っていて、実測で突き合わせてはいない。**
@@ -158,7 +158,7 @@ docs/fp-reassoc-target-scouting.md  FP 再結合の調査(主線外)
 docs/jev-samples/          手で送った Jev の request/response の見本
 plugin/jev/jev.cpp, plugin/README.md   LLVM plugin(off/dump/apply/apply-dump、post_vectorize)
 plugin/probe/              EP の発火を調べる probe plugin
-scripts/jev_search.py      探索ドライバ(proposer: jev|random|oracle、--vocab、--explore、--explore-revisit、--pv-untried、--readout)
+scripts/jev_search.py      探索ドライバ(proposer: jev|random|oracle、--vocab、--explore、--explore-revisit、--pv-untried、--readout、--jev-endpoint、--jev-smoke)
 scripts/jev_vocab.py       語彙と説明文(v1〜v5、凍結)
 scripts/jev_oneshot.py     API だけで一発回答を取る
 scripts/target_common.sh   対象ごとのビルドレシピ(toy/zopfli/oxipng/jaq/hintbench)
@@ -172,7 +172,7 @@ targets/toy/               機構検証用 4 ループ
 targets/hintbench/         正解のある 8 カーネル(EXPECTED.md = Claude の計測前予測と §5 の採点)
 targets/jaq/               本命(submodule v3.1.1、jev-marks.txt 15 本、sites.json)
 targets/zopfli/, oxipng/   Stage 0 のみ(フラット)。zopfli は転移先候補
-jev-opt.toml               設定。.env に AI_GATEWAY_API_KEY(git 管理外)
+jev-opt.toml               設定。.env に AI_GATEWAY_API_KEY / TYPESAFE_API_KEY / JEV_ENDPOINT(git 管理外、決定 111)
 artifacts/hintbench-search/exp6-{ctl,rev,pv,both}/  Experiment 6 の成果物(rounds.jsonl、jev-log/、holdout-batch2{,b}/)
 work/                      凍結(旧 spec、レビュー、カタログ、zenn 草稿)
 ```

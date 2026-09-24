@@ -78,10 +78,30 @@ mde_floor = 0.01
 mde_from = "aggregate"
 
 [jev]
+# Which route JevClient talks to (decision 111): "gateway" (Vercel AI
+# Gateway, every run before this decision), "direct" (TypeSafe's own API,
+# api.typesafe.ai --- implemented from documentation only, never exercised
+# against the live API in this project: there is no TypeSafe key here), or
+# "auto" (the default): pick by which of AI_GATEWAY_API_KEY /
+# TYPESAFE_API_KEY is present (both present keeps "gateway"; neither is an
+# error naming both variables). Precedence: --jev-endpoint > JEV_ENDPOINT
+# (environment or .env) > this key > auto. Leaving this at "auto" is what
+# keeps a config that predates decision 111 behaving exactly as before: the
+# only key most checkouts have is AI_GATEWAY_API_KEY, so auto picks
+# "gateway".
+endpoint = "auto"
 base_url = "https://ai-gateway.vercel.sh/typesafe"
-endpoint = "/v1/systemone"
+# Both routes serve the same path (docs.typesafe.ai/api.md).
+path = "/v1/systemone"
 model = "typesafe-ai/jev"
 api_key_env = "AI_GATEWAY_API_KEY"
+# direct route only (decision 111); no free tier, $0.042 / 1M input tokens,
+# output free (docs.typesafe.ai, 2026-09-25).
+direct_base_url = "https://api.typesafe.ai"
+direct_key_env = "TYPESAFE_API_KEY"
+# The direct API does not accept the gateway's namespaced model id; this is
+# the SDK's own default (docs.typesafe.ai/sdk/python/usage).
+direct_model = "jev-latest"
 # Seconds one HTTP attempt may take. Every landed request of Experiment 5
 # took under 1 s and every 503 came back in 120-340 ms (decision 92 d).
 request_timeout_s = 20
@@ -92,8 +112,9 @@ retries = 200
 # Wall-clock budget per request: no further attempt is made once the next
 # pause would take the request past it.
 retry_wall_budget_s = 600
-# Upper bound on the pause between attempts (fixed 2 s +-20% jitter);
-# a 429's Retry-After is honoured even when it asks for longer.
+# Upper bound on the pause between attempts (fixed 2 s +-20% jitter); a
+# 429's or 529's Retry-After is honoured even when it asks for longer
+# (decision 111: 529 "overloaded" is retried exactly like any other 5xx).
 backoff_cap_s = 5.0
 # Unchanged re-sends of an exhausted request within the same round before
 # the phase is recorded as lost and the round is not built.

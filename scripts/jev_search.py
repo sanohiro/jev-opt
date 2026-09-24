@@ -218,10 +218,32 @@ DEFAULTS = {
         "mde_from": "aggregate",
     },
     "jev": {
+        # Decision 111: which route JevClient talks to. "auto" (the code
+        # default) is not a route --- it means "pick by which API key is
+        # present" (see `resolve_endpoint`), which is how a config that
+        # never mentions `endpoint` at all keeps behaving exactly as
+        # before: only AI_GATEWAY_API_KEY exists -> auto picks "gateway".
+        # An explicit "gateway" or "direct" (CLI, JEV_ENDPOINT, or this
+        # key) always wins over auto-select. `direct_*` are read only when
+        # the resolved route is "direct". The direct route is implemented
+        # from documentation only (docs.typesafe.ai) and has never been
+        # exercised against the live TypeSafe API in this project (no
+        # TypeSafe key here) --- see decision 111.
+        "endpoint": "auto",
         "base_url": "https://ai-gateway.vercel.sh/typesafe",
-        "endpoint": "/v1/systemone",
+        # Both routes serve the same path (docs.typesafe.ai/api.md: "POST
+        # /v1/systemone").
+        "path": "/v1/systemone",
         "model": "typesafe-ai/jev",
         "api_key_env": "AI_GATEWAY_API_KEY",
+        "direct_base_url": "https://api.typesafe.ai",
+        "direct_key_env": "TYPESAFE_API_KEY",
+        # docs.typesafe.ai/api.md: `"model" type="string" required`, example
+        # `"jev-latest"`; docs.typesafe.ai/sdk/python/usage:
+        # `TYPESAFE_DEFAULT_MODEL | Default model | jev-latest`. The direct
+        # API does not know the gateway's namespaced id ("typesafe-ai/jev"),
+        # so the client sends this instead when the route is "direct".
+        "direct_model": "jev-latest",
         # Decision 92 (d). A config written before these keys existed
         # gets these values, which are the policy's and not the old
         # 60 s / 3 attempts.
@@ -2980,16 +3002,107 @@ def rank_by_non_keep(items, why, knobs):
 # Jev
 # ---------------------------------------------------------------------------
 
-def read_api_key(env_name):
-    if os.environ.get(env_name):
-        return os.environ[env_name]
+def dotenv_get(name):
+    """`name`'s value from the environment, else from `.env`, else None.
+
+    Never exits and never logs the value; `read_api_key` and
+    `resolve_endpoint` (decision 111) both build on this so that there is
+    one lookup, not two copies of the `.env` parser."""
+    if os.environ.get(name):
+        return os.environ[name]
     path = os.path.join(REPO, ".env")
     if os.path.isfile(path):
-        for line in open(path):
-            line = line.strip()
-            if line.startswith(env_name + "="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(name + "="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
+
+def read_api_key(env_name):
+    value = dotenv_get(env_name)
+    if value:
+        return value
     sys.exit("no %s in the environment or in %s/.env" % (env_name, REPO))
+
+
+# Decision 111: the direct TypeSafe endpoint. Facts below are from
+# docs.typesafe.ai (2026-09-25), read via WebFetch because no TypeSafe key
+# is available in this project to check them against the live API --- the
+# `direct` route is implemented from documentation only and has not been
+# exercised against api.typesafe.ai here. api.md: base `https://
+# api.typesafe.ai`, path `/v1/systemone`, `Authorization: Bearer <key>`,
+# documented errors 401 ("Missing or invalid API key"), 422 ("Request body
+# failed validation"), 429 ("You have exceeded your rate limit", 250k
+# tokens/s / 1,200 req/min), 529 ("TypeSafe is temporarily overloaded" ---
+# retry). Neither 429 nor 529 is documented as carrying `Retry-After`; the
+# client honours it when a response does send one, the same as the
+# gateway. 503 is not a documented TypeSafe code, so a 503 on the gateway
+# route is the gateway's own or a passed-through 529 the gateway did not
+# relabel. Pricing: $0.042 / 1M input tokens, output free, no free tier.
+ENDPOINT_CHOICES = ("gateway", "direct")
+
+
+def resolve_endpoint(cfg, cli_endpoint=None):
+    """The route this run's JevClient uses, decision 111's precedence:
+    `cli_endpoint` (--jev-endpoint) > env/`.env` `JEV_ENDPOINT` >
+    `[jev] endpoint` in the config > auto-select by which API key is
+    present. Returns (endpoint, source, key_env, base_url, error).
+
+    `error` is a message to `sys.exit` with, or None; this function never
+    exits or raises itself, so constructing a JevClient for --dry-run or
+    --print-state (neither makes a request) never needs a key. `source` is
+    one of "cli", "env", "toml", "auto", recorded for the manifest and the
+    log; it says *how* the route was chosen, not merely what it is.
+    """
+    # bool(), not "is not None": an empty `KEY=` line in `.env` (what a
+    # user gets from copying `.env.example` and filling in only one key)
+    # must count as absent here, the same way `read_api_key` treats it
+    # (`if value:`) --- otherwise auto-select can pick a route whose key
+    # `read_api_key` then immediately refuses as missing.
+    gw_present = bool(dotenv_get(cfg["api_key_env"]))
+    direct_present = bool(dotenv_get(cfg["direct_key_env"]))
+
+    if cli_endpoint:
+        ep, source = cli_endpoint, "cli"
+    else:
+        env_ep = dotenv_get("JEV_ENDPOINT")
+        if env_ep:
+            ep, source = env_ep.strip().lower(), "env"
+        else:
+            ep, source = (cfg.get("endpoint") or "auto"), "toml"
+
+    if ep not in ENDPOINT_CHOICES:
+        if ep != "auto":
+            hint = (" (decision 111: [jev] endpoint now selects the route; "
+                    "the URL path moved to [jev] path)"
+                    if str(ep).startswith("/") else "")
+            return (None, source, None, None,
+                    "[jev] endpoint (or JEV_ENDPOINT / --jev-endpoint) must "
+                    "be one of %s or 'auto', got %r%s"
+                    % (ENDPOINT_CHOICES, ep, hint))
+        # Auto-select (decision 111 (3)): exactly one key present picks
+        # that route; both present keeps the default (gateway); neither
+        # present is the one case this function reports as an error,
+        # because there is nothing left to fall back to.
+        if direct_present and not gw_present:
+            ep, source = "direct", "auto"
+        elif gw_present and not direct_present:
+            ep, source = "gateway", "auto"
+        elif gw_present and direct_present:
+            ep, source = "gateway", "auto"
+        else:
+            return (None, "auto", None, None,
+                    "neither %s nor %s is set (checked the environment and "
+                    "%s/.env). [jev] endpoint is 'auto', which needs "
+                    "exactly one of them to pick a route --- set one of "
+                    "the two keys, or choose explicitly with "
+                    "--jev-endpoint, JEV_ENDPOINT, or [jev] endpoint"
+                    % (cfg["api_key_env"], cfg["direct_key_env"], REPO))
+    key_env = cfg["direct_key_env"] if ep == "direct" else cfg["api_key_env"]
+    base_url = cfg["direct_base_url"] if ep == "direct" else cfg["base_url"]
+    return ep, source, key_env, base_url, None
 
 
 # Decision 92 (d): the gateway's retry policy. Every 503 of Experiment 5 came
@@ -3100,24 +3213,43 @@ class JevClient:
 
     SPEC.ja.md 6: the Authorization header is never written to either log.
 
-    Decision 92 (d): a request is retried on a 5xx, on a 429 (honouring
-    `Retry-After`) and on a transport error, with a fixed pause of
-    `RETRY_BACKOFF_S` +-`RETRY_JITTER` (capped at `[jev] backoff_cap_s`)
-    between attempts, until either
-    `[jev] retries` attempts have been made or the next sleep would take the
-    request past `[jev] retry_wall_budget_s` of wall clock. Any other status
-    ends the request at once. Every attempt is logged.
+    Decision 92 (d): a request is retried on a 5xx (529 included), on a 429
+    (honouring `Retry-After` when present) and on a transport error, with a
+    fixed pause of `RETRY_BACKOFF_S` +-`RETRY_JITTER` (capped at
+    `[jev] backoff_cap_s`) between attempts, until either `[jev] retries`
+    attempts have been made or the next sleep would take the request past
+    `[jev] retry_wall_budget_s` of wall clock. Any other status ends the
+    request at once. Every attempt is logged.
+
+    Decision 111: which of two routes (`gateway`, the default, or `direct`,
+    TypeSafe's own API) this client talks to is `resolve_endpoint`'s to
+    decide, from `cfg` and the optional `cli_endpoint` override. Both routes
+    send the same JSON body shape (`model`, `state`, `questions`) to the
+    same path and read the same response shape back; they differ in base
+    URL, the API key's environment variable and (direct only) the model id
+    (see the `direct_model` comment on `DEFAULTS["jev"]`). Resolution never
+    raises: a run that only ever calls --dry-run/--print-state constructs a
+    client and makes no request, so a missing key or an ambiguous
+    auto-select must not stop it. The error, if any, is raised only by the
+    first `ask()`.
     """
 
     def __init__(self, cfg, log_dir, run_id, source_comments="strip",
-                 source_excerpt="full"):
+                 source_excerpt="full", cli_endpoint=None, smoke=False):
         self.cfg = cfg
         # Recorded on every request line: a run has no manifest until it
         # finishes, and the API-only passes never write one at all.
         self.source_comments = source_comments
         self.source_excerpt = source_excerpt
-        self.url = cfg["base_url"].rstrip("/") + cfg["endpoint"]
-        self.model = cfg["model"]
+        self.smoke = smoke
+        (self.endpoint, self.endpoint_source, self.key_env, self.base_url,
+         self._endpoint_error) = resolve_endpoint(cfg, cli_endpoint)
+        if self._endpoint_error:
+            self.url, self.model = None, None
+        else:
+            self.url = self.base_url.rstrip("/") + cfg["path"]
+            self.model = (cfg["direct_model"] if self.endpoint == "direct"
+                         else cfg["model"])
         self.key = None
         os.makedirs(log_dir, exist_ok=True)
         self.jsonl_path = os.path.join(log_dir, run_id + ".jsonl")
@@ -3150,6 +3282,16 @@ class JevClient:
         if not os.path.isfile(self.log_path):
             with open(self.log_path, "w") as f:
                 f.write("# jev-opt request log, run %s\n" % run_id)
+                # Decision 111: never the key, only which route and which
+                # env var name it reads from.
+                if self._endpoint_error:
+                    f.write("# endpoint: UNRESOLVED (%s)\n"
+                            % self._endpoint_error)
+                else:
+                    f.write("# endpoint %s (chosen by %s), base_url %s, "
+                            "key_env %s\n"
+                            % (self.endpoint, self.endpoint_source,
+                               self.base_url, self.key_env))
                 f.write("# ts round phase questions http_status latency_ms "
                         "input_tokens output_tokens cost_usd\n")
 
@@ -3177,8 +3319,10 @@ class JevClient:
 
     def ask(self, state, questions, round_no, phase, site_map):
         """Returns (answers dict, jsonl line number) or (None, line)."""
+        if self._endpoint_error:
+            sys.exit(self._endpoint_error)
         if self.key is None:
-            self.key = read_api_key(self.cfg["api_key_env"])
+            self.key = read_api_key(self.key_env)
         body = {"model": self.model, "state": state, "questions": questions}
         payload = json.dumps(body).encode()
         body_sha = hashlib.sha256(payload).hexdigest()
@@ -3208,8 +3352,13 @@ class JevClient:
                     err = "HTTP %d with a body that is not JSON" % status
                 else:
                     err = "HTTP %d" % status
+                    # 5xx (529 "overloaded" included) and 429 are retried;
+                    # any other 4xx (401, 422, ...) is not (decision 111).
                     retryable = int(status) >= 500 or int(status) == 429
-                    if int(status) == 429:
+                    if retryable:
+                        # Retry-After is documented for 429; 529/5xx do not
+                        # document it, but honour it exactly the same way
+                        # when a response sends one (decision 111).
                         retry_after = parse_retry_after(
                             {k.lower(): v for k, v in headers.items()}
                             .get("retry-after"))
@@ -3217,7 +3366,8 @@ class JevClient:
                 latency = (self._now() - t0) * 1e3
                 status, resp = None, None
                 err = "%s: %s" % (type(e).__name__, e)
-            a = {"attempt": attempt, "ts": ts, "http_status": status,
+            a = {"attempt": attempt, "ts": ts, "endpoint": self.endpoint,
+                 "http_status": status,
                  "latency_ms": round(latency, 1), "error": err,
                  "request_sha256": body_sha, "request_bytes": len(payload),
                  "retry_after": retry_after, "sleep_s": None}
@@ -3264,7 +3414,12 @@ class JevClient:
                   "request_sha256": body_sha, "request_bytes": len(payload),
                   "n_attempts": len(attempt_log), "attempt_log": attempt_log,
                   "seconds_waiting": round(waited, 3),
-                  "exhausted": not landed}
+                  "exhausted": not landed,
+                  # Decision 111: which route, how it was chosen, and (no
+                  # key, ever) which env var it reads from.
+                  "endpoint": self.endpoint,
+                  "endpoint_source": self.endpoint_source,
+                  "base_url": self.base_url, "key_env": self.key_env}
         with open(self.jsonl_path, "a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -3312,6 +3467,19 @@ class JevClient:
                                if a.get("retry_after") is not None else "",
                                (" then sleep %.1f s" % a["sleep_s"])
                                if a.get("sleep_s") is not None else ""))
+
+        if self.smoke:
+            # --jev-smoke (decision 111): enough for a user with a key to
+            # tell, from one request, whether the route they picked is
+            # wired up correctly --- never the key itself.
+            keys = sorted(resp.keys()) if isinstance(resp, dict) else None
+            print("[jev-smoke] endpoint=%s (chosen by %s) base_url=%s "
+                  "key_env=%s" % (self.endpoint, self.endpoint_source,
+                                  self.base_url, self.key_env))
+            print("[jev-smoke] http_status=%s response_top_level_keys=%s "
+                  "answers_present=%s"
+                  % (status, keys, isinstance(resp, dict)
+                     and "answers" in resp))
 
         if not landed:
             return None, line_no
@@ -4799,7 +4967,9 @@ class Search:
             return OracleProposer(self.knobs)
         self.jev = JevClient(self.cfg["jev"],
                              os.path.join(self.out, "jev-log"), self.run_id,
-                             self.args.source_comments, self.source_excerpt)
+                             self.args.source_comments, self.source_excerpt,
+                             cli_endpoint=getattr(self.args, "jev_endpoint",
+                                                  None))
         return JevProposer(self.jev, self.cfg["jev"], self.knobs,
                            int(self.cfg["search"]["max_state_chars"]),
                            self.args.readout, self.args.explore,
@@ -5451,6 +5621,14 @@ class Search:
             "retry_policy": (retry_policy(self.cfg["jev"])
                              if self.args.proposer == "jev" else None),
             "gateway": self.jev.gateway if self.jev else None,
+            # Decision 111: which route this run's JevClient used, how it
+            # was chosen (cli/env/toml/auto) and which env var it read the
+            # key from --- never the key itself.
+            "jev_endpoint": self.jev.endpoint if self.jev else None,
+            "jev_endpoint_source": (self.jev.endpoint_source if self.jev
+                                    else None),
+            "jev_base_url": self.jev.base_url if self.jev else None,
+            "jev_key_env": self.jev.key_env if self.jev else None,
             "wall_s": round(wall, 1),
         }
         with open(os.path.join(self.out, "run-manifest.json"), "w") as f:
@@ -5648,8 +5826,9 @@ def resolve_marks_arg(args):
 def main():
     p = argparse.ArgumentParser(
         description="jev-opt hint search (SPEC.ja.md 1(3), decision 62)")
-    p.add_argument("--target", required=True,
-                   help="a TARGET scripts/target_common.sh knows")
+    p.add_argument("--target", default=None,
+                   help="a TARGET scripts/target_common.sh knows. Required "
+                        "unless --jev-smoke")
     p.add_argument("--marks", default=None,
                    help="the marks file. Optional (decision 109): without "
                         "it the newest targets/<t>/jev-marks.jev[.vN].txt is "
@@ -5663,8 +5842,9 @@ def main():
                    help="N for a generated marks file (target_marks.py --n)")
     p.add_argument("--sites", default=None,
                    help="optional sites.json with profile shares and caps")
-    p.add_argument("--proposer", required=True,
-                   choices=("jev", "random", "oracle"))
+    p.add_argument("--proposer", default=None,
+                   choices=("jev", "random", "oracle"),
+                   help="required unless --jev-smoke")
     p.add_argument("--vocab", default="v3",
                    choices=("v1", "v2", "v3", "v4", "v5", "v6"),
                    help="the frozen vocabulary AND state template: v1 is "
@@ -5762,9 +5942,32 @@ def main():
     p.add_argument("--rounds", type=int, default=None,
                    help="ignored for --proposer oracle, whose arm count is "
                         "determined by the site and candidate lists")
-    p.add_argument("--out", required=True)
+    p.add_argument("--out", default=None,
+                   help="required unless --jev-smoke")
     p.add_argument("--run-id", default=None)
     p.add_argument("--config", default=os.path.join(REPO, "jev-opt.toml"))
+    p.add_argument("--jev-endpoint", default=None,
+                   choices=ENDPOINT_CHOICES,
+                   help="decision 111: which TypeSafe route JevClient uses "
+                        "this run, overriding JEV_ENDPOINT and [jev] "
+                        "endpoint. Precedence: this flag > JEV_ENDPOINT "
+                        "(env or .env) > [jev] endpoint in the config > "
+                        "auto-select by which of AI_GATEWAY_API_KEY / "
+                        "TYPESAFE_API_KEY is present. gateway (Vercel AI "
+                        "Gateway) is the default route; direct "
+                        "(api.typesafe.ai) is implemented from "
+                        "documentation only and has not been exercised "
+                        "against the live API in this project --- run "
+                        "--jev-smoke first with a real TYPESAFE_API_KEY")
+    p.add_argument("--jev-smoke", action="store_true",
+                   help="send one Choice request and exit; no --target, "
+                        "--proposer or --out needed, nothing is built or "
+                        "timed. Prints the endpoint chosen (and how), the "
+                        "HTTP status and the response's top-level keys, so "
+                        "a mismatch (e.g. --jev-endpoint direct against a "
+                        "route that isn't wired up right) is obvious in "
+                        "one request (decision 111). Exit 0 only if an "
+                        "answer landed")
     p.add_argument("-n", "--n", type=int, default=None,
                    help="timed repetitions per round (bench.py --runs)")
     p.add_argument("--warmup", type=int, default=None)
@@ -5870,12 +6073,49 @@ def main():
                    help="measure a round even if a plan entry was unmatched "
                         "or vanished (recorded either way)")
     args = p.parse_args()
+    if args.jev_smoke:
+        return jev_smoke(args)
+    if not args.target:
+        p.error("the following arguments are required: --target")
+    if not args.proposer:
+        p.error("the following arguments are required: --proposer")
+    if not args.out:
+        p.error("the following arguments are required: --out")
     args.marks, args.marks_provenance = resolve_marks_arg(args)
 
     cfg = load_config(args.config)
     if args.proposer == "oracle" and args.rounds:
         print("[note] --rounds %d caps the oracle's arms" % args.rounds)
     return Search(args, cfg).run()
+
+
+def jev_smoke(args):
+    """--jev-smoke (decision 111): one Choice request, no target, no marks,
+    no build, no timing. Its only job is letting a user who just got a
+    TypeSafe key check --jev-endpoint direct before trusting it in a real
+    run; JevClient itself prints the endpoint chosen, the HTTP status and
+    the response's top-level keys (see `ask`'s `smoke` branch)."""
+    cfg = load_config(args.config)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    client = JevClient(cfg["jev"],
+                       os.path.join(REPO, "artifacts", "jev-smoke"),
+                       "smoke-" + ts, cli_endpoint=args.jev_endpoint,
+                       smoke=True)
+    state = ("jev-opt connectivity smoke test (decision 111): this is not "
+             "a real optimization decision.")
+    # A real Choice needs at least two criteria (a one-option Choice was
+    # observed to 400 on one provider behind the gateway, "choice requires
+    # at least 2 options, got 1", though a fallback still answered it).
+    questions = {"smoke": {"type": "choice",
+                          "instructions": "Reply KEEP_DEFAULT; there is no "
+                                          "other correct answer here.",
+                          "criteria": {
+                              "KEEP_DEFAULT": "the only correct answer to "
+                                              "this connectivity check",
+                              "OTHER": "never the correct answer here"}}}
+    answers, _ = client.ask(state, questions, round_no=0, phase="smoke",
+                            site_map={})
+    return 0 if answers is not None else 1
 
 
 if __name__ == "__main__":

@@ -25,8 +25,23 @@ decisions), `results.md` (every measurement, append-only), `AGENTS.md`
   user-mode cycles (`cycles:u`) are sampled. The driver's marks generation
   refuses to take a profile without it ("run `scripts/perf_local.sh setup`
   first").
-* **Jev**: a Vercel AI Gateway key in `.env` (`AI_GATEWAY_API_KEY`, shape in
-  `.env.example`; `.env` is git-ignored and never printed or logged).
+* **Jev**: two routes (decision 111), picked by `--jev-endpoint` >
+  `JEV_ENDPOINT` (env/`.env`) > `[jev] endpoint` (`jev-opt.toml`) > auto
+  (whichever key below is present; both present keeps `gateway`). **gateway**
+  (default, every run before decision 111): a Vercel AI Gateway key,
+  `AI_GATEWAY_API_KEY` (free Hobby tier is enough). **direct**: TypeSafe's own
+  API, `TYPESAFE_API_KEY` --- no free tier, $0.042 / 1M input tokens, output
+  free (roughly $0.03 for a 5-round search's ~0.6M input tokens); implemented
+  from documentation only (docs.typesafe.ai) and **not exercised against the
+  live API in this project** (no TypeSafe key here). Shape of both in
+  `.env.example`; `.env` is git-ignored and neither key is ever printed or
+  logged. Before trusting `--jev-endpoint direct` with a real key, run the
+  one-request smoke check, which prints the route chosen, the HTTP status
+  and the response's top-level keys and exits 0 only if an answer landed:
+
+  ```bash
+  scripts/jev_search.py --jev-smoke --jev-endpoint direct
+  ```
 
 ## Marks file
 
