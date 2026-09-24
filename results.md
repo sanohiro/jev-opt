@@ -14769,3 +14769,57 @@ mechanical rule"); the write-up will say whether it tied or exceeded.
 
 **Deviations** will be recorded here as 176.7 before any request they
 affect.
+
+#### 176.7 Amendment (coordinator / owner, 2026-09-24 20:05): input set v2, hybrid Q3, optional Q4
+
+Registered while the v1 requests of 176.1-176.6 were in flight (hintbench
+and zopfli landed, jaq in progress) and **before any v2 request**. The v1
+run is completed and scored exactly as pre-registered; v2 is a second,
+separate input set with its own logs (`ms2-*`), not a replacement.
+
+**Why.** `targets/jaq/jev-marks.rationale.md` "Why these fifteen" shows that
+Claude's jaq marks used, besides reach, post-LTO binary facts (instruction
+and backedge counts, called vs inlined, per-workload shares) and skipped
+library plumbing, compiler-generated glue, C and thunks. v1 gave Jev less
+than Claude had. v2 gives Jev the same kind of facts, uniformly, and still
+no judgement text.
+
+**v2 inputs** (`build --inputs v2`, `inputs-v2.json`): the v1 rows and
+fields (same floor, same exclusions, same order and ids) plus, per row:
+`crate` (the tables' crate column; name only), `reach per case`
+(jaq objsearch / readwrite / strproc, zopfli binary / json / text; mean of
+the training and holdout runs of that case), `insns` and `loops`
+(`scripts/inline_structure.py` `reach` / `reachbe`: machine instructions
+and backward jumps of the code that belongs to the function, including
+what is inlined into it, over **every symbol that received a sample**;
+hintbench: over every text symbol, since there is no profile), `hosts`
+(`nhosts`). Structure tables regenerated from the verified binaries into
+`artifacts/jev-marks-study/{jaq,zopfli,hintbench}-inline-structure.tsv`
+(every listed row resolved). The column texts are fixed in
+`V2_COLS`; `leak_check` clean on all three targets (crate names blanked
+like function names: `hbkernels` is data).
+
+**Questions on v2.** Q1 and Q2 unchanged (texts, readouts). New:
+
+* **Q3 hybrid.** A mechanical rule, fixed now, decides the clear cases
+  without Jev: **skip** if training reach < 1% or the function's code is a
+  thunk (`insns` <= 8); **mark** if training reach >= 5% and `loops` > 0;
+  C / no-IR rows are already excluded from the list. Everything else is
+  **gray** and gets the Q1 question (same text, same v2 state showing the
+  whole table); Q3 set = rule-marks + gray rows with P(mark) > 0.5. Rule
+  counts: jaq 15 mark / 101 gray / 8 skip; zopfli 10 / 14 / 2; hintbench
+  5 / 3 / 0 (k1, k2, k7 are gray: no machine loop). Scored like the others
+  plus a **requests / questions** column. Two mechanical references are
+  also reported: rule-marks only (gray skipped) and rule-marks + all gray.
+* **Q4 (exploratory, lowest priority, optional).** Q1 plus a comment-
+  stripped source excerpt for gray rows only. Run only if time allows after
+  Q1-Q3 on v2; if not run, it is said so in 177. Not part of any verdict.
+
+**Plan.** v2: 3 repeats x (jaq Q1 3 + Q2 4 + Q3 3 chunks, zopfli 3,
+hintbench 3) = 48 requests, sequential after the v1 run ends (never two
+senders at once).
+
+**Verdict with v2.** The 176.6 rule is applied to each readout of each input
+set (v1 Q1, v1 Q2, v2 Q1, v2 Q2, v2 Q3). Q3's rule part is mechanical, so a
+Q3 pass is reported as "hybrid passes"; it counts as "Jev adds something"
+only if Q3 also beats "rule-marks only" on (b) or (a) on some target.

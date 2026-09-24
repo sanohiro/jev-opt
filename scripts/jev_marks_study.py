@@ -42,6 +42,18 @@ STUDY = "marks-study-2026-09-24"
 OUT_DIR = os.path.join(REPO, "artifacts", "jev-marks-study")
 DOC_DIR = os.path.join(REPO, "docs", "experiments", "jev-marks-study")
 INPUTS = os.path.join(OUT_DIR, "inputs.json")
+INPUTS_V2 = os.path.join(OUT_DIR, "inputs-v2.json")
+INPUT_SET = "v1"             # --inputs; v2 = results.md 176.7 (amendment)
+# 176.7: post-LTO structure per source function, from
+# scripts/inline_structure.py over every sampled symbol (hintbench: every
+# text symbol), written by `build --inputs v2` next to the inputs.
+STRUCT_TSV = os.path.join(OUT_DIR, "%s-inline-structure.tsv")
+# 176.7 hybrid (Q3): the mechanical rule, fixed before any v2 request.
+HYB_MARK_REACH = 5.0         # training reach >= 5% and backedges > 0: mark
+HYB_SKIP_REACH = 1.0         # training reach < 1%: skip
+HYB_THUNK_INSNS = 8          # <= 8 instructions incl. inlined code: skip
+CASES = {"jaq": ["objsearch", "readwrite", "strproc"],
+         "zopfli": ["binary", "json", "text"]}
 
 # Pre-registered (results.md 176.2): list floor and request size cap.
 REACH_FLOOR = 1.0            # percent, max(training, holdout) reach
@@ -320,14 +332,60 @@ def build_target(target):
     listed.sort(key=lambda d: d["name"])
     for i, d in enumerate(listed, 1):
         d["id"] = "F%03d" % i
+    if INPUT_SET == "v2":
+        add_v2_facts(target, t, listed)
     marks = read_marks(t["marks"])
     stripped = {strip_generics(d["name"]) for d in listed}
     missing = [m for m in marks + t["positives"] + t["positives_extra"]
                if strip_generics(m) not in stripped]
-    return dict(target=target, text_sha256=sha, n_listed=len(listed),
+    return dict(target=target, input_set=INPUT_SET, text_sha256=sha, n_listed=len(listed),
                 dropped_c=sorted(dropped_c), dropped_below_floor=dropped_floor,
                 marks=marks, N=len(marks), missing_from_list=missing,
                 rows=listed)
+
+
+def add_v2_facts(target, t, listed):
+    """176.7: crate, per-case reach, post-LTO instructions / backedges /
+    host count of the code that belongs to the function."""
+    st = {r["function"]: r for r in csv.DictReader(
+        open(STRUCT_TSV % target), delimiter="\t")}
+    crate = {}
+    per_case = collections.defaultdict(dict)
+    if target == "jaq":
+        for r in read_tsv(t["inline_tsv"]):
+            crate[r["function"]] = r["crate"]
+            for c in CASES[target]:
+                per_case[r["function"]][c] = statistics.fmean(
+                    float(r["reach_%s-%s" % (s, c)]) for s in ("train", "hold"))
+    elif target == "zopfli":
+        acc = collections.defaultdict(lambda: collections.defaultdict(list))
+        for split in ("train", "hold"):
+            for r in read_tsv(t["inline_tsv"] % split):
+                crate[r["function"]] = r["crate"]
+                for c in CASES[target]:
+                    acc[r["function"]][c].append(
+                        float(r["reach_%s-%s" % (split, c)]))
+        for fn, cs in acc.items():
+            for c in CASES[target]:
+                v = cs[c] + [0.0] * (2 - len(cs[c]))
+                per_case[fn][c] = statistics.fmean(v)
+    for d in listed:
+        s = st.get(d["name"])
+        d["crate"] = (crate.get(d["name"]) or (s or {}).get("crate")
+                      or "hbkernels")
+        d["per_case"] = per_case.get(d["name"]) or None
+        d["insns"] = int(s["reach"]) if s else None
+        d["backedges"] = int(s["reachbe"]) if s else None
+        d["hosts"] = int(s["nhosts"]) if s else None
+        d["own_insns"] = int(s["own"]) if s else None
+        # 176.7 hybrid rule
+        if d["reach_train"] < HYB_SKIP_REACH or (
+                d["insns"] is not None and d["insns"] <= HYB_THUNK_INSNS):
+            d["rule"] = "skip"
+        elif d["reach_train"] >= HYB_MARK_REACH and (d["backedges"] or 0) > 0:
+            d["rule"] = "mark"
+        else:
+            d["rule"] = "gray"
 
 
 def cmd_build(a):
@@ -340,12 +398,17 @@ def cmd_build(a):
               "missing %s" % (target, b["n_listed"], len(b["dropped_c"]),
                               b["dropped_below_floor"], b["N"],
                               b["missing_from_list"] or "none"))
-    json.dump(out, open(INPUTS, "w"), indent=1)
-    print("wrote", INPUTS)
+        if INPUT_SET == "v2":
+            print("          hybrid rule: %s" % dict(collections.Counter(
+                d["rule"] for d in b["rows"])))
+    out["input_set"] = INPUT_SET
+    path = INPUTS_V2 if INPUT_SET == "v2" else INPUTS
+    json.dump(out, open(path, "w"), indent=1)
+    print("wrote", path)
 
 
 def load_inputs():
-    return json.load(open(INPUTS))
+    return json.load(open(INPUTS_V2 if INPUT_SET == "v2" else INPUTS))
 
 # ---------------------------------------------------------------------------
 # requests
@@ -360,7 +423,58 @@ def cut(name, cap):
     return name if len(name) <= cap else name[:cap - 1] + "…"
 
 
+V2_COLS = """\
+- `crate`: the crate the function's name comes from (a generic function
+  from a library crate is compiled inside this program).
+- `reach per case`: reach in each of the three cases ({cases}), the mean of
+  its training and holdout runs.
+- `insns` / `loops`: machine instructions of the code that belongs to the
+  function (its body plus everything inlined into it) in the symbols that
+  received samples, and the number of backward jumps inside that code (a
+  backward jump means a machine-code loop survived optimisation); `-` when
+  none of its code is in a sampled symbol.
+- `hosts`: how many symbols of the final binary hold its code (1 with `own
+  symbol` `no` = inlined into one caller).
+"""
+V2_TABLE = ("id | function | crate | self train | self hold | reach train | "
+            "reach hold | reach per case | own symbol | size | insns | loops "
+            "| hosts\n")
+
+
+def _v2_row(d):
+    pc = ("/".join("%.1f" % d["per_case"][c] for c in sorted(d["per_case"]))
+          if d.get("per_case") else "-")
+    na = lambda x: "-" if x is None else str(x)   # noqa: E731
+    return "%s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s" % (
+        d["id"], cut(d["name"], NAME_CAP_STATE), d["crate"],
+        _pct(d["self_train"]), _pct(d["self_hold"]), _pct(d["reach_train"]),
+        _pct(d["reach_hold"]), pc, "yes" if d["own_symbol"] else "no",
+        d["size"] if d["size"] else "-", na(d["insns"]), na(d["backedges"]),
+        na(d["hosts"]))
+
+
 def render_state(b):
+    if b.get("input_set") == "v2":
+        return render_state_v2(b)
+    return render_state_v1(b)
+
+
+def render_state_v2(b):
+    target = b["target"]
+    s = render_state_v1(b)
+    head, _sep, _rows = s.partition(
+        "id | function | self train | self hold | reach train | reach hold "
+        "| own symbol | size\n")
+    cases = "/".join(sorted(CASES.get(target, [])))
+    cols = (V2_COLS.format(cases=cases) if target in CASES else
+            V2_COLS.split("- `reach per case`")[0] + "- `insns` / `loops`"
+            + V2_COLS.split("- `insns` / `loops`")[1])
+    head = head.replace("- Call counts are not available",
+                        cols + "- Call counts are not available")
+    return head + V2_TABLE + "\n".join(_v2_row(d) for d in b["rows"]) + "\n"
+
+
+def render_state_v1(b):
     target = b["target"]
     if target == "hintbench":
         profile = HB_PROFILE
@@ -391,8 +505,10 @@ def render_state(b):
 def questions(b, q):
     out, site_map = {}, {}
     for d in b["rows"]:
+        if q == "Q3" and d.get("rule") != "gray":
+            continue
         qn = "%s_%s" % (q.lower(), d["id"])
-        if q == "Q1":
+        if q in ("Q1", "Q3"):
             out[qn] = {"type": "choice",
                        "instructions": Q1_INSTR.format(
                            fid=d["id"], name=cut(d["name"], NAME_CAP_Q)),
@@ -427,7 +543,7 @@ def build_requests(b, q):
 
 def all_request_text(b):
     parts = [render_state(b)]
-    for q in ("Q1", "Q2"):
+    for q in ("Q1", "Q2") + (("Q3",) if b.get("input_set") == "v2" else ()):
         qs, _ = questions(b, q)
         for qq in qs.values():
             parts.append(qq["instructions"])
@@ -443,6 +559,8 @@ def leak_report(b):
     for d in b["rows"]:
         for cap in (NAME_CAP_STATE, NAME_CAP_Q, 10 ** 9):
             txt = txt.replace(cut(d["name"], cap), "<name>")
+        if d.get("crate"):
+            txt = txt.replace("| %s |" % d["crate"], "| <crate> |")
     txt = txt.replace("`%s`" % b["target"], "`<target>`")
     return leak_check(txt)
 
@@ -532,18 +650,22 @@ def cmd_run(a):
 
 def jev_answers(path, repeats):
     """{rep: {"Q1": {name: P(mark)}, "Q2": {name: score}}}"""
-    out = {r: {"Q1": {}, "Q2": {}} for r in range(1, repeats + 1)}
+    out = {r: {"Q1": {}, "Q2": {}, "Q3": {}, "requests": 0,
+               "questions": collections.Counter()}
+           for r in range(1, repeats + 1)}
     for line in open(path):
         rec = json.loads(line)
         if rec.get("exhausted") or rec["round"] not in out:
             continue
         ans = (rec.get("response") or {}).get("answers") or {}
+        out[rec["round"]]["requests"] += 1
         for qn, sm in rec["site_map"].items():
+            out[rec["round"]]["questions"][sm["q"]] += 1
             a = ans.get(qn)
             if not a:
                 continue
-            if sm["q"] == "Q1":
-                out[rec["round"]]["Q1"][sm["site_id"]] = float(
+            if sm["q"] in ("Q1", "Q3"):
+                out[rec["round"]][sm["q"]][sm["site_id"]] = float(
                     (a.get("probabilities") or {}).get("mark", 0.0))
             else:
                 out[rec["round"]]["Q2"][sm["site_id"]] = a.get("score")
@@ -685,6 +807,25 @@ def cmd_score(a):
             sets["Q2 r%d" % rep] = sorted(
                 names, key=lambda n: (-(sc.get(n) if sc.get(n) is not None
                                         else -1), alpha[n]))[:N]
+        rule = {d["name"]: d.get("rule") for d in b["rows"]}
+        if any(ans[r]["Q3"] for r in ans):
+            for rep_ in ans:
+                p3 = ans[rep_]["Q3"]
+                sets["Q3 hybrid r%d" % rep_] = [
+                    n for n in names if rule[n] == "mark"
+                    or (rule[n] == "gray" and p3.get(n, 0.0) > 0.5)]
+            medP3 = {n: statistics.median(ans[r]["Q3"].get(n, 0.0)
+                                          for r in ans) for n in names}
+            sets["Q3 hybrid medP"] = [n for n in names if rule[n] == "mark"
+                                      or (rule[n] == "gray"
+                                          and medP3[n] > 0.5)]
+            sets["hybrid rule only (gray skipped)"] = [
+                n for n in names if rule[n] == "mark"]
+            sets["hybrid rule + all gray marked"] = [
+                n for n in names if rule[n] in ("mark", "gray")]
+        res["requests"] = {r: {"requests": ans[r]["requests"],
+                               "questions": dict(ans[r]["questions"])}
+                           for r in ans}
         medP = {n: statistics.median(ans[r]["Q1"].get(n, 0.0)
                                      for r in ans) for n in names}
         medS = {n: statistics.median((ans[r]["Q2"].get(n)
@@ -710,7 +851,9 @@ def cmd_score(a):
             res["per_function"][n] = {
                 "id": d["id"],
                 "reach_rank": by_reach.index(n) + 1,
+                "rule": rule.get(n),
                 "P_mark": [ans[r]["Q1"].get(n) for r in sorted(ans)],
+                "P_mark_Q3": [ans[r]["Q3"].get(n) for r in sorted(ans)],
                 "score": [ans[r]["Q2"].get(n) for r in sorted(ans)]}
         out["targets"][target] = res
     json.dump(out, open(a.out, "w"), indent=1)
@@ -800,11 +943,12 @@ def write_report(out, inp, path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--inputs", choices=("v1", "v2"), default="v1")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("build")
     r = sub.add_parser("render")
     r.add_argument("target", choices=sorted(TARGETS))
-    r.add_argument("q", choices=("Q1", "Q2"))
+    r.add_argument("q", choices=("Q1", "Q2", "Q3"))
     r.add_argument("--full", action="store_true")
     ru = sub.add_parser("run")
     ru.add_argument("--targets", nargs="+", default=list(TARGETS))
@@ -820,6 +964,15 @@ def main():
     sc.add_argument("--out", default=os.path.join(OUT_DIR, "scores.json"))
     sc.add_argument("--report", default=os.path.join(OUT_DIR, "report.md"))
     a = p.parse_args()
+    global INPUT_SET
+    INPUT_SET = a.inputs
+    if a.inputs == "v2":      # separate logs and outputs for 176.7
+        if getattr(a, "run_prefix", None) == "ms":
+            a.run_prefix = "ms2"
+        if getattr(a, "out", None) == os.path.join(OUT_DIR, "scores.json"):
+            a.out = os.path.join(OUT_DIR, "scores-v2.json")
+        if getattr(a, "report", None) == os.path.join(OUT_DIR, "report.md"):
+            a.report = os.path.join(OUT_DIR, "report-v2.md")
     return {"build": cmd_build, "render": cmd_render, "run": cmd_run,
             "score": cmd_score}[a.cmd](a) or 0
 
