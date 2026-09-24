@@ -1,0 +1,50 @@
+{
+ "hintbench.A": {
+  "lines_mine": 280,
+  "lines_l13": 280,
+  "differing_lines": [
+   {
+    "line": 1,
+    "driver": "# jev-opt hint search --- state format state-v6.0-noexcerpt-2026-09-25, vocabulary v6-2026-09-23",
+    "l13": "# jev-opt hint search --- state format state-v6.0-2026-09-23, vocabulary v6-2026-09-23"
+   }
+  ],
+  "questions_identical": true
+ },
+ "hintbench.B": {
+  "lines_mine": 212,
+  "lines_l13": 212,
+  "differing_lines": [
+   {
+    "line": 1,
+    "driver": "# jev-opt hint search --- state format state-v6.0-noexcerpt-2026-09-25, vocabulary v6-2026-09-23",
+    "l13": "# jev-opt hint search --- state format state-v6.0-2026-09-23, vocabulary v6-2026-09-23"
+   }
+  ],
+  "questions_identical": true
+ },
+ "zopfli.A": {
+  "lines_mine": 247,
+  "lines_l13": 247,
+  "differing_lines": [
+   {
+    "line": 1,
+    "driver": "# jev-opt hint search --- state format state-v6.0-noexcerpt-2026-09-25, vocabulary v6-2026-09-23",
+    "l13": "# jev-opt hint search --- state format state-v6.0-2026-09-23, vocabulary v6-2026-09-23"
+   }
+  ],
+  "questions_identical": true
+ },
+ "zopfli.B": {
+  "lines_mine": 189,
+  "lines_l13": 189,
+  "differing_lines": [
+   {
+    "line": 1,
+    "driver": "# jev-opt hint search --- state format state-v6.0-noexcerpt-2026-09-25, vocabulary v6-2026-09-23",
+    "l13": "# jev-opt hint search --- state format state-v6.0-2026-09-23, vocabulary v6-2026-09-23"
+   }
+  ],
+  "questions_identical": true
+ }
+}

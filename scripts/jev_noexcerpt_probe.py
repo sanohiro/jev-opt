@@ -25,7 +25,6 @@ Subcommands:
 
 import argparse
 import contextlib
-import copy
 import gzip
 import io
 import json
@@ -222,8 +221,10 @@ def cmd_choice(a):
 
 
 def cmd_table(a):
-    recs = [json.loads(l) for l in open(os.path.join(LOG_DIR,
-                                                     a.run_id + ".jsonl"))]
+    path = os.path.join(LOG_DIR, a.run_id + ".jsonl")
+    opener = open if os.path.isfile(path) else gzip.open
+    path = path if os.path.isfile(path) else path + ".gz"
+    recs = [json.loads(l) for l in opener(path, "rt")]
     print("| target | body | source excerpt | request bytes | landed / sends "
           "| mean sends to land | statuses |")
     print("|---|---|---|--:|--:|--:|---|")

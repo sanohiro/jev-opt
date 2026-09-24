@@ -1,0 +1,228 @@
+# jev-opt request log, run probe
+# ts round phase questions http_status latency_ms input_tokens output_tokens cost_usd
+# results.md 180 probe: 10 sends per body, 3 s gap, one HTTP attempt per send, full/none interleaved (full first on odd sends)
+2026-09-25T07:42:55.729634+09:00 r1 hintbench.A.full   8 200   2773.5   23630    341 0.00000000
+2026-09-25T07:43:00.142844+09:00 r1 hintbench.A.none   8 503   1411.9       0      0 0.00000000  ERROR HTTP 503
+#   request 46266 bytes sha256 7f527993484a920f, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:42:58.730924+09:00 http 503 1411.9 ms gen gen_01M3ASC6VT7RHKGMG006VJ7Y85
+2026-09-25T07:43:05.246119+09:00 r1 hintbench.B.full   4 503   2102.2       0      0 0.00000000  ERROR HTTP 503
+#   request 44475 bytes sha256 65287c6f9dd9405d, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:03.143877+09:00 http 503 2102.2 ms gen gen_01M3ASCB904WYJ1XTS9F7CFD9E
+2026-09-25T07:43:09.816014+09:00 r1 hintbench.B.none   4 503   1569.0       0      0 0.00000000  ERROR HTTP 503
+#   request 36180 bytes sha256 9c3b853a3f253dd6, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:08.246912+09:00 http 503 1569.0 ms gen gen_01M3ASCG11FDE0MQ7JBC261ET2
+2026-09-25T07:43:14.597510+09:00 r1 hintbench.explore.full   2 200   1780.6    8085    279 0.00000000
+2026-09-25T07:43:18.620031+09:00 r1 hintbench.explore.none   2 503   1022.8       0      0 0.00000000  ERROR HTTP 503
+#   request 21638 bytes sha256 fcd470ca72b20211, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:17.597204+09:00 http 503 1022.8 ms gen gen_01M3ASCRYAGTD75548B9YX718W
+2026-09-25T07:43:23.492057+09:00 r1 zopfli.A.full   6 503   1871.0       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:21.621018+09:00 http 503 1871.0 ms gen gen_01M3ASCXA3PPEG4R2SGPK5FVHY
+2026-09-25T07:43:27.882038+09:00 r1 zopfli.A.none   6 503   1389.0       0      0 0.00000000  ERROR HTTP 503
+#   request 38594 bytes sha256 4f19e061177c33d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:26.492972+09:00 http 503 1389.0 ms gen gen_01M3ASD1SG3QHYM23FSRSVHT45
+2026-09-25T07:43:32.862181+09:00 r1 zopfli.B.full   5 503   1979.1       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:30.883034+09:00 http 503 1979.1 ms gen gen_01M3ASD6AWZPCMCS5PRTG3H9TH
+2026-09-25T07:43:37.234631+09:00 r1 zopfli.B.none   5 200   1371.3   10564    758 0.00000000
+2026-09-25T07:43:41.404605+09:00 r1 zopfli.explore.full   2 200   1168.9    7176    293 0.00000000
+2026-09-25T07:43:45.810436+09:00 r1 zopfli.explore.none   2 200   1404.9    5076    293 0.00000000
+2026-09-25T07:43:50.671367+09:00 r2 hintbench.A.none   8 503   1862.0       0      0 0.00000000  ERROR HTTP 503
+#   request 46266 bytes sha256 7f527993484a920f, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:43:48.809315+09:00 http 503 1862.0 ms gen gen_01M3ASDQWD43GKDFAH4MHWVPRX
+2026-09-25T07:43:55.982805+09:00 r2 hintbench.A.full   8 200   2310.2   23630    341 0.00000000
+2026-09-25T07:44:00.726597+09:00 r2 hintbench.B.none   4 200   1742.4    9983    576 0.00000000
+2026-09-25T07:44:06.051696+09:00 r2 hintbench.B.full   4 200   2324.1   14008    576 0.00000000
+2026-09-25T07:44:10.386889+09:00 r2 hintbench.explore.none   2 200   1334.2    6036    280 0.00000000
+2026-09-25T07:44:14.633141+09:00 r2 hintbench.explore.full   2 200   1245.3    8085    279 0.00000000
+2026-09-25T07:44:18.956039+09:00 r2 zopfli.A.none   6 503   1322.9       0      0 0.00000000  ERROR HTTP 503
+#   request 38594 bytes sha256 4f19e061177c33d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:44:17.633051+09:00 http 503 1322.9 ms gen gen_01M3ASEKQNVFHESTC4M500X9X0
+2026-09-25T07:44:23.671233+09:00 r2 zopfli.A.full   6 200   1714.0   19249    258 0.00000000
+2026-09-25T07:44:28.414313+09:00 r2 zopfli.B.none   5 200   1742.1   10564    758 0.00000000
+2026-09-25T07:44:32.975027+09:00 r2 zopfli.B.full   5 503   1559.6       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:44:31.415364+09:00 http 503 1559.6 ms gen gen_01M3ASF19VCBXXQDKX5C8E4YWF
+2026-09-25T07:44:37.139978+09:00 r2 zopfli.explore.none   2 200   1164.0    5076    293 0.00000000
+2026-09-25T07:44:41.133328+09:00 r2 zopfli.explore.full   2 200    992.5    7176    293 0.00000000
+2026-09-25T07:44:46.074081+09:00 r3 hintbench.A.full   8 503   1939.7       0      0 0.00000000  ERROR HTTP 503
+#   request 65317 bytes sha256 0fc92e91708902e0, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:44:44.134278+09:00 http 503 1939.7 ms gen gen_01M3ASFDXC7Q22MVH0WPNBD93H
+2026-09-25T07:44:50.774399+09:00 r3 hintbench.A.none   8 200   1700.8   14572    341 0.00000000
+2026-09-25T07:44:55.756282+09:00 r3 hintbench.B.full   4 200   1980.9   14008    576 0.00000000
+2026-09-25T07:45:00.475849+09:00 r3 hintbench.B.none   4 200   1718.7    9983    576 0.00000000
+2026-09-25T07:45:04.619676+09:00 r3 hintbench.explore.full   2 200   1142.8    8085    279 0.00000000
+2026-09-25T07:45:09.051879+09:00 r3 hintbench.explore.none   2 200   1430.6    6036    279 0.00000000
+2026-09-25T07:45:13.754745+09:00 r3 zopfli.A.full   6 503   1701.8       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:45:12.052924+09:00 http 503 1701.8 ms gen gen_01M3ASG8ZF93ZX3QR24NE0J9JG
+2026-09-25T07:45:18.702820+09:00 r3 zopfli.A.none   6 200   1948.4   13063    258 0.00000000
+2026-09-25T07:45:24.003551+09:00 r3 zopfli.B.full   5 200   2299.7   15541    758 0.00000000
+2026-09-25T07:45:28.606360+09:00 r3 zopfli.B.none   5 503   1601.8       0      0 0.00000000  ERROR HTTP 503
+#   request 38445 bytes sha256 cb18b33d728053cf, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:45:27.004516+09:00 http 503 1601.8 ms gen gen_01M3ASGQNW84E75DYCHGEFDXJW
+2026-09-25T07:45:32.809616+09:00 r3 zopfli.explore.full   2 503   1202.4       0      0 0.00000000  ERROR HTTP 503
+#   request 23549 bytes sha256 d4856a042653ac7e, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:45:31.607209+09:00 http 503 1202.4 ms gen gen_01M3ASGVZHES49EY95YYMKVJVQ
+2026-09-25T07:45:36.948767+09:00 r3 zopfli.explore.none   2 200   1138.3    5076    293 0.00000000
+2026-09-25T07:45:41.944765+09:00 r4 hintbench.A.none   8 200   1995.0   14572    341 0.00000000
+2026-09-25T07:45:46.669851+09:00 r4 hintbench.A.full   8 503   1725.5       0      0 0.00000000  ERROR HTTP 503
+#   request 65317 bytes sha256 0fc92e91708902e0, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:45:44.946000+09:00 http 503 1725.5 ms gen gen_01M3ASH98APPW00PKM4WDT0ZGN
+2026-09-25T07:45:51.258191+09:00 r4 hintbench.B.none   4 503   1587.2       0      0 0.00000000  ERROR HTTP 503
+#   request 36180 bytes sha256 9c3b853a3f253dd6, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:45:49.670965+09:00 http 503 1587.2 ms gen gen_01M3ASHDRSQAD8DV9RQQE3PBSF
+2026-09-25T07:45:55.964336+09:00 r4 hintbench.B.full   4 200   1705.2   14008    571 0.00000000
+2026-09-25T07:45:59.929670+09:00 r4 hintbench.explore.none   2 200    964.5    6036    279 0.00000000
+2026-09-25T07:46:04.520310+09:00 r4 hintbench.explore.full   2 200   1589.7    8085    279 0.00000000
+2026-09-25T07:46:09.021136+09:00 r4 zopfli.A.none   6 503   1499.8       0      0 0.00000000  ERROR HTTP 503
+#   request 38594 bytes sha256 4f19e061177c33d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:46:07.521267+09:00 http 503 1499.8 ms gen gen_01M3ASHZ6RJT2TEGKJN70Y4CVX
+2026-09-25T07:46:13.912179+09:00 r4 zopfli.A.full   6 200   1890.1   19249    257 0.00000000
+2026-09-25T07:46:18.268207+09:00 r4 zopfli.B.none   5 200   1356.3   10564    758 0.00000000
+2026-09-25T07:46:22.854018+09:00 r4 zopfli.B.full   5 503   1584.8       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:46:21.269208+09:00 http 503 1584.8 ms gen gen_01M3ASJCJEXZ62XVJ8ESPVR5SV
+2026-09-25T07:46:26.906633+09:00 r4 zopfli.explore.none   2 200   1051.6    5076    293 0.00000000
+2026-09-25T07:46:30.956928+09:00 r4 zopfli.explore.full   2 200   1049.5    7176    295 0.00000000
+2026-09-25T07:46:35.508092+09:00 r5 hintbench.A.full   8 200   1550.1   23630    341 0.00000000
+2026-09-25T07:46:40.492358+09:00 r5 hintbench.A.none   8 200   1983.1   14572    341 0.00000000
+2026-09-25T07:46:45.061571+09:00 r5 hintbench.B.full   4 503   1568.1       0      0 0.00000000  ERROR HTTP 503
+#   request 44475 bytes sha256 65287c6f9dd9405d, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:46:43.493396+09:00 http 503 1568.1 ms gen gen_01M3ASK2941YYC96RD84P9TB8K
+2026-09-25T07:46:50.427272+09:00 r5 hintbench.B.none   4 200   2366.2    9983    576 0.00000000
+2026-09-25T07:46:54.584409+09:00 r5 hintbench.explore.full   2 200   1156.1    8085    279 0.00000000
+2026-09-25T07:46:58.658182+09:00 r5 hintbench.explore.none   2 200   1072.8    6036    279 0.00000000
+2026-09-25T07:47:03.294818+09:00 r5 zopfli.A.full   6 503   1635.5       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:47:01.659225+09:00 http 503 1635.5 ms gen gen_01M3ASKM0GDXAX94NGK54Z5NME
+2026-09-25T07:47:08.037011+09:00 r5 zopfli.A.none   6 503   1741.1       0      0 0.00000000  ERROR HTTP 503
+#   request 38594 bytes sha256 4f19e061177c33d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:47:06.295892+09:00 http 503 1741.1 ms gen gen_01M3ASKRKASCWJ10WNSD3SARZ0
+2026-09-25T07:47:12.709595+09:00 r5 zopfli.B.full   5 503   1671.5       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:47:11.037978+09:00 http 503 1671.5 ms gen gen_01M3ASKX6R03BNYKYX4MAF3G50
+2026-09-25T07:47:35.959315+09:00 r5 zopfli.B.none   5 None  20249.7       0      0 0.00000000  ERROR TimeoutError: The read operation timed out
+#   request 38445 bytes sha256 cb18b33d728053cf, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:47:15.710633+09:00 http None 20249.7 ms
+2026-09-25T07:47:40.143507+09:00 r5 zopfli.explore.full   2 200   1183.2    7176    293 0.00000000
+2026-09-25T07:47:44.287865+09:00 r5 zopfli.explore.none   2 200   1143.4    5076    293 0.00000000
+2026-09-25T07:47:48.938249+09:00 r6 hintbench.A.none   8 200   1650.8   14572    341 0.00000000
+2026-09-25T07:47:53.703760+09:00 r6 hintbench.A.full   8 200   1764.3   23630    341 0.00000000
+2026-09-25T07:47:58.034565+09:00 r6 hintbench.B.none   4 200   1329.7    9983    576 0.00000000
+2026-09-25T07:48:10.681666+09:00 r6 hintbench.B.full   4 200   9646.1   14008    571 0.00000000
+2026-09-25T07:48:14.866485+09:00 r6 hintbench.explore.none   2 200   1183.8    6036    279 0.00000000
+2026-09-25T07:48:19.130308+09:00 r6 hintbench.explore.full   2 200   1264.3    8085    279 0.00000000
+2026-09-25T07:48:23.327523+09:00 r6 zopfli.A.none   6 200   1196.4   13063    258 0.00000000
+2026-09-25T07:48:28.081008+09:00 r6 zopfli.A.full   6 503   1752.5       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:48:26.328485+09:00 http 503 1752.5 ms gen gen_01M3ASP6VQEPPWVFV72DDBRA82
+2026-09-25T07:48:32.473895+09:00 r6 zopfli.B.none   5 200   1391.8   10564    758 0.00000000
+2026-09-25T07:48:37.451040+09:00 r6 zopfli.B.full   5 200   1976.0   15541    758 0.00000000
+2026-09-25T07:48:41.822223+09:00 r6 zopfli.explore.none   2 200   1369.5    5076    293 0.00000000
+2026-09-25T07:48:46.011407+09:00 r6 zopfli.explore.full   2 200   1188.3    7176    293 0.00000000
+2026-09-25T07:48:50.371300+09:00 r7 hintbench.A.full   8 200   1360.0   23630    341 0.00000000
+2026-09-25T07:48:54.858099+09:00 r7 hintbench.A.none   8 503   1485.5       0      0 0.00000000  ERROR HTTP 503
+#   request 46266 bytes sha256 7f527993484a920f, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:48:53.372529+09:00 http 503 1485.5 ms gen gen_01M3ASQ136D35GWPBBJWMDVE5G
+2026-09-25T07:48:59.921515+09:00 r7 hintbench.B.full   4 200   2062.1   14008    576 0.00000000
+2026-09-25T07:49:04.770798+09:00 r7 hintbench.B.none   4 200   1847.8    9983    576 0.00000000
+2026-09-25T07:49:09.040030+09:00 r7 hintbench.explore.full   2 200   1268.4    8085    279 0.00000000
+2026-09-25T07:49:13.800450+09:00 r7 hintbench.explore.none   2 200   1759.5    6036    280 0.00000000
+2026-09-25T07:49:18.455913+09:00 r7 zopfli.A.full   6 503   1655.7       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:49:16.800143+09:00 http 503 1655.7 ms gen gen_01M3ASQR5YT9NN79GEY8PT8C1Z
+2026-09-25T07:49:22.981471+09:00 r7 zopfli.A.none   6 503   1524.5       0      0 0.00000000  ERROR HTTP 503
+#   request 38594 bytes sha256 4f19e061177c33d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:49:21.456865+09:00 http 503 1524.5 ms gen gen_01M3ASQWKEPP1QHQSMY2GXEW2K
+2026-09-25T07:49:27.535447+09:00 r7 zopfli.B.full   5 200   1552.3   15541    758 0.00000000
+2026-09-25T07:49:31.863569+09:00 r7 zopfli.B.none   5 200   1327.1   10564    758 0.00000000
+2026-09-25T07:49:36.112740+09:00 r7 zopfli.explore.full   2 200   1248.3    7176    293 0.00000000
+2026-09-25T07:49:40.287206+09:00 r7 zopfli.explore.none   2 200   1173.6    5076    293 0.00000000
+2026-09-25T07:49:44.978896+09:00 r8 hintbench.A.none   8 503   1690.7       0      0 0.00000000  ERROR HTTP 503
+#   request 46266 bytes sha256 7f527993484a920f, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:49:43.288143+09:00 http 503 1690.7 ms gen gen_01M3ASRHYM62KXETCQ45CVCMPP
+2026-09-25T07:49:49.704286+09:00 r8 hintbench.A.full   8 503   1725.4       0      0 0.00000000  ERROR HTTP 503
+#   request 65317 bytes sha256 0fc92e91708902e0, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:49:47.978807+09:00 http 503 1725.4 ms gen gen_01M3ASRPMJJC92QVN9DXPQ7YPR
+2026-09-25T07:49:54.078518+09:00 r8 hintbench.B.none   4 200   1373.1    9983    576 0.00000000
+2026-09-25T07:49:58.638393+09:00 r8 hintbench.B.full   4 200   1558.8   14008    576 0.00000000
+2026-09-25T07:50:03.397278+09:00 r8 hintbench.explore.none   2 200   1757.9    6036    280 0.00000000
+2026-09-25T07:50:07.782690+09:00 r8 hintbench.explore.full   2 503   1384.5       0      0 0.00000000  ERROR HTTP 503
+#   request 25995 bytes sha256 fbdc47445204cf81, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:06.398166+09:00 http 503 1384.5 ms gen gen_01M3ASS8AQEF34NNYVR7520RMM
+2026-09-25T07:50:12.430646+09:00 r8 zopfli.A.none   6 200   1646.6   13063    257 0.00000000
+2026-09-25T07:50:17.072185+09:00 r8 zopfli.A.full   6 503   1641.5       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:15.431710+09:00 http 503 1641.5 ms gen gen_01M3ASSH7TABTSZ3BQJ4P9200T
+2026-09-25T07:50:21.448398+09:00 r8 zopfli.B.none   5 503   1375.2       0      0 0.00000000  ERROR HTTP 503
+#   request 38445 bytes sha256 cb18b33d728053cf, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:20.073155+09:00 http 503 1375.2 ms gen gen_01M3ASSNPRV700S629K3SDBMDS
+2026-09-25T07:50:26.090307+09:00 r8 zopfli.B.full   5 503   1640.8       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:24.449449+09:00 http 503 1640.8 ms gen gen_01M3ASST3F8TBGKEXKPJ4NQTQP
+2026-09-25T07:50:30.336089+09:00 r8 zopfli.explore.none   2 503   1244.9       0      0 0.00000000  ERROR HTTP 503
+#   request 17990 bytes sha256 323503b8a0ec21c5, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:29.091177+09:00 http 503 1244.9 ms gen gen_01M3ASSYC1AEMYNB7FA8SVC77H
+2026-09-25T07:50:34.613823+09:00 r8 zopfli.explore.full   2 200   1276.9    7176    293 0.00000000
+2026-09-25T07:50:39.532864+09:00 r9 hintbench.A.full   8 200   1917.9   23630    341 0.00000000
+2026-09-25T07:50:44.241489+09:00 r9 hintbench.A.none   8 503   1706.9       0      0 0.00000000  ERROR HTTP 503
+#   request 46266 bytes sha256 7f527993484a920f, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:42.534534+09:00 http 503 1706.9 ms gen gen_01M3ASTBVDS0868D867X9PM2EZ
+2026-09-25T07:50:48.912634+09:00 r9 hintbench.B.full   4 503   1671.8       0      0 0.00000000  ERROR HTTP 503
+#   request 44475 bytes sha256 65287c6f9dd9405d, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:50:47.240776+09:00 http 503 1671.8 ms gen gen_01M3ASTGAS395R0H6CNNZZG8ZJ
+2026-09-25T07:50:53.617444+09:00 r9 hintbench.B.none   4 200   1703.7    9983    576 0.00000000
+2026-09-25T07:50:57.749110+09:00 r9 hintbench.explore.full   2 200   1130.8    8085    279 0.00000000
+2026-09-25T07:51:02.487117+09:00 r9 hintbench.explore.none   2 503   1737.1       0      0 0.00000000  ERROR HTTP 503
+#   request 21638 bytes sha256 fcd470ca72b20211, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:00.749952+09:00 http 503 1737.1 ms gen gen_01M3ASTXCWQ356C74T8A9EQNN3
+2026-09-25T07:51:07.157198+09:00 r9 zopfli.A.full   6 503   1669.1       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:05.488016+09:00 http 503 1669.1 ms gen gen_01M3ASV252X8T5FJEMN6QRMH52
+2026-09-25T07:51:11.384122+09:00 r9 zopfli.A.none   6 200   1225.9   13063    258 0.00000000
+2026-09-25T07:51:15.962772+09:00 r9 zopfli.B.full   5 503   1577.6       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:14.385136+09:00 http 503 1577.6 ms gen gen_01M3ASVASZKNE0YKWTJZFQA277
+2026-09-25T07:51:20.672694+09:00 r9 zopfli.B.none   5 503   1710.2       0      0 0.00000000  ERROR HTTP 503
+#   request 38445 bytes sha256 cb18b33d728053cf, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:18.962431+09:00 http 503 1710.2 ms gen gen_01M3ASVFC0W9BHQ6H6HZ5C7NDG
+2026-09-25T07:51:25.204197+09:00 r9 zopfli.explore.full   2 503   1530.6       0      0 0.00000000  ERROR HTTP 503
+#   request 23549 bytes sha256 d4856a042653ac7e, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:23.673506+09:00 http 503 1530.6 ms gen gen_01M3ASVKW896WFK6AS6KC0NZ9G
+2026-09-25T07:51:29.495297+09:00 r9 zopfli.explore.none   2 200   1290.3    5076    293 0.00000000
+2026-09-25T07:51:34.539649+09:00 r10 hintbench.A.none   8 200   2043.3   14572    341 0.00000000
+2026-09-25T07:51:39.045238+09:00 r10 hintbench.A.full   8 200   1504.4   23630    341 0.00000000
+2026-09-25T07:51:44.086624+09:00 r10 hintbench.B.none   4 503   2039.8       0      0 0.00000000  ERROR HTTP 503
+#   request 36180 bytes sha256 9c3b853a3f253dd6, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:42.046792+09:00 http 503 2039.8 ms gen gen_01M3ASW5YJH60G7600HPFSM0MY
+2026-09-25T07:51:48.612709+09:00 r10 hintbench.B.full   4 503   1525.6       0      0 0.00000000  ERROR HTTP 503
+#   request 44475 bytes sha256 65287c6f9dd9405d, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:47.087047+09:00 http 503 1525.6 ms gen gen_01M3ASWARM07D7Y53YX1T1CFAG
+2026-09-25T07:51:52.929402+09:00 r10 hintbench.explore.none   2 200   1315.8    6036    279 0.00000000
+2026-09-25T07:51:57.333003+09:00 r10 hintbench.explore.full   2 503   1402.7       0      0 0.00000000  ERROR HTTP 503
+#   request 25995 bytes sha256 fbdc47445204cf81, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:51:55.930210+09:00 http 503 1402.7 ms gen gen_01M3ASWKCHWYA0EN1B51XVNHPA
+2026-09-25T07:52:02.186306+09:00 r10 zopfli.A.none   6 200   1852.4   13063    258 0.00000000
+2026-09-25T07:52:07.258979+09:00 r10 zopfli.A.full   6 503   2071.6       0      0 0.00000000  ERROR HTTP 503
+#   request 54552 bytes sha256 a7739345114ea9d9, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:52:05.187316+09:00 http 503 2071.6 ms gen gen_01M3ASWWJB4K1ST760DG1C0PQ0
+2026-09-25T07:52:12.515784+09:00 r10 zopfli.B.none   5 503   2255.1       0      0 0.00000000  ERROR HTTP 503
+#   request 38445 bytes sha256 cb18b33d728053cf, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:52:10.260654+09:00 http 503 2255.1 ms gen gen_01M3ASX1FR85DR4D2GHWK8P9RX
+2026-09-25T07:52:17.210343+09:00 r10 zopfli.B.full   5 503   1694.3       0      0 0.00000000  ERROR HTTP 503
+#   request 51605 bytes sha256 50a57c255ca3b323, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:52:15.517267+09:00 http 503 1694.3 ms gen gen_01M3ASX6JRN31KXQVM0E88AXME
+2026-09-25T07:52:21.382461+09:00 r10 zopfli.explore.none   2 200   1171.2    5076    293 0.00000000
+2026-09-25T07:52:25.811425+09:00 r10 zopfli.explore.full   2 503   1428.2       0      0 0.00000000  ERROR HTTP 503
+#   request 23549 bytes sha256 d4856a042653ac7e, 1 attempt(s), 0.0 s waited
+#   attempt 1 2026-09-25T07:52:24.383206+09:00 http 503 1428.2 ms gen gen_01M3ASXF4CD5WXVC0JTNJFH0HV
+
+# totals for run probe
+# http requests      120
+# choice questions   540
+# latency total/avg/max ms  215754.0 / 1797.9 / 20249.7
+# tokens in/out      804339 / 28595
+# cost usd           0.00000000
+# wall clock of the run s   575.9
+# jev share of the run      37.4665%

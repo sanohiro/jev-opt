@@ -1,0 +1,49 @@
+# jev-opt request log, run nx-hintbench
+# ts round phase questions http_status latency_ms input_tokens output_tokens cost_usd
+2026-09-25T07:53:50.834091+09:00 r1 L13.A     8 200   2193.2   14572    341 0.00000000
+2026-09-25T07:54:20.070976+09:00 r1 L13.B     4 200   1376.0   10171    612 0.00000000  (after 8 failed attempt(s): HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503)
+#   request 37004 bytes sha256 ded0bf3e7a4b60b5, 9 attempt(s), 16.0 s waited
+#   attempt 1 2026-09-25T07:53:50.838484+09:00 http 503 1523.8 ms gen gen_01M3AT03P5EXSKB71E8RWVTJMZ then sleep 2.0 s
+#   attempt 2 2026-09-25T07:53:54.362488+09:00 http 503 1365.4 ms gen gen_01M3AT06YSKH96KDXP9XN264N0 then sleep 2.0 s
+#   attempt 3 2026-09-25T07:53:57.728145+09:00 http 503 1595.4 ms gen gen_01M3AT0ADZYX5JR4XCS12Z9DTP then sleep 2.0 s
+#   attempt 4 2026-09-25T07:54:01.323756+09:00 http 503 1567.9 ms gen gen_01M3AT0DXMH6Y9B6RQNYTBQES8 then sleep 2.0 s
+#   attempt 5 2026-09-25T07:54:04.891815+09:00 http 503 1368.0 ms gen gen_01M3AT0H8WJ5RQ9B2669WS3BJ5 then sleep 2.0 s
+#   attempt 6 2026-09-25T07:54:08.259993+09:00 http 503 1693.4 ms gen gen_01M3AT0MHB4AJFC7TSJWY5VDED then sleep 2.0 s
+#   attempt 7 2026-09-25T07:54:11.953609+09:00 http 503 1353.2 ms gen gen_01M3AT0R5G4H3AYVTX435XV0DG then sleep 2.0 s
+#   attempt 8 2026-09-25T07:54:15.307019+09:00 http 503 1388.8 ms gen gen_01M3AT0VD9ED1CDES7EDKC96W7 then sleep 2.0 s
+#   attempt 9 2026-09-25T07:54:18.694844+09:00 http 200 1376.0 ms gen gen_01M3AT0YX42E52K9G730417Z9T
+2026-09-25T07:54:21.248715+09:00 r2 L13.A     8 200   1174.9   14572    341 0.00000000
+2026-09-25T07:54:29.650727+09:00 r2 L13.B     4 200   1459.0   10171    612 0.00000000  (after 2 failed attempt(s): HTTP 503, HTTP 503)
+#   request 37004 bytes sha256 ded0bf3e7a4b60b5, 3 attempt(s), 4.0 s waited
+#   attempt 1 2026-09-25T07:54:21.251765+09:00 http 503 1349.1 ms gen gen_01M3AT117BSPVSGM131PX2KGE3 then sleep 2.0 s
+#   attempt 2 2026-09-25T07:54:24.601063+09:00 http 503 1590.4 ms gen gen_01M3AT14MMYTFMW1VHFARTFEJW then sleep 2.0 s
+#   attempt 3 2026-09-25T07:54:28.191620+09:00 http 200 1459.0 ms gen gen_01M3AT180GCDDMW1EX90BSXJ5T
+2026-09-25T07:55:20.090682+09:00 r3 L13.A     8 200   1608.4   14572    341 0.00000000  (after 13 failed attempt(s): HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503, HTTP 503)
+#   request 46266 bytes sha256 2165dcbae77a507e, 14 attempt(s), 26.0 s waited
+#   attempt 1 2026-09-25T07:54:29.653543+09:00 http 503 1728.8 ms gen gen_01M3AT19NNTK4G8H7XMNRKS9RH then sleep 2.0 s
+#   attempt 2 2026-09-25T07:54:33.382534+09:00 http 503 1832.8 ms gen gen_01M3AT1DCF4GHSGA8NTMK12X02 then sleep 2.0 s
+#   attempt 3 2026-09-25T07:54:37.215499+09:00 http 503 1535.2 ms gen gen_01M3AT1GWNAAQVN0K1FQJYWAR7 then sleep 2.0 s
+#   attempt 4 2026-09-25T07:54:40.750895+09:00 http 503 1759.3 ms gen gen_01M3AT1MGCDWYVTMD70MR2BWJX then sleep 2.0 s
+#   attempt 5 2026-09-25T07:54:44.510404+09:00 http 503 1723.5 ms gen gen_01M3AT1R5BSKPDMMQS4C580GCZ then sleep 2.0 s
+#   attempt 6 2026-09-25T07:54:48.232702+09:00 http 503 1817.2 ms gen gen_01M3AT1VSX3FW6NZX3TV9A31EJ then sleep 2.0 s
+#   attempt 7 2026-09-25T07:54:52.050126+09:00 http 503 1710.8 ms gen gen_01M3AT1ZD3EN2Q200J78XY1WF0 then sleep 2.0 s
+#   attempt 8 2026-09-25T07:54:55.761589+09:00 http 503 1596.9 ms gen gen_01M3AT230P25RABGW8NQV16A5Y then sleep 2.0 s
+#   attempt 9 2026-09-25T07:54:59.358745+09:00 http 503 1883.3 ms gen gen_01M3AT26NRFDV6H8CPF3G8T89F then sleep 2.0 s
+#   attempt 10 2026-09-25T07:55:03.242182+09:00 http 503 1813.5 ms gen gen_01M3AT2AFYK0QJ5ASC5T0QG3XE then sleep 2.0 s
+#   attempt 11 2026-09-25T07:55:07.055852+09:00 http 503 2011.1 ms gen gen_01M3AT2E6RXPRV3N3426WJBKG7 then sleep 2.0 s
+#   attempt 12 2026-09-25T07:55:11.067110+09:00 http 503 1835.1 ms gen gen_01M3AT2HYGW7ETBSN8Q5C9TDS5 then sleep 2.0 s
+#   attempt 13 2026-09-25T07:55:14.902362+09:00 http 503 1581.3 ms gen gen_01M3AT2NQ24533BJKQMNJA96FY then sleep 2.0 s
+#   attempt 14 2026-09-25T07:55:18.482114+09:00 http 200 1608.4 ms gen gen_01M3AT2SCHGQX2KJYC4CPBAF3D
+2026-09-25T07:55:24.629265+09:00 r3 L13.B     4 200   1150.5   10171    612 0.00000000  (after 1 failed attempt(s): HTTP 503)
+#   request 37004 bytes sha256 ded0bf3e7a4b60b5, 2 attempt(s), 2.0 s waited
+#   attempt 1 2026-09-25T07:55:20.095178+09:00 http 503 1383.3 ms gen gen_01M3AT2TP9T8YJS71FNK0EECGF then sleep 2.0 s
+#   attempt 2 2026-09-25T07:55:23.478658+09:00 http 200 1150.5 ms gen gen_01M3AT2XXNQ4DSA8TYB89G6JYQ
+
+# totals for run nx-hintbench
+# http requests      6
+# choice questions   36
+# latency total/avg/max ms  8962.1 / 1493.7 / 2193.2
+# tokens in/out      74229 / 2859
+# cost usd           0.00000000
+# wall clock of the run s   96.0
+# jev share of the run      9.3362%

@@ -1,0 +1,74 @@
+{
+ "hintbench-A-full": {
+  "request_bytes": 65317,
+  "state_chars": 41574,
+  "questions": 8,
+  "state_format": "state-v5.0-2026-09-23"
+ },
+ "hintbench-B-full": {
+  "request_bytes": 44475,
+  "state_chars": 22112,
+  "questions": 4,
+  "state_format": "state-v5.0-2026-09-23"
+ },
+ "hintbench-explore-full": {
+  "request_bytes": 25995,
+  "state_chars": 14131,
+  "questions": 2,
+  "state_format": "state-v5.0-2026-09-23"
+ },
+ "hintbench-A-none": {
+  "request_bytes": 46266,
+  "state_chars": 23122,
+  "questions": 8,
+  "state_format": "state-v5.0-noexcerpt-2026-09-25"
+ },
+ "hintbench-B-none": {
+  "request_bytes": 36180,
+  "state_chars": 14098,
+  "questions": 4,
+  "state_format": "state-v5.0-noexcerpt-2026-09-25"
+ },
+ "hintbench-explore-none": {
+  "request_bytes": 21638,
+  "state_chars": 9930,
+  "questions": 2,
+  "state_format": "state-v5.0-noexcerpt-2026-09-25"
+ },
+ "zopfli-A-full": {
+  "request_bytes": 54552,
+  "state_chars": 36969,
+  "questions": 6,
+  "state_format": "state-v6.0-2026-09-23"
+ },
+ "zopfli-B-full": {
+  "request_bytes": 51605,
+  "state_chars": 23882,
+  "questions": 5,
+  "state_format": "state-v6.0-2026-09-23"
+ },
+ "zopfli-explore-full": {
+  "request_bytes": 23549,
+  "state_chars": 11967,
+  "questions": 2,
+  "state_format": "state-v6.0-2026-09-23"
+ },
+ "zopfli-A-none": {
+  "request_bytes": 38594,
+  "state_chars": 21488,
+  "questions": 6,
+  "state_format": "state-v6.0-noexcerpt-2026-09-25"
+ },
+ "zopfli-B-none": {
+  "request_bytes": 38445,
+  "state_chars": 11115,
+  "questions": 5,
+  "state_format": "state-v6.0-noexcerpt-2026-09-25"
+ },
+ "zopfli-explore-none": {
+  "request_bytes": 17990,
+  "state_chars": 6570,
+  "questions": 2,
+  "state_format": "state-v6.0-noexcerpt-2026-09-25"
+ }
+}

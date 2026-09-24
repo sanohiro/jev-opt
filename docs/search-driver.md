@@ -56,6 +56,10 @@ Useful flags:
 --source-comments   strip (default) or keep: whether the source excerpts in
                     the state are stripped of comments and doc attributes
                     (decision 81). See "Source excerpts" below
+--source-excerpt    full (default) or none: none replaces every source
+                    excerpt with one "omitted" line and keeps every fact
+                    line (prompt study 2's L13; decision 110). v5/v6 only.
+                    See "Source excerpts dropped" below
 --site-set PATH     the frozen loop-site key list inside sites.json, e.g.
                     oracle.selected_keys_top3. All three proposers must be
                     given the same one (SPEC.ja.md 2)
@@ -555,6 +559,50 @@ header line, and that line is the disambiguator between a `keep` run and a
 state without that line was rendered before the option existed and is a
 `keep` state, so the line, not the date, is what tells the two conditions
 apart.
+
+### Source excerpts dropped: `--source-excerpt` (decision 110)
+
+`--source-excerpt full` (the **default**, every run before 2026-09-25)
+quotes the windows described above. `none` replaces every excerpt --- the
+function's own window, the marked function's window in a loop section, and
+the loop's leaf-location window --- with the single line
+
+```
+  (source excerpt omitted from this request)
+```
+
+(`jev_search.SOURCE_OMITTED`) and changes nothing else: the verdict block,
+the remark quotes, the post_vectorize lines, the inline outcomes, the
+platform block, the marks table and the history are rendered exactly as
+under `full`. Implementation: `NoExcerptSource` wraps the run's
+`SourceBook`; `find_definition` and the path index still come from the real
+book, so site resolution is unchanged.
+
+* It is prompt study 2's variant **L13** to the byte: the driver's `none`
+  rendering of study 2's round-1 requests differs from the L13 bodies study
+  2 logged in exactly one line, the state-format string (`results.md` 180,
+  `scripts/jev_noexcerpt_probe.py render`). One consequence kept for that
+  identity: a loop whose leaf file has no quotable source (a std-library
+  location) prints "source at the loop's innermost location ..." plus the
+  placeholder under `none`, where `full` prints no such block.
+* It is its own state format: `state-v5.0-noexcerpt-2026-09-25`,
+  `state-v5.1-noexcerpt-2026-09-25` (with `--pv-untried on`) and
+  `state-v6.0-noexcerpt-2026-09-25`. Other vocabularies exit. It is
+  recorded in `run-manifest.json`, in every `rounds.jsonl` record and on
+  every Jev JSONL line (`source_excerpt`).
+* What it buys: the state shrinks by 41-53 % and the HTTP body by 17-29 %
+  (hintbench v5 phase A 65.3 -> 46.3 KB, zopfli v6 phase A 54.6 -> 38.6 KB);
+  the questions, which carry the verdict block, are untouched and are then
+  most of the body. What it costs, from study 2 (`results.md` 174):
+  functions unchanged (hintbench 7/8 with k2, jaq 13/15, zopfli 3/6), loops
+  unchanged on zopfli, but on hintbench k4 flips to the oracle-harmful
+  `vectorize_width_16` in 2 of 3 repeats (3 of 3 in the re-check of
+  `results.md` 180.1). On a bad gateway day it landed 39/60 against
+  `full`'s 33/60 (one attempt per send; not a significant difference).
+  **Decision 110: not the default** --- the loop regression decides it;
+  `none` is opt-in, and new runs and frozen comparisons keep `full`.
+* `--source-comments` still applies to `full` and still prints its header
+  line under `none` (L13 kept it).
 
 ### v2 is frozen
 

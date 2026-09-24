@@ -15525,3 +15525,86 @@ runs. (a) holds, (b1) holds, (b2) fails -> **not adopted as the default**;
 `none` stays an opt-in option, and the loop regression is named as the
 reason (a phase-A-only `none` would be a new, unmeasured variant and is only
 proposed). (a) fails -> not adopted.
+
+#### 180.1 Results (2026-09-25, 07:42-07:56 JST)
+
+Commands as in §180, run once each, sequentially, nothing else sending:
+`jev_noexcerpt_probe.py probe` 07:42:55-07:52:25 (120 sends, 576 s),
+`jev_noexcerpt_probe.py choice` 07:53-07:56 (12 requests),
+`jev_noexcerpt_probe.py table`, `jev_prompt_study2.py report --targets
+hintbench zopfli --variants L13 --run-prefix nx --log-dir
+docs/experiments/jev-prompt-study-2/noexcerpt` (gunzip the two
+`nx-*.jsonl.gz` first). Logs: `docs/experiments/jev-prompt-study-2/noexcerpt/`
+(`probe.{jsonl.gz,log}`, `nx-<t>.{jsonl.gz,log}`, `nx-report.md`,
+`sizes.json`, `l13-identity.json`). Cost $0 (Hobby free tier); probe tokens
+804 339 in / 28 595 out.
+
+**Landing probe** (one HTTP attempt per send; a bad day: 48 of 120 sends
+got 503, one a 20 s read timeout):
+
+| target | body | source excerpt | request bytes | landed / sends | mean sends to land | statuses |
+|---|---|---|--:|--:|--:|---|
+| hintbench | A | full | 65 317 | 7 / 10 | 1.43 | 200 x7, 503 x3 |
+| hintbench | A | none | 46 266 | 5 / 10 | 2.00 | 200 x5, 503 x5 |
+| hintbench | B | full | 44 475 | 6 / 10 | 1.67 | 200 x6, 503 x4 |
+| hintbench | B | none | 36 180 | 7 / 10 | 1.43 | 200 x7, 503 x3 |
+| hintbench | explore | full | 25 995 | 8 / 10 | 1.25 | 200 x8, 503 x2 |
+| hintbench | explore | none | 21 638 | 8 / 10 | 1.25 | 200 x8, 503 x2 |
+| zopfli | A | full | 54 552 | 2 / 10 | 5.00 | 200 x2, 503 x8 |
+| zopfli | A | none | 38 594 | 5 / 10 | 2.00 | 200 x5, 503 x5 |
+| zopfli | B | full | 51 605 | 3 / 10 | 3.33 | 200 x3, 503 x7 |
+| zopfli | B | none | 38 445 | 5 / 10 | 2.00 | 200 x5, 503 x4, timeout x1 |
+| zopfli | explore | full | 23 549 | 7 / 10 | 1.43 | 200 x7, 503 x3 |
+| zopfli | explore | none | 17 990 | 9 / 10 | 1.11 | 200 x9, 503 x1 |
+| **all 6 bodies** | | **full** | | **33 / 60** | 1.82 | |
+| **all 6 bodies** | | **none** | | **39 / 60** | 1.54 | |
+
+Per body, `none` lands more often on 4 of 6, ties on 1 (hintbench explore)
+and less often on 1 (hintbench A, 5 vs 7). Pooled 39/60 vs 33/60 is not a
+significant difference (Fisher exact, two-sided, p = 0.35; computed from the
+table, not pre-registered). By size, over all 12 bodies: < 30 KB 32/40
+landed (80 %), 30-50 KB 28/50 (56 %), > 50 KB 12/30 (40 %) --- the size
+dependence of the 2026-09-23 probe again, but hintbench A full (65 KB, 7/10)
+is the exception inside it.
+
+**Choice re-check** (driver `none`, study 2's v6 rendering, 3 repeats;
+every request landed; hintbench 6 requests / 30 HTTP attempts / 48 s
+waited, zopfli 6 / 29 / 46 s):
+
+| target, phase | metric | this re-check | §174 L13 | §174 B0 |
+|---|---|---|---|---|
+| hintbench A | fn argmax hits | 7 [7, 7]/8 | 7 [7, 7]/8 | 7 [7, 7]/8 |
+| hintbench A | P(best) k2 | 0.62 [0.55, 0.67]; argmax `inline_always` 3/3 | 0.63 [0.62, 0.69] | 0.66 [0.66, 0.68] |
+| hintbench A | harm argmax | 0/2 | 0/2 | 0/2 |
+| hintbench B | loop argmax hits | **0 [0, 0]/4** | 0 [0, 1]/4 | 1 [1, 1]/4 |
+| hintbench B | loop harm argmax | **1 [1, 1]/4** (k4 `vectorize_width_16`, P 0.42 / 0.45 / 0.46) | 1 [0, 1]/4 | 0 [0, 0]/4 |
+| hintbench B | P(best) k3 / k5 / k8 | 0.19 [0.15, 0.20] / 0.00 / 0.00 | 0.15 [0.14, 0.18] / 0.00 / 0.00 | 0.14 [0.14, 0.17] / 0.00 / 0.00 |
+| zopfli A | fn argmax hits | 3 [3, 3]/6 | 3 [3, 3]/6 | 3 [3, 4]/6 |
+| zopfli A | harm argmax | 1 [1, 1]/4 | 1 [1, 1]/4 | 1 [0, 1]/4 |
+| zopfli B | loop argmax hits | 4 [4, 4]/5 | 4 [4, 4]/5 | 4 [4, 4]/5 |
+| zopfli B | loop harm argmax | 0/2 | 0/2 | 0/2 |
+| zopfli B | P(best) `squeeze.rs:325` | 0.00 | 0.00 | 0.00 |
+
+**Against the rule of §180.**
+
+* **(a) Landing: holds** --- 39/60 >= 33/60. It is informative (a bad day,
+  not a 60/60 tie) but not decisive: the difference is within chance and one
+  body (hintbench A) went the other way.
+* **(b1) functions: holds** (§174 L13, reproduced here: hintbench 7/8 with
+  k2 3/3, zopfli 3/6 as B0; jaq 13/15 from §174 only, not re-sent).
+* **(b2) loops no worse than B0: fails on hintbench**, as stated before
+  sending, and more firmly now: k4's harmful `vectorize_width_16` is the
+  argmax in 3 of 3 repeats (§174: 2 of 3); B0 keeps k4 at KEEP_DEFAULT in
+  3 of 3. zopfli loops unchanged.
+* **(c) reproduction: holds** --- every median above equals §174's L13
+  median; with the byte identity of §180 the driver's `none` is L13.
+
+**Verdict (the pre-registered reading "(a) holds, (b1) holds, (b2)
+fails"): `none` is NOT adopted as the default.** It stays an opt-in option
+(`--source-excerpt none`); new runs keep `full`; frozen comparisons keep
+`full`. The reason is the loop regression at k4, not the gateway. What is
+measured and not adopted: request bodies 17-29 % smaller, landing 39/60 vs
+33/60 on a bad day. A phase-A-only `none` (functions without excerpts, loops
+with them) would keep both the function bar and B0's loops, and would shrink
+the largest body (phase A, -29 %); it is a new, unmeasured variant and is
+only proposed (decision 110).
