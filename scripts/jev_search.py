@@ -163,8 +163,8 @@ def set_state_format(version):
 
 
 # `--source-excerpt none` (decision 110). The exact line prompt study 2's L13
-# put where an excerpt would have been (`jev_prompt_study2.py` imports it from
-# here), so the driver's `none` state is L13's state to the byte apart from
+# put where an excerpt would have been (`jev_noexcerpt_probe.py render`
+# asserts it equal to study 2's own literal), so the driver's `none` state is L13's state to the byte apart from
 # the state-format header line.
 SOURCE_OMITTED = "  (source excerpt omitted from this request)"
 
