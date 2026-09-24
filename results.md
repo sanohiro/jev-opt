@@ -15375,5 +15375,15 @@ resolution order are covered by 15 unit tests with stubs
 (`python3 scripts/test_target_marks.py`: 15 passed). The resolution was also
 checked read-only on zopfli (no `--marks` -> `existing generated`
 `targets/zopfli/jev-marks.jev.txt`, Jev log path read from its header;
-explicit `--marks targets/zopfli/jev-marks.txt` -> `explicit`). No search was
-run.
+explicit `--marks targets/zopfli/jev-marks.txt` -> `explicit`), and the
+frozen-target entry point once as `__main__` with no build or timing:
+`scripts/jev_search.py --target zopfli --marks targets/zopfli/jev-marks.txt
+--proposer random --dry-run --vocab v6 --sites targets/zopfli/sites.json
+--site-set oracle.selected_keys_top6 --baseline-dir
+artifacts/zopfli-sites/baseline --out <scratch>` reused the baseline and
+listed the same 6 function + 5 loop sites. No search was run.
+
+**State check after the post-send edits.** The `--resume` pass re-rendered
+the state with the edited script; its sha256 equals that of every sent
+request (jaq `99e52fc3cc9e40e6`, zopfli `c0e751e12a1768ad`, the 179.1
+values), so the reused answers belong to the state they were given for.

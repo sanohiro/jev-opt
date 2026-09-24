@@ -5571,16 +5571,27 @@ def resolve_marks_arg(args):
     the target -> generate one (once) with scripts/target_marks.py. A
     --resume keeps the marks file its run-manifest recorded."""
     import target_marks as TM
-    if args.resume and not args.marks and not args.marks_regenerate:
-        mp = os.path.join(args.out or "", "run-manifest.json")
-        if args.out and os.path.isfile(mp):
-            prev = json.load(open(mp)).get("marks")
-            if prev and os.path.isfile(prev):
-                return TM.resolve_marks(args.target, explicit=prev)
-    return TM.resolve_marks(
+    pp = os.path.join(args.out, "marks-provenance.json") if args.out else None
+    if args.resume and not args.marks and not args.marks_regenerate \
+            and pp and os.path.isfile(pp):
+        prev = json.load(open(pp))
+        if os.path.isfile(prev.get("file") or ""):
+            if sha256_file(prev["file"]) != prev.get("sha256"):
+                sys.exit("--resume: the marks file %s changed since the run "
+                         "started (sha256 differs from %s)" % (prev["file"],
+                                                              pp))
+            return prev["file"], dict(prev, resumed=True)
+    path, prov = TM.resolve_marks(
         args.target, explicit=args.marks, regenerate=args.marks_regenerate,
         marks_n=args.marks_n,
         allow_generate=not (args.dry_run or args.print_state))
+    # Durable before round 1, so an interrupted run resumes on the same file
+    # (run-manifest.json is written only at the end of a run).
+    if pp and not (args.dry_run or args.print_state):
+        os.makedirs(args.out, exist_ok=True)
+        with open(pp, "w") as f:
+            json.dump(prov, f, indent=1)
+    return path, prov
 
 
 def main():
