@@ -143,7 +143,16 @@ STATE_FORMATS = {"v1": "state-v1-2026-09-22", "v2": "state-v2-2026-09-22",
                  # v6 (decision 98) restores unroll_disable to the loop
                  # table; the template is otherwise v5.0's, so it gets its
                  # own name rather than reusing v5's.
-                 "v6": "state-v6.0-2026-09-23"}
+                 "v6": "state-v6.0-2026-09-23",
+                 # `--source-excerpt none` (decision 110): the same template
+                 # with every source excerpt replaced by SOURCE_OMITTED, the
+                 # rendering prompt study 2 measured as L13 (results.md 174,
+                 # 180). Every mechanical fact line is kept. Defined only on
+                 # the vocabularies still run; the frozen names above are
+                 # untouched.
+                 "v5-noexcerpt": "state-v5.0-noexcerpt-2026-09-25",
+                 "v5.1-noexcerpt": "state-v5.1-noexcerpt-2026-09-25",
+                 "v6-noexcerpt": "state-v6.0-noexcerpt-2026-09-25"}
 STATE_FORMAT_VERSION = STATE_FORMATS["v1"]
 
 
@@ -151,6 +160,32 @@ def set_state_format(version):
     global STATE_FORMAT_VERSION
     STATE_FORMAT_VERSION = STATE_FORMATS[version]
     return STATE_FORMAT_VERSION
+
+
+# `--source-excerpt none` (decision 110). The exact line prompt study 2's L13
+# put where an excerpt would have been (`jev_prompt_study2.py` imports it from
+# here), so the driver's `none` state is L13's state to the byte apart from
+# the state-format header line.
+SOURCE_OMITTED = "  (source excerpt omitted from this request)"
+
+
+class NoExcerptSource:
+    """A SourceBook whose excerpts are all SOURCE_OMITTED.
+
+    Everything else (`find_definition`, the path index) is the real book's,
+    so the sites, the remarks and the inline outcomes resolve exactly as
+    under `full`. A location with no file still renders as "not available",
+    as it does under `full` and as L13 did.
+    """
+
+    def __init__(self, real):
+        self.real = real
+
+    def excerpt(self, path, line, ctx=40):
+        return SOURCE_OMITTED if path else None
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
 
 
 # ---------------------------------------------------------------------------
@@ -3074,11 +3109,13 @@ class JevClient:
     ends the request at once. Every attempt is logged.
     """
 
-    def __init__(self, cfg, log_dir, run_id, source_comments="strip"):
+    def __init__(self, cfg, log_dir, run_id, source_comments="strip",
+                 source_excerpt="full"):
         self.cfg = cfg
         # Recorded on every request line: a run has no manifest until it
         # finishes, and the API-only passes never write one at all.
         self.source_comments = source_comments
+        self.source_excerpt = source_excerpt
         self.url = cfg["base_url"].rstrip("/") + cfg["endpoint"]
         self.model = cfg["model"]
         self.key = None
@@ -3219,6 +3256,7 @@ class JevClient:
                   "vocab_version": V.VOCAB_VERSION,
                   "state_format": STATE_FORMAT_VERSION,
                   "source_comments": self.source_comments,
+                  "source_excerpt": self.source_excerpt,
                   "site_map": site_map, "request": body, "response": resp,
                   "http_status": status, "latency_ms": round(latency, 1),
                   "error": err, "failed_attempts": attempts,
@@ -4109,6 +4147,15 @@ class Search:
                          "(state format %s); got --vocab %s"
                          % (STATE_FORMATS["v5.1"], args.vocab))
             set_state_format("v5.1")
+        # Decision 110: `none` is its own state format on top of whichever
+        # one the flags above chose.
+        self.source_excerpt = getattr(args, "source_excerpt", "full")
+        if self.source_excerpt == "none":
+            key = ("v5.1" if self.pv_untried else args.vocab) + "-noexcerpt"
+            if key not in STATE_FORMATS:
+                sys.exit("--source-excerpt none is defined for --vocab v5 "
+                         "and v6 only; got --vocab %s" % args.vocab)
+            set_state_format(key)
         self.demangler = Demangler()
         self._platform = None
         self.marks = read_marks(args.marks)
@@ -4458,6 +4505,8 @@ class Search:
         self.source = SourceBook(
             roots, comments=getattr(self.args, "source_comments",
                                     "strip"))
+        if self.source_excerpt == "none":
+            self.source = NoExcerptSource(self.source)
         self.remarks = RemarkBook(meta["log"])
         self.inlines = InlineBook(meta["log"])
         self.share_by_mark = {i.meta["mark"]: (i.meta["share"]
@@ -4750,7 +4799,7 @@ class Search:
             return OracleProposer(self.knobs)
         self.jev = JevClient(self.cfg["jev"],
                              os.path.join(self.out, "jev-log"), self.run_id,
-                             self.args.source_comments)
+                             self.args.source_comments, self.source_excerpt)
         return JevProposer(self.jev, self.cfg["jev"], self.knobs,
                            int(self.cfg["search"]["max_state_chars"]),
                            self.args.readout, self.args.explore,
@@ -4810,6 +4859,7 @@ class Search:
                "vocab_version": V.VOCAB_VERSION,
                "state_format": STATE_FORMAT_VERSION,
                "source_comments": self.args.source_comments,
+               "source_excerpt": self.source_excerpt,
                "readout": self.args.readout,
                "case_set": self.shell["bench_set"], "arm": arm,
                "reps": self.reps, "warmup": self.warmup,
@@ -5352,6 +5402,7 @@ class Search:
             "vocab_version": V.VOCAB_VERSION,
             "state_format": STATE_FORMAT_VERSION,
             "source_comments": self.args.source_comments,
+            "source_excerpt": self.source_excerpt,
             "readout": self.args.readout,
             "explore": self.args.explore,
             # Decision 92 (b, c).
@@ -5697,6 +5748,17 @@ def main():
                         "edited. keep: quote the file verbatim, which is "
                         "what every run before 2026-09-22 did"
                         % COMMENT_MARKER)
+    p.add_argument("--source-excerpt", default="full",
+                   choices=("full", "none"),
+                   help="decision 110: full (default) quotes the source "
+                        "around every site as before; none replaces each "
+                        "excerpt with one line saying it was omitted and "
+                        "keeps every mechanical fact line (verdict block, "
+                        "remarks, post_vectorize, inline outcomes, platform "
+                        "block). This is prompt study 2's L13 (results.md "
+                        "174, 180): same function-attribute score, smaller "
+                        "requests. Its own state format "
+                        "(state-v*-noexcerpt-2026-09-25); --vocab v5/v6 only")
     p.add_argument("--rounds", type=int, default=None,
                    help="ignored for --proposer oracle, whose arm count is "
                         "determined by the site and candidate lists")

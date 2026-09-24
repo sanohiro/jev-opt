@@ -15387,3 +15387,141 @@ listed the same 6 function + 5 loop sites. No search was run.
 the state with the edited script; its sha256 equals that of every sent
 request (jaq `99e52fc3cc9e40e6`, zopfli `c0e751e12a1768ad`, the 179.1
 values), so the reused answers belong to the state they were given for.
+
+### 180. State without source excerpts: request size and landing rate (API only)
+
+Pre-registration, written before any request of this section was sent
+(decision 110 is filled in after the run). Nothing is built, nothing is
+timed. Question: does dropping the source excerpt from the state (prompt
+study 2's L13) shrink the request enough to land more often on the gateway,
+without costing the function-attribute answers?
+
+**The option.** `scripts/jev_search.py --source-excerpt {full,none}`
+(default `full` = every run so far). `none` wraps the driver's `SourceBook`
+in `NoExcerptSource`: every excerpt becomes the one line
+`  (source excerpt omitted from this request)` (`S.SOURCE_OMITTED`, the
+literal study 2's `_NoSource` sent), every mechanical fact line stays
+(verdict block, remarks, post_vectorize, inline outcomes, platform block).
+It is its own state format: `state-v5.0-noexcerpt-2026-09-25`,
+`state-v5.1-noexcerpt-2026-09-25` (with `--pv-untried on`),
+`state-v6.0-noexcerpt-2026-09-25`; other vocabularies exit. The frozen
+templates and names are untouched. Recorded in `run-manifest.json`, in every
+`rounds.jsonl` record and in every Jev JSONL line (`source_excerpt`).
+
+**Unit check (done, no HTTP).**
+
+```
+$ scripts/jev_search.py --target hintbench --proposer jev --vocab v5 --print-state \
+    --source-excerpt {full,none} --marks targets/hintbench/jev-marks.txt \
+    --sites artifacts/hintbench-sites/sites.json \
+    --site-set oracle.selected_keys_loop_hint_kernels \
+    --baseline-dir artifacts/hintbench-sites/baseline --out <scratch>
+$ scripts/jev_search.py --target zopfli --proposer jev --vocab v6 --print-state \
+    --source-excerpt {full,none} --marks targets/zopfli/jev-marks.txt \
+    --sites targets/zopfli/sites.json --site-set oracle.selected_keys_top6 \
+    --baseline-dir artifacts/zopfli-sites/baseline --out <scratch>
+$ diff <full> <none>
+$ scripts/jev_noexcerpt_probe.py render
+```
+
+`diff` of the two `--print-state` outputs: every removed line is an excerpt
+line (a `file:line (lines a-b, ...)` header or a numbered source line) or
+the state-format string (4 state headers + 2 phase banners per target);
+nothing else is removed (checked with a filter: 0 other `<` lines on either
+target). Added lines: the placeholder (hintbench 21, zopfli 16) and, where
+the loop's leaf file has no quotable source under `full` (std-library leaf
+locations), the header "source at the loop's innermost location ..." plus a
+placeholder (hintbench 5, zopfli 1). The latter is what L13 sent too
+(`_NoSource.excerpt` answers for any non-empty path); it is kept so that the
+driver's `none` is L13 to the byte. `--print-state` output (whole text,
+state + questions): hintbench 155 154 -> 119 890 bytes, zopfli 150 131 ->
+111 109.
+
+**L13 identity (done, no HTTP).** `jev_noexcerpt_probe.py render` rebuilds
+study 2's v6 round-1 phase-A/B requests with the driver's `none` and
+compares them with the L13 bodies study 2 logged
+(`docs/experiments/jev-prompt-study-2/ps2-<t>.jsonl.gz`, repeat 1): hintbench
+A 280/280 lines, B 212/212, zopfli A 247/247, B 189/189; **exactly one line
+differs in each** (line 1, `state-v6.0-noexcerpt-2026-09-25` vs
+`state-v6.0-2026-09-23`), and the questions are identical. So §174's L13
+numbers are numbers for this rendering.
+
+**Bodies probed** (`artifacts/jev-noexcerpt-probe/bodies/`; HTTP body bytes
+= `json.dumps({"model","state","questions"})`, what the gateway receives).
+Rendered as `--print-state` renders round 1: hintbench `--vocab v5`, zopfli
+`--vocab v6`, phase A (function sites + the build knob), phase B (loop
+sites), and the phase-B exploration request (`--explore 2`, KEEP_DEFAULT
+assumed everywhere).
+
+| target | body | full bytes | none bytes | none / full |
+|---|---|--:|--:|--:|
+| hintbench | A (8 q) | 65 317 | 46 266 | 0.71 |
+| hintbench | B (4 q) | 44 475 | 36 180 | 0.81 |
+| hintbench | explore (2 q) | 25 995 | 21 638 | 0.83 |
+| zopfli | A (6 q) | 54 552 | 38 594 | 0.71 |
+| zopfli | B (5 q) | 51 605 | 38 445 | 0.74 |
+| zopfli | explore (2 q) | 23 549 | 17 990 | 0.76 |
+
+The state shrinks by 41-53 %, the body by 17-29 %: the questions (which
+carry the verdict block) are unchanged and are now most of the body.
+
+**Protocol.**
+
+```
+$ scripts/jev_noexcerpt_probe.py probe      # -> docs/experiments/jev-prompt-study-2/noexcerpt/probe.{jsonl,log}
+$ scripts/jev_noexcerpt_probe.py table
+$ scripts/jev_noexcerpt_probe.py choice     # -> .../noexcerpt/nx-{hintbench,zopfli}.{jsonl,log}
+$ scripts/jev_prompt_study2.py report --targets hintbench zopfli --variants L13 \
+    --run-prefix nx --log-dir docs/experiments/jev-prompt-study-2/noexcerpt
+```
+
+1. *Landing probe.* Each of the 12 bodies is sent **10 times**, **one HTTP
+   attempt per send** (`retries = 1`, so the status is the gateway's answer
+   to that one attempt, no retry hides it), **3 s** between sends, strictly
+   sequential (no concurrency; the 429s of earlier passes came from
+   overlapping senders). Order: for send 1..10, for target, for body, the
+   full/none pair --- full first on odd sends, none first on even sends.
+   Logged per send: bytes, sha256, status, latency (JevClient JSONL/.log,
+   `source_excerpt` on every line; no Authorization header).
+2. *Choice re-check.* Study 2's v6 phase-A and phase-B requests rendered by
+   the driver with `none` (byte-identical to L13 apart from line 1, above),
+   3 repeats per target, hintbench and zopfli, the driver's retry policy
+   (`jev-opt.toml [jev]`: up to 200 attempts / 600 s, 2 re-sends). Scored
+   with study 2's own `report` against `truth.json` (MDE v2, decision 106).
+   hintbench is scored under **v6** (study 2's vocabulary), not v5, so that
+   the loop candidate set is L13's.
+
+**Metrics.** Per body and condition: request bytes; landed / sends;
+mean sends to land (= sends / landed, since there is no retry inside a
+send); status counts. Choice re-check: fn argmax hits, k2 argmax, fn harm
+argmax, loop argmax hits, loop harm argmax, P(best) at the loop targets
+(k3/k5/k8, `squeeze.rs:325`), median [min, max] over 3 repeats.
+
+**Rule** (`none` is adopted as the default for NEW runs if both hold;
+frozen comparisons keep `full` whatever the outcome):
+
+* **(a) Landing.** Summed over the 6 bodies, `none` lands at least as often
+  as `full` in this probe (landed_none >= landed_full out of 60 each). A
+  per-body table is reported beside it. If both land 60/60 (a good day),
+  (a) holds on a tie and **says nothing about size dependence**; it is then
+  recorded as "not informative", not as evidence that size matters.
+* **(b) The L13 bar**, from §174 (the evidence for this exact rendering):
+  (b1) functions: hintbench fn hits >= 7/8 with k2 argmax >= 2/3 repeats,
+  jaq fn hits >= B0's 13/15 with harm argmax <= B0's 0/5 --- §174 L13:
+  hintbench 7 [7, 7]/8, k2 3/3, jaq 13 [13, 13]/15, harm 0 --- **holds**.
+  (b2) loops no worse than B0 (median loop argmax hits >= B0's, median loop
+  harm argmax <= B0's, on hintbench and zopfli). **Stated before sending,
+  from §174's own table: (b2) does not hold on hintbench.** L13 loop hits
+  0 [0, 1]/4 vs B0 1 [1, 1]/4 and harm argmax 1 [0, 1]/4 vs 0 [0, 0]/4: k4
+  flips from KEEP_DEFAULT to `vectorize_width_16` (oracle-harmful) in
+  repeats 1 and 3 (P 0.43, 0.45; B0 k4 KEEP at 0.53-0.56). zopfli loops are
+  unchanged (4/5, harm 0/2). The task statement's "loops unchanged" is
+  therefore true on zopfli only; this is recorded, not corrected away.
+* **(c) Reproduction** (reported, not a gate): the re-check's medians of fn
+  hits and loop hits equal §174's L13 medians on both targets.
+
+Reading, fixed now: (a) holds and (b1)+(b2) hold -> adopt `none` for new
+runs. (a) holds, (b1) holds, (b2) fails -> **not adopted as the default**;
+`none` stays an opt-in option, and the loop regression is named as the
+reason (a phase-A-only `none` would be a new, unmeasured variant and is only
+proposed). (a) fails -> not adopted.
