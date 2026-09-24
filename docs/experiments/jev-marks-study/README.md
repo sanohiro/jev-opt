@@ -15,3 +15,5 @@ decision 108. Script `scripts/jev_marks_study.py`.
 Re-score from these files: gunzip into `artifacts/jev-marks-study/` and run
 `scripts/jev_marks_study.py score` / `--inputs v2 score` (zopfli coverage
 needs `artifacts/zopfli-marks/*.data` and the verified zopfli binary).
+| `ms3-<target>.jsonl.gz`, `ms3-<target>.log`, `run-v3{a,b,c}.log` | phase 3 (176.8): M1-M5 |
+| `scores-v3.json.gz`, `report-v3.md` | phase-3 scores (`--inputs v2 score --run-prefix ms3`) |

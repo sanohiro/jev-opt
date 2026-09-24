@@ -975,6 +975,19 @@ def cmd_score(a):
                     res["per_function"].setdefault(n, {})["P_" + k] = [
                         ans[r][k].get(n) for r in sorted(ans)]
             sets["%s medP" % v] = [n for n in names if n in sel]
+            # 176.3 secondary readout: top N by P(mark); for per-case
+            # variants P = max over cases
+            def pmax(r):
+                return {n: max(ans[r][k].get(n, 0.0) for k in vk)
+                        for n in names}
+            for rep_ in ans:
+                pm = pmax(rep_)
+                sets["%s-top r%d" % (v, rep_)] = sorted(
+                    names, key=lambda n: (-pm[n], alpha[n]))[:N]
+            pms = [pmax(r) for r in ans]
+            med = {n: statistics.median(p[n] for p in pms) for n in names}
+            sets["%s-top medP" % v] = sorted(
+                names, key=lambda n: (-med[n], alpha[n]))[:N]
         res["requests"] = {r: {"requests": ans[r]["requests"],
                                "questions": dict(ans[r]["questions"])}
                            for r in ans}

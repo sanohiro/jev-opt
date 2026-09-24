@@ -15068,3 +15068,95 @@ v2 Q1's 0.67, **while** jaq false marks <= 10, zopfli (a) = 1.00 with (b)
 is reported for every variant. A variant that rescues is proposed as the
 Choice text of `--marks-by jev` in decision 108's addendum; otherwise 108
 stands unchanged.
+
+### 178. Marks study phase 3: verdict lines, per-case questions, criteria block (results)
+
+Sent 2026-09-24 22:05 to 2026-09-25 00:10 JST, sequentially (M1/M3/M4, then
+M2, then M5, since M1-M4 and M2 lost nothing, 176.8). Commands:
+
+```
+scripts/jev_marks_study.py --inputs v2 run --run-prefix ms3 --resume --targets hintbench zopfli jaq --questions M1 M3 M4
+scripts/jev_marks_study.py --inputs v2 run --run-prefix ms3 --resume --targets zopfli jaq --questions M2
+scripts/jev_marks_study.py --inputs v2 run --run-prefix ms3 --resume --targets zopfli jaq --questions M5
+scripts/jev_marks_study.py --inputs v2 score --run-prefix ms3 --out artifacts/jev-marks-study/scores-v3.json --report artifacts/jev-marks-study/report-v3.md
+```
+
+Sets from the per-function median P over 3 repeats (per-repeat values in
+`docs/experiments/jev-marks-study/report-v3.md`; the per-repeat ranges are
+narrow: jaq sizes vary by at most 3, (a) by at most 0.07). "false" =
+functions outside every reference set (176.8). The v2 Q1 row is 177's.
+
+#### 178.1 jaq (N = 15)
+
+| variant | size | (a) | (b) | `Val::hash` P (3 repeats) | false | (d) lower-upper |
+|---|--:|--:|--:|---|--:|--:|
+| v2 Q1 (177) | 25 | 0.67 | 1/2 | 0.46 0.45 0.45 | 10 | 54-100% |
+| M1 verdict lines | 47 | 1.00 | **2/2** | **0.76 0.80 0.79** | 16 | 65-100% |
+| M2 per case (union) | 45 | 0.80 | 1/2 | max over cases 0.37 0.31 0.45 | 23 | 60-100% |
+| M3 criteria block | 65 | 1.00 | **2/2** | 0.89 0.84 0.87 | 32 | 66-100% |
+| M4 = M1 + M3 | 109 | 1.00 | 2/2 | 1.00 1.00 1.00 | 70 | 66-100% |
+| M5 = M1 + M2 + M3 | 109 | 1.00 | 2/2 | 1.00 (every case) | 70 | 66-100% |
+| M1 top N (176.3 secondary) | 15 | 0.60 | 1/2 | | 4 | 54-87% |
+| M2 top N | 15 | 0.53 | 0/2 | | 3 | 51-100% |
+| M3 / M4 / M5 top N | 15 | 0.47 / 0.33 / 0.33 | 0/2 | | 5-6 | |
+
+M2's per-case sets (repeat 1): objsearch 29, readwrite 23, strproc 27
+functions; the union gains `Adapter::write_str` and `base_run::{closure#7}`
+over v2 Q1 but still misses `Val::hash`, `Rc<IndexMap>::drop_slow` and
+`<&String as Display>::fmt`.
+
+#### 178.2 zopfli (N = 6) and hintbench (N = 8)
+
+| variant | zopfli size | (a) | (b) | false | (d) train / hold | hintbench size | k2 / k3 / k8 | k2 P |
+|---|--:|--:|--:|--:|--:|--:|:-:|---|
+| v2 Q1 (177) | 13 | 1.00 | 1/1 | 3 | 96.3 / 96.9% | 6 | yes | 0.96 |
+| M1 | 15 | 1.00 | 1/1 | 5 | 96.5 / 97.2% | 6 | yes | 0.65 0.74 0.76 |
+| M2 | 15 | 1.00 | 1/1 | 5 | 96.5 / 97.2% | n/a | | |
+| M3 | 15 | 1.00 | 1/1 | 4 | 97.6 / 98.3% | 5 | **k2 lost** | 0.14 0.16 0.11 |
+| M4 | 19 | 1.00 | 1/1 | 8 | 97.7 / 98.4% | 6 | yes | 0.99 |
+| M5 | 19 | 1.00 | 1/1 | 8 | 97.7 / 98.4% | n/a | | |
+
+The top-N readouts under M3-M5 collapse on zopfli too ((a) 0.33 / 0.17 /
+0.17, (b) 0/1): P saturates near 1 for most rows, so the top N is decided by
+the alphabetical tie-break, not by Jev.
+
+#### 178.3 Reading against the 176.8 rule
+
+**No variant rescues.** Every variant that brings `Val::hash` in (M1, M3,
+M4, M5) does it by lowering the bar for everything: jaq false marks go
+10 -> 16 / 32 / 70 / 70 (rule: <= 10), and the marked set grows from 25 to
+47 / 65 / 109 of 124 functions. M2 raises jaq (a) to 0.80 but adds 23 false
+marks and does not bring `Val::hash` in. zopfli (a) stays 1.00 with (b) 1/1
+in every variant; hintbench keeps k2 / k3 / k8 in M1 and M4 but loses k2
+in M3 (the criteria block reads the loop-free k2 as a "skip").
+
+What the numbers say about the mechanism:
+
+1. **The readings are followed, as in decision 73, but as a threshold,
+   not as a ranking.** With the loop / called lines next to the question
+   (M1), Jev marks almost every function whose reading says "yes", whatever
+   its share: `Val::hash` rises from 0.45 to 0.79, but so do 22 other rows.
+   The criteria block (M3) states two sufficient-looking conditions and Jev
+   marks every row that meets either one; M4 saturates (109 rows at P ~1).
+2. **Per-case questions (M2) reproduce Claude's balancing only
+   partly**: the write-path picks come in, `Val::hash` (1.7% of objsearch)
+   does not, and each case adds its own tail.
+3. **Nothing here separates `Val::hash` from its neighbours with a
+   mechanical line.** The facts that single it out for Claude (self rank
+   13, 90 loops, called) are shared by many rows Claude skipped; the
+   reference set's choice among them was a judgement about the object path,
+   which is not in any uniform line.
+
+**Correction to 176.8**: the M3 option lengths are 235 (mark) / 197 (skip)
+characters, not 214 / 229 as written there; the texts are as quoted.
+
+#### 178.4 Requests, gateway, cost
+
+| target | requests | questions | 503 responses | exhausted | max body | billed | list price |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| hintbench | 9 | 72 | 1 | 0 | 14 145 B | $0 | $0.0013 |
+| zopfli | 27 | 702 | 96 | 0 | 45 608 B | $0 | $0.0125 |
+| jaq | 150 | 3348 | 1911 | 0 | 59 981 B | $0 | $0.1383 |
+
+186 requests, none lost, $0 billed ($0.15 at list price), about 2 h of
+wall clock, almost all of it retrying the ~60 KB jaq requests.
