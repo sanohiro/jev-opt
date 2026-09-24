@@ -14092,3 +14092,262 @@ candidate's own spread, as the old rule's was.
   accepted only through a confirmation, which now fires at ≥ 1% on zopfli;
   sub-3% plans can be accepted where they could not before (decision 104
   (c)).
+
+## Prompt study 2 (API only) --- can Jev find the loop truths, and pick fewer harmful hints?
+
+### 173. Prompt study 2 (API only): can Jev find the loop truths? Pre-registration
+
+Written 2026-09-24 before any request of this study was sent. API only: no
+build, no timing, no cargo. Script: `scripts/jev_prompt_study2.py`
+(`truth`, `render`, `run`, `score`); logs `artifacts/jev-prompt-study-2/`
+(copies to `docs/experiments/jev-prompt-study-2/` at the end).
+
+**Question.** Jev's one-shot answers found the function-attribute truths on
+hintbench (decision 87: fn 7/8, including k2 `inline(always)` +67.8%) and none
+of the loop truths (loop 0/4; zopfli `squeeze.rs:325 unroll_count_8` got P
+0.02, decision 101). Does any uniform way of calling Jev (what facts the
+state shows, how loop candidates are described, how the question is posed)
+make Jev pick the loop truths, without breaking the function results?
+Second goal (owner, added before any request; "phase 2" below): reduce the
+probability Jev puts on arms the oracle measured harmful, with no side effect
+on the truths.
+
+#### 173.1 What the baseline request is (B0)
+
+B0 is what the driver sends in round 1 today, reproduced with the driver's
+own objects exactly as `scripts/jev_oneshot.py` does (`Search.run()` with
+`--print-state` against the frozen baseline dump, then `questions_for()` /
+`state_header()` / `state_section()`): vocabulary `v6-2026-09-23`, state
+`state-v6.0-2026-09-23`, `--source-comments strip`, `--explore 0`,
+`--pv-untried off`. Phase A = every function site in one Choice request;
+phase B = every loop site in one Choice request, against the baseline dump,
+with `function attributes this round already applied: none` (the one-shot
+caveat of `jev_oneshot.py`: phase B is not asked against phase A's build).
+
+| target | marks / sites / site set | baseline dir (reused, not rebuilt) | phases |
+|---|---|---|---|
+| hintbench | `targets/hintbench/jev-marks.txt`, `artifacts/hintbench-sites/sites.json`, `oracle.selected_keys_loop_hint_kernels` | `artifacts/hintbench-sites/baseline` | A (8 fn), B (4 loops) |
+| zopfli | `targets/zopfli/jev-marks.txt`, `targets/zopfli/sites.json`, `oracle.selected_keys_top6` | `artifacts/zopfli-sites/baseline` | A (6 fn), B (5 loops) |
+| jaq | `targets/jaq/jev-marks.txt`, `targets/jaq/sites.json`, `oracle.selected_keys_top3` | `artifacts/jaq-search/jev-r5/baseline` (Oracle A2's) | A (15 fn) only |
+
+jaq loops are skipped: there is no jaq loop oracle (decision 103) and the
+rendered phase-B state is 5.0 MB. There is no earlier v6 one-shot on any of
+the three targets, so B0 measured here is the study's own regression
+baseline; the absolute bar hintbench fn >= 7/8 (decision 87) applies too.
+
+#### 173.2 Truth (mechanical, from the oracles' own records)
+
+`scripts/jev_prompt_study2.py truth` -> `docs/experiments/jev-prompt-study-2/truth.json`.
+Rule (decision 106, MDE v2 final): an arm is **good** if its round batch AND
+its confirmation batch are both above `1 + MDE`, **harmful** if both are below
+`1 - MDE`, **noop** if the build was identical to the baseline, else flat.
+Truth best = the good arm with the highest `min(batch1, batch2)`, else
+`KEEP_DEFAULT`. MDEs: hintbench per kernel (own-kernel readout, §162 / §172.1:
+k1 1.58, k2 1.35, k3 2.24, k4 1.63, k5 1.70, k6 1.00, k7 2.53, k8 3.18%),
+ratios from each round's `stats.json` / `confirm/stats.json`
+`per_workload.cand.<k>`; zopfli training aggregate 1.00% (`rounds.jsonl`
+`ratio`, `confirm.ratio`); jaq 1.13% (same fields; decision 106 notes 1.13%
+is a lower bound on jaq's noise). Rows the task summary glossed, stated
+explicitly: hintbench fn k4 `inline_never` 1.0152 < 1.63% -> KEEP; k3 loop
+has two good arms (`unroll_count_2`, `unroll_count_4`); k5 loop `unroll_count_4`
+/ `_8` do not clear 1.70% in both batches, so width 16 is the only good arm;
+zopfli `squeeze.rs:325 unroll_count_2` (1.0095 / 1.0100) does not clear 1.00%;
+zopfli has 9 harmful arms at 1.00% (not just `squeeze.rs:275` unroll 4/8);
+jaq `reserve_rehash inline_always` (1.0104 / 1.0096) is not good,
+`Rc<IndexMap>::drop_slow inline_always` (0.9525 / 0.9848) is harmful at
+1.13%, `str_fold inline_never` (0.9861 / 0.9928) is not.
+
+**hintbench**
+
+| site | truth best | good (both batches > MDE) | harmful (both < -MDE) | noop arms |
+|---|---|---|---|--:|
+| `fn k1_step` | `KEEP_DEFAULT` | - | `inline_never` 0.955/0.957 | 4 |
+| `fn k2_mix` | `inline_always` | `inline_always` 1.678/1.674 | - | 2 |
+| `fn k3_fill_run` | `KEEP_DEFAULT` | - | `inline_never` 0.829/0.830 | 4 |
+| `fn k4_count_bytes` | `KEEP_DEFAULT` | - | - | 4 |
+| `fn k5_mul_reduce` | `KEEP_DEFAULT` | - | - | 4 |
+| `fn k6_hot_loop` | `KEEP_DEFAULT` | - | - | 2 |
+| `fn k7_error_path` | `KEEP_DEFAULT` | - | - | 4 |
+| `fn k8_scale_add` | `KEEP_DEFAULT` | - | - | 4 |
+| k3 loop `lib.rs:174` | `unroll_count_4` | `unroll_count_2` 1.042/1.039, `unroll_count_4` 1.044/1.042 | `unroll_disable` 0.706/0.707 | 8 |
+| k4 loop `macros.rs:180` | `KEEP_DEFAULT` | - | `interleave_count_1` 0.730/0.728, `interleave_count_2` 0.940/0.939, `unroll_disable` 0.731/0.728, `vectorize_width_16` 0.579/0.579, `vectorize_width_2` 0.202/0.202, `vectorize_width_4` 0.674/0.669 | 1 |
+| k5 loop `macros.rs:180` | `vectorize_width_16` | `vectorize_width_16` 1.026/1.028 | `interleave_count_1` 0.296/0.294, `interleave_count_2` 0.595/0.592, `unroll_disable` 0.294/0.294, `vectorize_width_2` 0.279/0.279, `vectorize_width_4` 0.557/0.558 | 1 |
+| k8 loop `range.rs:1103` | `vectorize_width_16` | `vectorize_width_16` 1.088/1.075 | `interleave_count_1` 0.803/0.803, `interleave_count_2` 0.946/0.959, `unroll_disable` 0.823/0.849, `vectorize_width_2` 0.447/0.456, `vectorize_width_4` 0.917/0.941 | 1 |
+
+**zopfli**
+
+| site | truth best | good | harmful | noop arms |
+|---|---|---|---|--:|
+| `fn ZopfliHash::update` | `KEEP_DEFAULT` | - | - | 0 |
+| `fn lz77::find_longest_match` | `KEEP_DEFAULT` | - | `inline_always` 0.980/0.980, `inline_never` 0.978/0.973 | 0 |
+| `fn lz77::find_longest_match_loop` | `KEEP_DEFAULT` | - | - | 1 |
+| `fn squeeze::get_best_lengths` | `KEEP_DEFAULT` | - | `inline_never` 0.980/0.978 | 1 |
+| `fn squeeze::lz77_optimal` | `KEEP_DEFAULT` | - | `inline_always` 0.987/0.988 | 1 |
+| `fn squeeze::lz77_optimal_run` | `KEEP_DEFAULT` | - | `inline_never` 0.978/0.982 | 1 |
+| `index.rs:184` | `KEEP_DEFAULT` | - | - | 8 |
+| `lz77.rs:530` | `KEEP_DEFAULT` | - | `unroll_count_2` 0.986/0.988 | 8 |
+| `lz77.rs:563` | `KEEP_DEFAULT` | - | - | 2 |
+| `squeeze.rs:275` | `KEEP_DEFAULT` | - | `unroll_count_2` 0.984/0.987, `unroll_count_4` 0.964/0.967, `unroll_count_8` 0.917/0.916 | 8 |
+| `squeeze.rs:325` | `unroll_count_8` | `unroll_count_8` 1.013/1.013 | - | 8 |
+
+**jaq** (function sites of Oracle A2; `align_*` arms are not in vocabulary v6
+and are ignored)
+
+| site | truth best | good | harmful | noop arms |
+|---|---|---|---|--:|
+| `Val::hash` | `inline_always` | `inline_always` 1.043/1.048 | - | 2 |
+| `write_until` | `inline_always` | `inline_always` 1.015/1.022 | `inline_never` 0.962/0.968 | 1 |
+| `read::parse` | `KEEP_DEFAULT` | - | `inline_always` 0.974/0.974 | 2 |
+| `Lex::seq` | `KEEP_DEFAULT` | - | `inline_never` 0.906/0.943 | 4 |
+| `write::write` | `KEEP_DEFAULT` | - | `inline_always` 0.944/0.934 | 2 |
+| `Rc<IndexMap>::drop_slow` | `KEEP_DEFAULT` | - | `inline_always` 0.952/0.985 | 4 |
+| the other 9 (`str_fold`, `TermId::run`, `base{closure#3}`, `Path::run{closure#0}`, `Adapter::write_str`, `reserve_rehash`, `base_run{closure#7}`, `path::run`, `String::fmt`) | `KEEP_DEFAULT` | - | - | 1-5 |
+
+Positive-truth sites: hintbench fn k2; hintbench loops k3, k5, k8; zopfli loop
+`squeeze.rs:325`; jaq fn `Val::hash`, `write_until`. The loop targets of this
+study are **k3 `unroll_count_4`, k5 / k8 `vectorize_width_16`, zopfli 325
+`unroll_count_8`**. Every other site's truth is `KEEP_DEFAULT`.
+
+**Two state facts that already argue against loop truths** (read off the
+rendered B0 state, before any answer): (i) the loop verdict line "element type
+... one 256-bit vector register holds 8 of them, so the widest
+`vectorize.width` in this list that fits one register is 8" is printed at
+k5 (u32; truth width 16); (ii) at zopfli `squeeze.rs:325` the post-vectorize
+line says the loop "is no longer in the program ... so a hint attached to it
+has nothing left to act on", while the oracle measured `unroll_count_8` there
+changing 1 symbol and +1.3%. The *fact* (not found by signature at
+VectorizerEnd) is the plugin's; the *inference* is contradicted by
+measurement. Recorded here as a state finding; the plugin is not changed.
+
+#### 173.3 Metrics (per variant, per target, per repeat; then median of 3 and range)
+
+For a Choice readout `P` is Jev's `probabilities` (a candidate missing from
+the answer counts 0) and the pick is the argmax.
+
+* **(a)** P on the truth best at each positive-truth site; also P on the good
+  set (k3 has two good arms).
+* **(b)** argmax hit rate. At a positive site: pick in the good set. At a
+  KEEP site: pick == `KEEP_DEFAULT` (strict; this is the 7/8 of decision 87).
+  A "no-op-equivalent" hit (pick is `KEEP_DEFAULT` or an arm the oracle built
+  identical to the baseline) is reported beside it.
+* **(c)** harmful mass: P summed over the site's harmful arms, averaged over
+  the sites that have any; and the number of sites whose argmax is harmful.
+* **(d)** KEEP rate at KEEP-truth sites: mean P(`KEEP_DEFAULT`), and the share
+  of those sites whose argmax is `KEEP_DEFAULT`.
+* **(e)** (phase 2) = (c), plus the same mass restricted to the arms the
+  owner named: hintbench k4 loop `vectorize_width_16`, k5 loop
+  `interleave_count_1`, k8 loop `interleave_count_1`, k1 fn `inline_never`,
+  k4 and k8 loop `interleave_count_2`; zopfli `find_longest_match
+  inline_always` and the other 4 harmful fn arms, `squeeze.rs:275
+  unroll_count_4/8`; jaq `write_until inline_never`.
+* Nondeterminism (decision 94): each variant is sent **3 times**, unchanged;
+  the script records `request_sha256` so byte-identity across repeats is
+  checked, and max |ΔP| / argmax flips between repeats are reported.
+
+Non-Choice readouts, fixed now:
+
+* **Score (L7)**: one Score question per (site, candidate), `KEEP_DEFAULT`
+  included, 5 ordered levels (much slower > 5% / slower 1-5% / no measurable
+  change within 1% / faster 1-5% / much faster > 5%). Pick = the candidate
+  with the highest expected score (ties -> `KEEP_DEFAULT`). (a) is reported
+  as the truth candidate's expected score and its P(faster or much faster),
+  not as a Choice P; (c)/(d) are reported via picks only.
+* **Two-step (L8)**: request 1 asks every site "is any hint from this list
+  likely to make the program measurably faster?" (Choice `HINT` /
+  `KEEP_DEFAULT`); request 2 asks every site (all of them, not selected by
+  request 1, so no dependency) "suppose one hint will be applied: which?"
+  over the non-KEEP candidates. Combined P(c) = P1(HINT) x P2(c),
+  P(KEEP) = P1(KEEP); pick = argmax of the combined P.
+* **Inverse (L9)**: "which hint is most likely to make the program SLOWER?"
+  over the non-KEEP candidates. Reported: P_harm mass on oracle-harmful arms
+  (vs the harmful share of the list, the chance level), and the complement
+  pick = argmin P_harm (vocabulary order breaks ties; never KEEP, so (b) at
+  KEEP sites is 0 by construction and is not a finding).
+
+#### 173.4 Variants (each one change from B0; uniform across sites)
+
+Phase 1:
+
+| id | change | phases sent |
+|---|---|---|
+| B0 | baseline (173.1) | A, B |
+| L1 | loop candidate texts rewritten ("v7 candidate"): what each hint makes LLVM do, one "helps where" and one "hurts where" sentence each, the same text for every value N of a kind | B |
+| L2 | loop verdict block replaced by short labelled raw facts (trip, body, calls, fp reduction, depth, element type, post-vectorize vectorized / VF / IC or "not found", verbatim leaf remarks or "shared by N loops"), no inferential clause | B |
+| L3 | loop verdict block with only the lane-count conclusion removed (element type kept) | B |
+| L4 | the post-vectorize "no longer in the program ... nothing left to act on" line replaced by a neutral "not found by its signature; this does not establish whether a hint has anything to act on" | B |
+| L5 | loop verdict block + the unroller's own baseline outcome at the leaf location (factor N / no unroll remark / UNKNOWN if shared) + unroll arithmetic for factors 2/4/8 from the trip count | B |
+| L6 | the leaf-location remarks (loops) / the callee-matched inline remarks (fn) copied verbatim into the question, next to the options | A, B |
+| L7 | Score per (site, candidate) (173.3) | A, B |
+| L8 | two-step (173.3) | A, B |
+| L9 | inverse framing (173.3) | A, B |
+| L10 | one request per site (same header, one section, one question) | A, B |
+| L11 | candidates in one fixed random order (seed 20260924; the same permutation at every site of a kind) | A, B |
+| L12 | "No hint has been measured at this site in this run ..." line in every question | A, B |
+| L13 | source excerpts dropped from the state (replaced by "(source excerpt omitted from this request)") | A, B |
+
+A variant that changes phase B only sends nothing for phase A; its function
+half is B0's answers by construction (the transform does not touch phase A).
+L3, L4 and L5 are the agent's own additions, suggested by the rendered B0
+state (173.2), not by any Jev answer.
+
+Phase 2 (false positives), registered now, sent after phase 1:
+
+| id | change | phases |
+|---|---|---|
+| H1 | each non-KEEP candidate description gets one appended sentence "Known ways it hurts, stated the same at every site: ..." (per hint kind: unroll count, unroll disable, width, interleave count, inline always, inline never) | A, B |
+| H2 | explicit fact lines appended to the question: fn = baseline inlining of the function from the callee-matched inline remarks ("inlined at all N call sites, so `inline_always` asks for what the baseline already does ..."), loop = LLVM's chosen VF x IC and what a lower / higher width or count changes, register arithmetic when the element type is known, or "LLVM did not vectorize this loop, so there is no width or interleave count to change" | A, B |
+| H3 | KEEP-first question wording: "Answer KEEP_DEFAULT unless a fact ... says that a hint from the list will make the program measurably faster" | A, B |
+| H4 | inverse veto, readout only (no new request): P'(c) proportional to P_B0(c) x (1 - P_L9(c)) for non-KEEP c, P'(KEEP) = P_B0(KEEP), renormalised; pairs B0 and L9 by repeat index | A, B |
+| H5 | = L8's two-step, re-read for (e) (no new request) | A, B |
+| C1 | best phase-1 loop variant composed with the best phase-2 variant (question-level transforms compose in order; at most one structural shape), sent x3 | A, B |
+
+Selection rules for C1, fixed now: best phase-1 loop variant = the highest
+median (over repeats) of the summed P(truth best) over the 4 loop targets
+(Choice-readout variants only) among those that pass the fn bar (173.5);
+best phase-2 variant = the lowest median (e) among H1-H5 that passes the
+side-effect bar (173.5). If none passes, C1 is not sent and that is reported.
+
+Disclosure. Every variant text was written by an agent that had read the
+oracle. The texts name no site, kernel, file or measured number; a mechanical
+check (`jev_prompt_study2.py leak`: regex over every static variant text for
+`k1`-`k8`, target / crate / file names, `325`/`275`/`563`/`530`/`184`, the
+truth percentages) must print `clean` and is written into every run log.
+Rendered facts (trip counts, VF, remark text) come from the dump by the same
+rule at every site.
+
+#### 173.5 Decision rules (fixed before any answer)
+
+* A variant **moves** a loop truth if its median P(truth best) at that site
+  exceeds B0's maximum over the 3 repeats and the two ranges do not overlap
+  (decision 96). It **finds** it if the argmax hits in >= 2 of 3 repeats.
+* **fn bar** (phase 1 regression): hintbench fn strict argmax hits, median
+  >= 7/8, and k2 `inline_always` argmax in >= 2/3; jaq fn hits median >= B0's
+  median and jaq harmful argmax count median <= B0's median.
+* **Phase-2 bar** (false positives down, truths not): (e) median below B0's
+  minimum with non-overlapping ranges on at least one target, and on every
+  target: hintbench fn hits median >= 7/8, k2 still argmax, P(k3
+  `unroll_count_4`) and P(k8 `vectorize_width_16`) medians not below B0's
+  (and not below the phase-1 best variant's, for C1), zopfli KEEP-truth
+  sites' argmax-KEEP rate not below B0's median, jaq P(`Val::hash`
+  `inline_always`) and P(`write_until` `inline_always`) medians not below
+  B0's.
+* A v7 proposal is written to HANDOFF §4 only if a variant passes both the
+  "finds >= 1 loop target" rule with the fn bar, or the phase-2 bar; nothing
+  is frozen by this study either way (owner decides).
+
+#### 173.6 Requests, cost, 503 policy
+
+Requests per repeat (from `build_requests`): hintbench 41, zopfli 40, jaq 27
+(B0 2/2/1; L1-L5 1 each on hintbench and zopfli; L6/L7/L9/L11/L12/L13 2/2/1;
+L8 4/4/2; L10 12/11/15; H1-H3 2/2/1). x 3 repeats = **324 requests**, plus
+C1 (at most 3 x 38) and **one smoke request per target** (the first request
+of B0 phase A, logged under run prefix `ps2smoke`, excluded from scoring) to
+check the wire format. Largest request: the L7 Score request (78 questions
+on zopfli B). Cost expected $0 (free tier; `[jev] api_cost_budget_usd` 5.0).
+503 policy = `jev-opt.toml [jev]` as the driver uses it: up to 200 attempts
+per request within a 600 s wall budget, a fixed 2.0 s pause between attempts
+(jitter set to 0 in this script, `S.RETRY_JITTER = 0.0`), then up to 2
+unchanged re-sends after 10 s; a request that never lands is recorded as
+lost and its site's answers count as missing (not as KEEP). Every request and
+response is logged as JSONL plus one `.log` line (latency, tokens, cost);
+the Authorization header is never logged.
