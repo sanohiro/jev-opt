@@ -13737,3 +13737,189 @@ keeps only loops the baseline dump's `post_vectorize` says were vectorized
 `[oracle] progress: skipped / measured / other / remaining, ETA`. Under
 `confirm_when = "mde"` a sub-MDE round cannot pass acceptance rule 4, so a
 search can no longer promote it (v1 could).
+
+### 171. MDE rule v2 (2 × A/A, floor 1%): a post-hoc re-read of the oracles
+
+**Post hoc, labelled as such.** Every pre-registered verdict in this file
+(§117-128 hintbench, §135-142 jaq A2, §166/§168 zopfli) used the v1 MDE,
+`max(2 × worst per-workload CI half-width, 3%)`, recomputed **per batch**
+(decision 27's 3% policy floor). Those verdicts stand as recorded and are not
+relabelled. This section re-reads the same `rounds.jsonl` records under a
+rule stated after the numbers were known; **nothing was re-measured**, no
+build or timing was run. It exists because the owner redirected the goal on
+2026-09-24: "+α on top of O3 + native + fat LTO + PGO", on any target;
+small reproducible gains must not be discarded by an arbitrary floor ---
+"if it is not noise, it goes in" (decision 105).
+
+**Rule v2 (for all new pre-registrations from decision 105 on).**
+
+* `MDE = max(2 × h, 1%)`, where `h` is the **worst per-case 95% CI
+  half-width over the A/A legs of the target's registered A/A panel**
+  (identical-binary legs only; candidate labels do not count). The value is
+  **frozen per target** before the arms run, not recomputed per batch, so a
+  noisy batch does not raise its own bar (decision 104 (b)).
+* **Effect (oracle arm)**: the round batch **and** the independent
+  confirmation batch are both beyond the MDE on the same side
+  (`ratio − 1 ≥ MDE` in both = effect; `1 − ratio ≥ MDE` in both =
+  harmful). Same logic as decision 80 (a) / §166, new threshold. The ratio
+  is the one the target's readout uses: the aggregate (geomean) on zopfli and
+  jaq, the arm's own kernel on hintbench.
+* **For the article** additionally: the holdout panel agrees (beyond the
+  holdout panel's own v2 MDE, same side) where a holdout was measured.
+* Because `h` is the worst *per-case* half-width while zopfli's and jaq's
+  readout is the geomean, the rule is conservative for aggregate claims (the
+  aggregate A/A half-width is 2-3× smaller, below). This is the rule as
+  directed; alternatives are listed under "sensitivity", not adopted.
+
+Source of every number below: the named fields of
+`artifacts/{zopfli-search/oracle,hintbench-oracle,jaq-search/oracle-A2}/rounds.jsonl`
+(`ratio`, `confirm.ratio`, `kernel.ratio`, `confirm.kernel.ratio`, `mde`,
+`confirm.mde`) and of the panels' `stats.json`
+(`per_workload.<label>.<case>.halfwidth`, `aggregate.<label>.halfwidth`),
+read by an ad-hoc Python script in the session scratchpad (not committed;
+it only reads and compares these fields).
+
+#### 171.1 The v2 MDE per target
+
+| target | registered A/A panel | worst per-case A/A half-width (leg / case) | v2 MDE | v1 MDE used |
+|---|---|--:|--:|---|
+| zopfli, training | §165 `artifacts/zopfli-sites/aa-training/stats.json` (aa, aa2; n 18; class 96) | 0.919% (aa2 / binary) | **1.838%** | 3% (every batch but two, §168.3) |
+| zopfli, holdout | §165 `artifacts/zopfli-sites/aa-holdout/stats.json` | 0.391% (aa2 / binary) | 0.78% -> **1.00%** (floor) | 3% (§168.5) |
+| hintbench, oracle (§118-128) | §119 null panels `artifacts/hintbench-oracle-nullpanel-{1,2}/stats.json` (n1-n3 × 2 batches; n 15) | 1.876% (panel 2, n3 / k8) | **3.752%** | per batch, 3.00-11.88% on round batches |
+| hintbench, future (pinned) | §162 `artifacts/hintbench-aa-study/p6-pinned/stats.json` (aa, cand = same binary; class 96; n 15) | 1.588% (aa / k8) | **3.176%** | --- |
+| jaq, Oracle A2 (§135-142) | §140 holdout panel `aa` leg, `artifacts/jaq-search/oracle-A2-holdout/stats.json` (n 15, gap 250 ms) | 1.63% (aa / objsearch) | **3.26%** | 3% (§139) |
+| jaq, cross-check | §164 `artifacts/jaq-aa-classes/stats.json` (argv0-class legs c80/c112/c128 vs c96, all NULL; n 35) | 1.42% (c128 / readwrite) | 2.84% | --- |
+
+Headline: **v2 lowers the bar only on zopfli.** On hintbench and jaq one
+noisy case (k8; objsearch) puts `2 × h` above 3%, so v2 *raises* the bar
+there; the "between 1% and 3%" band the owner's direction is about is empty
+on both under the rule as written.
+
+For scale, the aggregate A/A half-widths of the same panels (not used by the
+rule): zopfli training 0.33% / 0.41%, holdout 0.15% / 0.19%; hintbench null
+panels 0.20-0.27%, §162 0.28% / 0.32%; jaq A2 holdout aa 0.56%.
+
+jaq panel choice, stated: the A2 holdout `aa` leg is the only A/A leg taken
+under A2's own conditions outside the arms. §113's dedicated null panel
+belongs to Oracle A (pre-closure-fix) and is not borrowed. The §164 panel is
+listed as a cross-check only (its legs differ in argv[0] length class, and it
+has n 35). On jaq the within-batch half-width is also known to be
+over-confident (A2 in-run A/A: 28 of 60 intervals exclude 1, range 5.43 pt,
+sd 1.10%, §139; decision 80), so any half-width-based MDE understates jaq's
+noise.
+
+#### 171.2 zopfli (training 1.838%, holdout 1.00%)
+
+All sign-confirmed and two-batch rows of §168.3 re-read. Ratios from
+`artifacts/zopfli-search/oracle/rounds.jsonl` (`ratio`, `confirm.ratio`),
+holdout from `artifacts/zopfli-search/oracle/holdout-panel/stats.json`.
+
+| round | site | candidate | round | confirm | holdout | §168 verdict (v1) | v2 |
+|--:|---|---|--:|--:|--:|---|---|
+| 68 | combination (325 + 563 unroll 8) | --- | +1.811% | +2.063% | +1.77% [1.0163, 1.0193] | flat (sub-MDE) | **flat, borderline**: round batch 0.027 pt under 1.838%; confirm and holdout pass |
+| 37 | `squeeze.rs:325` | `unroll_count_8` | +1.256% | +1.285% | +1.33% [1.0116, 1.0151] | flat (sub-MDE) | flat on training (both under 1.838%); holdout passes 1.00% |
+| 12 | `lz77::find_longest_match` | `inline_never` | −2.229% | −2.676% | --- | flat (confirmed −) | **harmful** (flip) |
+| 11 | `lz77::find_longest_match` | `inline_always` | −2.014% | −2.039% | --- | flat (confirmed −) | **harmful** (flip) |
+| 6 | `squeeze::get_best_lengths` | `inline_never` | −2.012% | −2.173% | --- | flat (confirmed −) | **harmful** (flip) |
+| 8 | `squeeze::lz77_optimal_run` | `inline_never` | −2.215% | −1.829% | --- | flat (confirmed −) | flat, **borderline**: confirm 0.009 pt under |
+| 25 | `squeeze.rs:275` | `unroll_count_4` | −3.614% | −3.324% | --- | harmful | harmful |
+| 26 | `squeeze.rs:275` | `unroll_count_8` | −8.305% | −8.443% | --- | harmful | harmful |
+
+Every other measured arm (the remaining 21 of §168.3) is inside 1.838% in at
+least one batch and stays flat. **Under v2 as written, zopfli has 0 effects
+and 5 harmful arms** (was 0 and 2); the combination misses by 0.027 pt in
+its round batch, the one leg of three that does not clear. The two
+borderlines are reported at three decimals and are not rounded either way.
+
+**Sensitivity (not the rule; each is a different frozen `h` the owner could
+register instead).**
+
+| alternative `h` | MDE | combination (r68) | `squeeze.rs:325 unroll_count_8` (r37) |
+|---|--:|---|---|
+| §165 holdout panel's worst per-case, 0.391% | 1.00% | effect (1.81 / 2.06 / holdout 1.77) | effect (1.26 / 1.29 / holdout 1.33) |
+| §165 training panel's **aggregate** A/A, 0.414% (aa2) | 1.00% (floor) | effect | effect |
+| the oracle run's own worst round-batch in-run A/A (aggregate), 0.83% (§168.3) | 1.66% | effect | flat |
+
+Under the 1.00% readings, the negative side also grows: r3
+`lz77_optimal inline_always` (−1.26 / −1.24), r8, r13 `lz77.rs:530
+unroll_count_2` (−1.44 / −1.21) and r24 `squeeze.rs:275 unroll_count_2`
+(−1.57 / −1.32) become harmful as well (9 harmful in all).
+
+#### 171.3 hintbench (3.752%, §119 null panels)
+
+The oracle's gate (§122's "MDE gate", §124) used each batch's own MDE, which
+ran 3.00-11.88% on round batches. Freezing the MDE at the panel's 3.752%
+changes four arms, all through the freeze rather than through the floor
+(own-kernel ratios, `artifacts/hintbench-oracle/rounds.jsonl` `kernel.ratio`
+/ `confirm.kernel.ratio`; batch MDEs `mde` / `confirm.mde`):
+
+| round | site | candidate | round | confirm | batch MDEs (v1) | v1 gate | v2 |
+|--:|---|---|--:|--:|---|---|---|
+| 74 | k3 loop | `unroll_count_2` | +4.23% | +3.94% | 4.92% / 3.83% | flat | **effect** (flip) |
+| 2 | `k1_step` | `inline_never` | −4.55% | −4.34% | 3.00% / 4.57% | flat | **harmful** (flip) |
+| 61 | k4 loop | `interleave_count_2` | −6.04% | −6.07% | 6.81% / 6.97% | flat | **harmful** (flip) |
+| 72 | k8 loop | `interleave_count_2` | −5.44% | −4.06% | 7.59% / 6.03% | flat | **harmful** (flip) |
+
+No v1 effect or harmful arm drops out (the smallest v1 effect, k3
+`unroll_count_4`, is +4.36% / +4.24%). The combination (1.0881 / 1.0856,
+holdout 1.0847) is unchanged. The 1-3% arms stay flat under v2:
+
+| round | site | candidate | round | confirm | v2 (3.752%) |
+|--:|---|---|--:|--:|---|
+| 48 | k5 loop | `vectorize_width_16` | +2.65% | +2.85% | flat |
+| 42 | k5 loop | `unroll_count_4` | +2.07% | +1.70% | flat |
+| 43 | k5 loop | `unroll_count_8` | +1.94% | +1.19% | flat |
+| 17 | `k4_count_bytes` | `inline_never` | +1.52% | +1.86% | flat |
+| 52 | k4 loop | `unroll_count_2` | −1.52% | −1.40% | flat |
+
+Side note, **not the v2 rule**: hintbench is read per kernel, so a
+per-case MDE (each kernel's own worst A/A half-width in the §119 panels:
+k1 0.445%, k2 0.527%, k3 0.635%, k4 0.344%, k5 0.482%, k6 0.546%, k7 0.494%,
+k8 1.876%, i.e. MDE 1.0-1.27% except k8's 3.75%) would make all five rows
+above clear (four effects, k4 loop `unroll_count_2` harmful). That is a
+different rule; whether to register it is the owner's call.
+
+#### 171.4 jaq Oracle A2 (3.26%)
+
+`artifacts/jaq-search/oracle-A2/rounds.jsonl`, aggregate ratios:
+
+| round | mark | candidate | round | confirm | §139 (3%) | v2 (3.26%) |
+|--:|---|---|--:|--:|---|---|
+| 66 | `Val::hash` | `inline_always` | +4.26% | +4.84% | effect | effect |
+| 7 | `Lex::seq` | `inline_never` | −9.39% | −5.74% | harmful | harmful |
+| 26 | `write::write` | `inline_always` | −5.55% | −6.63% | harmful | harmful |
+| 17 | `write_until` | `inline_never` | −3.75% | −3.22% | harmful | **flat** (confirm 0.04 pt under) |
+
+Nothing on jaq lies between its v2 MDE and 3%; r17 leaves "harmful" (under
+the 2.84% cross-check it would stay). The best arm's holdout aggregate
+(+1.68%) and the combination (+0.17%) are under 3.26% as before.
+
+#### 171.5 What is NOT established
+
+* **Nothing here is pre-registered.** The v2 verdicts above are a post-hoc
+  re-read; §168.7's "good: 0 of 67" and decision 100 (a)'s "後から呼び直さない"
+  stand. No v2 verdict is a result until an arm is measured under a v2
+  pre-registration.
+* **The Jev-run headlines are not re-scored.** hintbench Exp4-6 and the
+  jaq/zopfli Jev-vs-random runs were accepted and read under the v1 rule
+  (per-batch MDE, 3% floor); their acceptances would differ under v2, and
+  this section does not recompute them.
+* **v2 changes acceptance for future runs, not only reading.** Under
+  protocol v2 (`confirm_when = "mde"`, decision 104 (c)) a sub-MDE plan
+  cannot be accepted; with v2's lower zopfli MDE a sub-3% plan now can.
+* **Driver not yet able to run v2.** `scripts/jev_search.py` floors a frozen
+  `--mde` at 0.03 (lines 3885, 4983; `--mde` help at 5628) and
+  `scripts/bench.py` hardcodes `max(2 * worst, 0.03)` (line 350); a v2 run
+  today silently gets 3%. The floor must become 0.01 (and the frozen per-target
+  value must be passed) before any v2 pre-registration is run. No code was
+  changed here.
+* **Sampling variance weighs more at 1-2%.** Decision 94's caveat (the same
+  binary moved 0.37-1.48 pt between runs) is of the same size as a 1-2%
+  effect; for Jev-vs-random comparisons it is n ≥ 3 per arm (decision 96),
+  not a single batch pair, that makes a 1-2% claim honest.
+* **hintbench under protocol v2 needs the frozen value.** At n = 8 the
+  per-batch MDE rises to a median 5.3% (§170.4); v2 runs there must pass
+  `--mde 0.0318` (§162) so the freeze, not n, sets the bar (decision 104 (b)).
+* The zopfli combination is **not** a confirmed α under v2 as written (round
+  batch 0.027 pt short). It is confirmed under the sensitivity readings in
+  171.2; which frozen `h` zopfli registers is the owner's choice.
