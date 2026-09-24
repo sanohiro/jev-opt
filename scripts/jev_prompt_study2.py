@@ -913,7 +913,7 @@ def cmd_run(a):
             for variant in a.variants:
                 vph = variant_phases(variant)
                 for phase in TARGETS[target]["phases"]:
-                    if phase not in vph:
+                    if phase not in vph or (a.smoke and phase != "A"):
                         continue
                     reqs = build_requests(search, variant, phase)
                     if a.smoke:
@@ -1091,6 +1091,239 @@ def cmd_score(a):
     print("wrote %s" % a.out)
 
 
+NAMED_FP = {
+    "hintbench": {
+        "hbkernels::k4_count_bytes@macros.rs:180:28#d2": ["vectorize_width_16",
+                                                          "interleave_count_2"],
+        "hbkernels::k5_mul_reduce@macros.rs:180:28#d2": ["interleave_count_1"],
+        "hbkernels::k8_scale_add@range.rs:1103:12#d2": ["interleave_count_1",
+                                                        "interleave_count_2"],
+        "fn:hbkernels::k1_step": ["inline_never"]},
+    "zopfli": {
+        "fn:zopfli::lz77::find_longest_match": ["inline_always",
+                                                "inline_never"],
+        "fn:zopfli::squeeze::get_best_lengths": ["inline_never"],
+        "fn:zopfli::squeeze::lz77_optimal": ["inline_always"],
+        "fn:zopfli::squeeze::lz77_optimal_run": ["inline_never"],
+        "zopfli::squeeze::lz77_optimal@squeeze.rs:275:11#d2": [
+            "unroll_count_4", "unroll_count_8"]},
+    "jaq": {
+        "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until": [
+            "inline_never"]},
+}
+
+LOOP_TARGETS = {
+    "hintbench": ["hbkernels::k3_fill_run@lib.rs:174:9#d3",
+                  "hbkernels::k5_mul_reduce@macros.rs:180:28#d2",
+                  "hbkernels::k8_scale_add@range.rs:1103:12#d2"],
+    "zopfli": ["zopfli::squeeze::lz77_optimal@squeeze.rs:325:9#d3"],
+    "jaq": [],
+}
+FN_TARGETS = {
+    "hintbench": ["fn:hbkernels::k2_mix"],
+    "zopfli": [],
+    "jaq": ["fn:<jaq_json::Val as core::hash::Hash>::hash",
+            "fn:<hifijson::SliceLexer as hifijson::write::Write>::write_until"],
+}
+
+
+def short_site(sid):
+    m = re.search(r"::(k\d)_", sid)
+    if m:
+        return m.group(1) + ("" if sid.startswith("fn:") else " loop")
+    m = re.search(r"@(\w+\.rs):(\d+)", sid)
+    if m:
+        return "%s:%s" % m.groups()
+    if "Val as core::hash" in sid:
+        return "Val::hash"
+    if "write_until" in sid:
+        return "write_until"
+    return sid[:30]
+
+
+def dists_for(records, variant, rep, phase):
+    """Per-site readout dicts under the pre-registered rule of `variant`."""
+    if variant == "H4":
+        b = site_dists(records, "B0", rep, phase)
+        h = site_dists(records, "L9", rep, phase)
+        out = {}
+        for sid, d in b.items():
+            P = dict(d["P"])
+            ph = (h.get(sid) or {}).get("P") or {}
+            for c in list(P):
+                if c != KEEP:
+                    P[c] = P[c] * (1.0 - ph.get(c, 0.0))
+            z = sum(P.values()) or 1.0
+            out[sid] = {"P": {c: v / z for c, v in P.items()}}
+        return out
+    if variant == "H5":
+        return site_dists(records, "L8", rep, phase)
+    return site_dists(records, variant, rep, phase)
+
+
+def metrics(truth_t, records, variant, rep, phase, target):
+    src = variant if phase in variant_phases_ro(variant) else "B0"
+    ds = dists_for(records, src, rep, phase)
+    shape = src.split("+")
+    inverse = "L9" in shape
+    score = "L7" in shape
+    M = {"n": 0, "hits": 0, "hits_eq": 0, "harm_sites": 0, "harm_mass": [],
+         "harm_argmax": 0, "keep_sites": 0, "keep_argmax": 0, "keep_P": [],
+         "named_mass": [], "P": {}, "pick": {}, "missing": 0, "src": src}
+    sites = [sid for sid in truth_t if (sid.startswith("fn:")) == (phase == "A")]
+    for sid in sites:
+        if sid not in ds:
+            M["missing"] += 1
+            continue
+        su = truth_t[sid]["_summary"]
+        P, pick = readout(ds[sid], "inverse" if inverse else "choice")
+        good, harm = set(su["good"]), set(su["harmful"])
+        noop = set(su["noop"]) | {KEEP}
+        M["n"] += 1
+        M["pick"][sid] = pick
+        if su["best"] == KEEP:
+            hit = pick == KEEP
+            M["keep_sites"] += 1
+            M["keep_argmax"] += int(pick == KEEP)
+            if P is not None and not inverse:
+                M["keep_P"].append(P.get(KEEP, 0.0))
+        else:
+            hit = pick in good
+        M["hits"] += int(hit)
+        M["hits_eq"] += int(hit or (su["best"] == KEEP and pick in noop))
+        if harm:
+            M["harm_sites"] += 1
+            M["harm_argmax"] += int(pick in harm)
+            if P is not None:
+                M["harm_mass"].append(sum(P.get(c, 0.0) for c in harm))
+        named = NAMED_FP.get(target, {}).get(sid)
+        if named and P is not None:
+            M["named_mass"].append(sum(P.get(c, 0.0) for c in named))
+        if score:
+            d = ds[sid]
+            M["P"][sid] = d["score"].get(su["best"])
+        elif P is not None:
+            M["P"][sid] = P.get(su["best"], 0.0)
+    return M
+
+
+def variant_phases_ro(variant):
+    if variant in ("H4", "H5"):
+        return "AB"
+    return variant_phases(variant)
+
+
+def _mr(xs, fmt="%.2f"):
+    xs = [x for x in xs if x is not None]
+    if not xs:
+        return "-"
+    if len(xs) == 1:
+        return fmt % xs[0]
+    return (fmt + " [" + fmt + ", " + fmt + "]") % (
+        statistics.median(xs), min(xs), max(xs))
+
+
+def cmd_report(a):
+    truth = json.load(open(TRUTH_PATH))
+    lines = []
+    summary = {}
+    for target in a.targets:
+        path = os.path.join(a.log_dir, "%s-%s.jsonl" % (a.run_prefix, target))
+        if not os.path.isfile(path):
+            continue
+        records = read_jsonl(path)
+        truth_t = {k: v for k, v in truth["targets"][target].items()}
+        summary[target] = {}
+        for phase in TARGETS[target]["phases"]:
+            tsites = LOOP_TARGETS[target] if phase == "B" else FN_TARGETS[target]
+            head = (["variant"] + ["P(best) %s" % short_site(s)
+                                   for s in tsites]
+                    + ["argmax hits", "harm mass", "harm argmax",
+                       "KEEP argmax @KEEP", "P(KEEP) @KEEP",
+                       "named-FP mass", "missing"])
+            lines.append("\n**%s, phase %s (%s)**\n" % (
+                target, phase, "loops" if phase == "B" else "functions"))
+            lines.append("| " + " | ".join(head) + " |")
+            lines.append("|" + "---|" * len(head))
+            for variant in a.variants:
+                Ms = [metrics(truth_t, records, variant, r, phase, target)
+                      for r in range(1, a.repeats + 1)]
+                Ms = [m for m in Ms if m["n"]]
+                if not Ms:
+                    continue
+                summary[target]["%s.%s" % (variant, phase)] = Ms
+                row = [variant + ("" if Ms[0]["src"] == variant else
+                                  " (=%s)" % Ms[0]["src"])]
+                for s in tsites:
+                    row.append(_mr([m["P"].get(s) for m in Ms]))
+                n = Ms[0]["n"]
+                row.append(_mr([m["hits"] for m in Ms], "%d") + "/%d" % n)
+                row.append(_mr([statistics.mean(m["harm_mass"])
+                                if m["harm_mass"] else None for m in Ms]))
+                row.append(_mr([m["harm_argmax"] for m in Ms], "%d")
+                           + "/%d" % Ms[0]["harm_sites"])
+                row.append(_mr([m["keep_argmax"] for m in Ms], "%d")
+                           + "/%d" % Ms[0]["keep_sites"])
+                row.append(_mr([statistics.mean(m["keep_P"])
+                                if m["keep_P"] else None for m in Ms]))
+                row.append(_mr([sum(m["named_mass"])
+                                if m["named_mass"] else None for m in Ms]))
+                row.append(str(sum(m["missing"] for m in Ms)))
+                lines.append("| " + " | ".join(row) + " |")
+    txt = "\n".join(lines)
+    print(txt)
+    if a.out:
+        open(a.out, "w").write(txt + "\n")
+        with open(a.out.replace(".md", ".json"), "w") as f:
+            json.dump(summary, f, indent=1, default=list)
+
+
+def cmd_stability(a):
+    """request_sha256 identity across repeats, max |dP| and argmax flips."""
+    for target in a.targets:
+        path = os.path.join(a.log_dir, "%s-%s.jsonl" % (a.run_prefix, target))
+        if not os.path.isfile(path):
+            continue
+        recs = [r for r in read_jsonl(path) if not r.get("exhausted")]
+        by = {}
+        for r in recs:
+            key = re.sub(r"\.retry\d*$", "", r["phase"])
+            by.setdefault(key, {})[r["round"]] = r
+        print("== %s" % target)
+        agg = {}
+        for key, reps in sorted(by.items()):
+            v = key.split(".")[0]
+            shas = {x["request_sha256"] for x in reps.values()}
+            dmax, flips = 0.0, 0
+            per_q = {}
+            for x in reps.values():
+                for qn, ans in ((x.get("response") or {}).get("answers")
+                                or {}).items():
+                    per_q.setdefault(qn, []).append(ans)
+            for qn, lst in per_q.items():
+                if lst and lst[0].get("type") == "choice":
+                    ch = {x.get("choice") for x in lst}
+                    flips += int(len(ch) > 1)
+                    keys = set().union(*[set((x.get("probabilities") or {}))
+                                         for x in lst])
+                    for k in keys:
+                        vals = [float((x.get("probabilities") or {}).get(k, 0))
+                                for x in lst]
+                        dmax = max(dmax, max(vals) - min(vals))
+            g = agg.setdefault(v, {"reqs": 0, "same_sha": 0, "dmax": 0.0,
+                                   "flips": 0, "n_rep": 0})
+            g["reqs"] += 1
+            g["same_sha"] += int(len(shas) == 1)
+            g["dmax"] = max(g["dmax"], dmax)
+            g["flips"] += flips
+            g["n_rep"] = max(g["n_rep"], len(reps))
+        for v, g in agg.items():
+            print("  %-8s requests %2d, byte-identical across repeats %2d, "
+                  "repeats %d, max|dP| %.2f, argmax flips %d"
+                  % (v, g["reqs"], g["same_sha"], g["n_rep"], g["dmax"],
+                     g["flips"]))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1115,7 +1348,20 @@ def main():
     sc.add_argument("--run-prefix", default="ps2")
     sc.add_argument("--log-dir", default=OUT_DIR)
     sc.add_argument("--out", default=os.path.join(OUT_DIR, "scores.json"))
+    for name in ("report", "stability"):
+        rp = sub.add_parser(name)
+        rp.add_argument("--targets", nargs="+", default=list(TARGETS))
+        rp.add_argument("--variants", nargs="+",
+                        default=list(VARIANTS) + ["H4", "H5"])
+        rp.add_argument("--repeats", type=int, default=3)
+        rp.add_argument("--run-prefix", default="ps2")
+        rp.add_argument("--log-dir", default=OUT_DIR)
+        rp.add_argument("--out", default=None)
     a = p.parse_args()
+    if a.cmd == "report":
+        return cmd_report(a)
+    if a.cmd == "stability":
+        return cmd_stability(a)
     if a.cmd == "truth":
         print_truth(derive_truth())
     elif a.cmd == "render":
