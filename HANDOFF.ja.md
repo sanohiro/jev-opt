@@ -84,6 +84,7 @@
 | 3b | arm ごとの反復(n≥3)で per-feature 効果を測る。または API 側に決定性が無いことを前提に規則を書き直す | 0.5 pt の機能効果を提案側の揺れと区別する(決定 94) | 3 倍の時間 | 済(決定 96、spec §2) |
 | 3c | hintbench の A/A のみのパネル調査(基準のコピー数本、複数 seed、k5・k8 の mean_s を報告して計測モードの原因を探る) | 初回パネルを信用してよい条件を作る(決定 95) | jaq の前に、約 30 分 | **済**(argv[0] 長が鍵。bench.py を 80 バイト固定に。決定 97) |
 | 3e | jaq / zopfli の A/A を 2 クラスで確認(約 10 分ずつ) | 実プログラムも argv[0] 長で動くかを確かめる(決定 97) | 約 20 分 | **済**(どちらも NULL。hintbench の k5 の長さ依存は対象固有。決定 99) |
+| 3f | `--readout argmax`(全 KEEP のフェーズを空にする読み出し、決定 71)の arm を、天井の無い対象での対照として登録する | oracle の天井が MDE 未満の対象では `forced_top1` + `--explore 2` がどのラウンドでも基準を組めない構造上の限界を、別の読み出しで切り分ける(決定 102(b)) | — | 提案(未実施) |
 | 3d | `inline(never)` を付けたカーネルのループが同ラウンドの phase B の site 集合から落ちる件の理解 | 未調査のバグを潰す(exp6.md §7) | — | 提案 |
 | 4 | jaq ループ oracle(重複除去、post_vectorize の事実で state を埋める) | jaq でループヒントの正解を得る | 約 9 h(夜間) | 提案 |
 | 5 | jaq で探索付き Jev 5〜8 ラウンド + ランダム | 記事の主数字。ノイズ 4% なので集計でのみ語る | jaq では jev n=3 + ランダム n=3 の 6 走行だけを回し、機能ごとのアブレーションは 1 走行 30 分の hintbench で行う。費用は 1 走行 5 ラウンドとして、Exp3 の実測(約 5 分/ラウンド、確認バッチ無し、`results.md` §102)なら約 3〜4 h、確認バッチ込み(未測定)なら数倍。最初の走行で壁時計を測ってから事前登録を確定する。 | 提案 |
@@ -125,15 +126,18 @@
 - Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`、`model: typesafe-ai/jev`、Choice の `criteria` はオブジェクト、Score は配列(19)。503 がバーストで来る。
 - site key は jaq では一意でない(13 key が 2〜9 ループに解決)。plan のエントリは「key への指示」(64)。
 - Vercel/TypeSafe の 503 はその日の提供側の状態として要求サイズに単調依存する(固定の閾値ではない): phase A 85 KB は 0/6、B 51 KB は 4/18、探索 24 KB は 5/6 だったが、jaq の phase A(約 104 KB)は前日 5/5 だった。待ち時間ではなく試行回数で吸収する(2 s 固定 ±20% のバックオフ、上限 200 回 / 600 s、フェーズが落ちたら丸ごと再送し半分の plan は組まない。決定 92・95)。
+- **採用 0 の走行では `best-plan.json` が書かれないのに、`summary.md` は「コピーした」と言う。** zopfli の Jev vs ランダム 6 走行はすべて採用 plan 0(基準のまま)で、`jev_search.py` は `best-plan.json` を一切出力しなかったが、`summary.md` の文言は「コピーした」ことになっている。driver の不整合として記録のみ(修正は未着手、決定 102(c))。読み手はこの文言を信用せず、まず実際にファイルがあるかを見ること。
+- **zopfli の holdout バッチ 3 本で MDE が 8.9〜18.3% と出た**(A/A では 0.05% の対象で)。いずれも基準 vs 基準の null arm 同士の比較だったので採否や見出しには影響していないが、原因は未調査(`results.md` §169 の「非決定性」節)。
+- **zopfli oracle のラウンド 68 は WSL 再起動(05:53)で計測が途切れ、`--resume` で再計測した(§168 参照)。再起動前に計測していたバイナリの sha256 は記録されておらず、「再起動前後で同一」という主張はビルドの決定性(同じ入力から同じバイトが出る)に依っていて、実測で突き合わせてはいない。**
 
 ## 7. ファイル地図
 
 ```
-SPEC.ja.md                 仕様(v0.5 + 決定 66〜97 反映)
+SPEC.ja.md                 仕様(v0.5 + 決定 66〜102 反映)
 AGENTS.md                  規約(英語)
 HANDOFF.ja.md              この文書
 results.md                 全計測(追記のみ、18 章超)
-docs/decisions.ja.md       知見と判断(100 項目)
+docs/decisions.ja.md       知見と判断(102 項目)
 docs/search-driver.md      探索ドライバの説明(語彙 v1〜v5、state、読み出し、採用、探索、再訪、503)
 docs/experiments/          実験ごとの記録(jaq-exp3, jaq-oracle-A/A2, hintbench/exp5.md, exp6.md, aa-study.md, jev-prompt-study/)
 docs/fp-reassoc-target-scouting.md  FP 再結合の調査(主線外)
