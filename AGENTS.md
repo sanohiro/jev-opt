@@ -16,7 +16,8 @@ applied by our LLVM pass plugin; target sources are never modified.
 1. **The subject is Jev's hints.** Anything that makes the binary faster by other means
    (training-set selection, source edits, picking a different program) is preparation or out
    of scope, not a result. Do not change the thesis; only the owner can.
-2. **Preparation may be done by a strong model or a human** (profiling, marking hot functions,
+2. **Preparation may be done by a strong model or a human, or by `scripts/target_marks.py`
+   (rule seed ∪ Jev gray zone, decision 109)** (profiling, marking hot functions,
    enumerating candidates). Claude/Codex are the human's proxy, not part of the product. But
    preparation must not choose hints per site — that would make the strong model the optimizer.
    The hint vocabulary is fixed and identical for every mark (`SPEC.ja.md` §1(2)).
@@ -71,6 +72,7 @@ applied by our LLVM pass plugin; target sources are never modified.
 
 | Path | What |
 |---|---|
+| `README.md` | For a new user of the driver: prerequisites (perf is required), marks and sites files, quick start |
 | `SPEC.ja.md` | The spec (v0.5 + amendments; header lists reflected decisions) |
 | `docs/decisions.ja.md` | Numbered knowledge/decision log (start at the end) |
 | `HANDOFF.ja.md` | Full handoff: state, plan, pitfalls, owner's principles |
@@ -79,7 +81,7 @@ applied by our LLVM pass plugin; target sources are never modified.
 | `docs/experiments/` | Per-experiment write-ups and logs |
 | `plugin/` (`README.md`) | LLVM pass plugin: `off`/`dump`/`apply`/`apply-dump`, env vars, plan/report schema |
 | `scripts/` | Driver, benchmarks, profiling, analysis (see HANDOFF for the map) |
-| `targets/{toy,zopfli,oxipng,jaq,hintbench}` | Targets (submodules pinned; `jev-marks.txt`, `sites.json`, `EXPECTED.md`) |
+| `targets/{toy,zopfli,oxipng,jaq,hintbench}` | Targets (submodules pinned; `jev-marks.txt` (frozen), generated `jev-marks.jev.txt` + rationale (decision 109), `sites.json`, `EXPECTED.md`) |
 | `jev-opt.toml`, `rust-toolchain.toml` | Config; pinned `nightly-2026-09-21` (LLVM 23.1.1) |
 | `artifacts/`, `pgo/`, `remarks/`, `target-*/`, `third_party/` | Generated, git-ignored |
 

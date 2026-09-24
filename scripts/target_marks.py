@@ -34,7 +34,12 @@ with `::`, or ends with `::` + line; plugin/README.md "Marks file"),
 otherwise the full name. A line matched by another selected line is folded
 into it.
 
-Inputs (all on disk; nothing is built, timed or run):
+Inputs (read from disk; when the perf or structure tables of a target are
+missing, --jev / --seed-only take them first --- `ensure_profile`: busy
+check, perf present or "run `scripts/perf_local.sh setup` first", the
+plugin-off baseline from `target_sites.sh base`, `SETS=training
+perf_marks_profile.sh`, `perf_hotness.py --inline`, `inline_structure.py`;
+--dry-run never does; nothing is ever timed):
   --perf-tsv-self / --perf-tsv-inline  scripts/perf_hotness.py outputs. Either
       one table over all workloads with per-case columns `train-<case>` /
       `hold-<case>` (jaq), or one file per split with `{split}` in the path
@@ -84,6 +89,10 @@ DEFAULTS = {
                    inline_tsv="artifacts/zopfli-marks/perf-inline-{split}.tsv"),
     "hintbench": dict(n=8, equal_shares="targets/hintbench/jev-marks.txt"),
 }
+# A new target has no frozen marks to take N from; the fallback is recorded
+# in the marks header and can be changed with --n / --marks-n.
+DEFAULT_N_NEW = 8
+BUSY_RE = re.compile(r"bench\.py|jev_search|cargo")
 
 GENERATED_RE = re.compile(
     r"(^|::)drop_(glue|in_place)(::<|$)|\{vtable\.shim\}|\{shim:")
@@ -102,7 +111,8 @@ def read_tsv(path):
 
 
 def sha256_file(path):
-    return hashlib.sha256(open(ab(path), "rb").read()).hexdigest()
+    with open(ab(path), "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 def text_sha(binary):
@@ -121,6 +131,195 @@ def plugin_match(mark, fn):
 def line_of(name):
     s = MS.strip_generics(name)
     return s if plugin_match(s, name) else name
+
+
+# ---------------------------------------------------------------------------
+# preparation: the profile, when it is missing (decision 109)
+# ---------------------------------------------------------------------------
+
+def base_binary(target):
+    """The driver's plugin-off baseline (scripts/target_sites.sh base)."""
+    sc, _ = S.shell_config(target, "training")
+    return os.path.join("target-%s-sites-base" % target, sc["triple"],
+                        "release", sc["bin_name"])
+
+
+def _ancestors():
+    out, pid = {os.getpid()}, os.getpid()
+    while pid > 1:
+        try:
+            stat = open("/proc/%d/stat" % pid).read()
+            pid = int(stat.rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+        out.add(pid)
+    return out
+
+
+def busy_pids():
+    """The bracket-pgrep busy check (read-only): a timing (bench.py), a
+    driver (jev_search) or a build (cargo) other than this process and its
+    parents. Nothing is signalled; the caller only refuses to start."""
+    p = subprocess.run(["pgrep", "-af", "[b]ench.py|[j]ev_search|[c]argo"],
+                       capture_output=True, text=True)
+    mine = _ancestors()
+    out = []
+    for line in p.stdout.splitlines():
+        pid, _, cmd = line.partition(" ")
+        if pid.isdigit() and int(pid) not in mine and BUSY_RE.search(cmd):
+            out.append(line)
+    return out
+
+
+def perf_binary():
+    """scripts/perf_local.sh path, if that perf runs; else None."""
+    p = subprocess.run([os.path.join(REPO, "scripts", "perf_local.sh"),
+                        "path"], capture_output=True, text=True)
+    path = p.stdout.strip()
+    if p.returncode != 0 or not path or not os.access(path, os.X_OK):
+        return None
+    q = subprocess.run([path, "--version"], capture_output=True, text=True)
+    return path if q.returncode == 0 else None
+
+
+def _run(cmd, env=None):
+    print("  $ %s" % " ".join(cmd), flush=True)
+    t0 = time.time()
+    subprocess.run(cmd, check=True, cwd=REPO,
+                   env=dict(os.environ, **(env or {})))
+    print("    (%.0f s)" % (time.time() - t0), flush=True)
+
+
+def ensure_profile(a, run, repeats=6):
+    """Take the perf profile and the structure table when they are missing.
+
+    Only the training (search) cases are recorded, on the plugin-off
+    baseline binary: SETS=training BIN=<base> perf_marks_profile.sh, then
+    perf_hotness.py --inline and inline_structure.py. Refuses while a
+    timing, a driver or a build runs; the one error case is a missing perf
+    (`scripts/perf_local.sh setup` installs it without root)."""
+    self_tr = ab(a.perf_tsv_self.replace("{split}", "train"))
+    inl_tr = ab(a.perf_tsv_inline.replace("{split}", "train"))
+    need_perf = not (os.path.isfile(self_tr) and os.path.isfile(inl_tr))
+    need_struct = not os.path.isfile(ab(a.structure_tsv))
+    if not (need_perf or need_struct):
+        return False
+    if not run:
+        sys.exit("%s: missing %s; --jev or --seed-only takes the profile "
+                 "(this mode never does)" % (a.target, ", ".join(
+                     rel(x) for x, n in ((inl_tr, need_perf),
+                                         (ab(a.structure_tsv), need_struct))
+                     if n)))
+    if need_perf and "{split}" not in a.perf_tsv_self:
+        sys.exit("the automatic profile writes per-split tables; give "
+                 "--perf-tsv-self/--perf-tsv-inline with `{split}`")
+    binary = ab(a.binary)
+    busy = busy_pids()
+    if busy:
+        sys.exit("refusing to profile while these run (never profile during "
+                 "a timing or a build):\n  " + "\n  ".join(busy))
+    t0 = time.time()
+    if need_perf:
+        if not perf_binary():
+            sys.exit("perf is not installed: run `scripts/perf_local.sh "
+                     "setup` first")
+        if not os.path.isfile(binary):
+            print("[marks] no plugin-off baseline at %s: building it with "
+                  "scripts/target_sites.sh base" % rel(binary), flush=True)
+            _run([os.path.join(REPO, "scripts", "target_sites.sh"), "base"],
+                 env={"TARGET": a.target})
+        out = os.path.dirname(self_tr)
+        os.makedirs(out, exist_ok=True)
+        print("[marks] %s: perf profile of %s on the training cases, %d runs "
+              "each, into %s" % (a.target, rel(binary), repeats, rel(out)),
+              flush=True)
+        _run([os.path.join(REPO, "scripts", "perf_marks_profile.sh"), out,
+              str(repeats)],
+             env={"TARGET": a.target, "SETS": "training", "BIN": binary})
+        data = sorted(os.path.join(out, f) for f in os.listdir(out)
+                      if f.startswith("train-") and f.endswith(".data"))
+        if not data:
+            sys.exit("perf_marks_profile.sh wrote no train-*.data in %s" % out)
+        _run([sys.executable, os.path.join(REPO, "scripts", "perf_hotness.py"),
+              "--binary", binary, "--inline", "--top", "30",
+              "--tsv", self_tr, "--inline-tsv", inl_tr] + data)
+    if need_struct:
+        print("[marks] %s: post-LTO structure of %s" % (a.target, rel(binary)),
+              flush=True)
+        _run([sys.executable, os.path.join(REPO, "scripts",
+                                           "inline_structure.py"),
+              "--binary", binary, "--names-from", self_tr, "--top", "300",
+              "--tsv", ab(a.structure_tsv)])
+    print("[marks] preparation took %.0f s of wall clock" % (time.time() - t0))
+    return True
+
+
+# ---------------------------------------------------------------------------
+# which marks file a run uses (jev_search.py --marks is optional)
+# ---------------------------------------------------------------------------
+
+def generated_path(target, version=1):
+    base = os.path.join(REPO, "targets", target)
+    return os.path.join(base, "jev-marks.jev.txt" if version == 1 else
+                        "jev-marks.jev.v%d.txt" % version)
+
+
+def latest_generated(target):
+    v, last = 1, None
+    while os.path.isfile(generated_path(target, v)):
+        last, v = (v, generated_path(target, v)), v + 1
+    return last
+
+
+def header_field(path, key):
+    with open(path) as f:
+        for line in f:
+            if line.startswith("# %s:" % key):
+                return line.split(":", 1)[1].strip()
+            if not line.startswith("#"):
+                break
+    return None
+
+
+def _provenance(how, path, v):
+    return {"how": how, "file": path, "version": v,
+            "sha256": sha256_file(path),
+            "rationale": re.sub(r"\.txt$", ".rationale.md", path),
+            "jev_log": header_field(path, "Jev log"),
+            "produced_by": header_field(path, "Produced by")}
+
+
+def resolve_marks(target, explicit=None, regenerate=False, marks_n=None,
+                  allow_generate=True, generate=None):
+    """(path, provenance). Order: an explicit --marks file; else the newest
+    generated file of the target; else generate it once. `regenerate`
+    writes the next versioned file (jev-marks.jev.v2.txt, ...), so earlier
+    comparisons keep theirs. Never rewrites a file that exists."""
+    if explicit:
+        if regenerate:
+            sys.exit("--marks-regenerate and --marks exclude each other")
+        return explicit, {"how": "explicit", "file": os.path.abspath(explicit),
+                          "sha256": sha256_file(explicit)}
+    last = latest_generated(target)
+    if last and not regenerate:
+        return last[1], _provenance("existing generated", last[1], last[0])
+    v = last[0] + 1 if last else 1
+    path = generated_path(target, v)
+    if not allow_generate:
+        sys.exit("%s: generating %s is needed, and this mode never generates "
+                 "(run without --dry-run / --print-state, or "
+                 "scripts/target_marks.py --target %s --jev)"
+                 % (target, rel(path), target))
+    argv = ["--target", target, "--jev", "--out", rel(path),
+            "--run-id", "tm-%s" % target + ("" if v == 1 else "-v%d" % v)]
+    if marks_n:
+        argv += ["--n", str(marks_n)]
+    print("[marks] generating %s (decision 109): target_marks.py %s"
+          % (rel(path), " ".join(argv)), flush=True)
+    rc = (generate or main)(argv)
+    if rc or not os.path.isfile(path):
+        sys.exit("marks generation failed (rc %s)" % rc)
+    return path, _provenance("generated now", path, v)
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +370,11 @@ def load_rows(a):
         return rows, cases, layout
     layout = "split"
     acc = collections.defaultdict(lambda: collections.defaultdict(list))
-    for split in ("train", "hold"):
+    splits = [sp for sp in ("train", "hold") if os.path.isfile(ab(
+        a.perf_tsv_inline.replace("{split}", sp)))]
+    if "train" not in splits:
+        sys.exit("no %s" % a.perf_tsv_inline.replace("{split}", "train"))
+    for split in splits:
         sp = read_tsv(a.perf_tsv_self.replace("{split}", split))
         slf = {r["function"]: float(r["share"]) for r in sp}
         lang = {r["function"]: r["lang"] for r in sp}
@@ -181,9 +384,11 @@ def load_rows(a):
         cases = sorted(set(cases) | set(cs))
         for r in inl:
             fn = r["function"]
+            nohold = None if "hold" not in splits else 0.0
             d = rows.setdefault(fn, dict(name=fn, reach_train=0.0,
-                                         reach_hold=0.0, self_train=0.0,
-                                         self_hold=0.0, lang=None, crate=None))
+                                         reach_hold=nohold, self_train=0.0,
+                                         self_hold=nohold, lang=None,
+                                         crate=None))
             d["reach_" + split] = float(r["reach"])
             d["self_" + split] = slf.get(fn, 0.0)
             d["lang"] = d["lang"] or lang.get(fn)
@@ -192,8 +397,9 @@ def load_rows(a):
                 acc[fn][c].append(float(r[pre + c]))
     for fn, d in rows.items():
         d["per_case"] = {c: statistics.fmean(
-            acc[fn][c] + [0.0] * (2 - len(acc[fn][c]))) for c in cases}
-    return rows, cases, layout
+            acc[fn][c] + [0.0] * (len(splits) - len(acc[fn][c])))
+            for c in cases}
+    return rows, cases, layout + ("" if "hold" in splits else "-train-only")
 
 
 def build_table(a):
@@ -207,7 +413,7 @@ def build_table(a):
     st = {r["function"]: r for r in read_tsv(a.structure_tsv)}
     listed, c_rows, below = [], [], 0
     for fn, d in rows.items():
-        top = max(d["reach_train"], d["reach_hold"],
+        top = max(d["reach_train"], d["reach_hold"] or 0.0,
                   d["self_train"] or 0.0, d["self_hold"] or 0.0)
         if MS.is_c(fn) or d.get("lang") == "c":
             if top >= a.floor:
@@ -306,16 +512,22 @@ def final_lines(lines):
 # requests
 # ---------------------------------------------------------------------------
 
-def render_state(b, workloads):
+def render_state(b, workloads, repeats_per_case=6):
     t = b["target"]
     MS.TARGETS.setdefault(t, {})
     if workloads:
         MS.TARGETS[t]["workloads"] = workloads
     if t not in MS.CASES and b["cases"]:
         MS.CASES[t] = list(b["cases"])
+    train_only = b["layout"].endswith("-train-only")
     if b["layout"] != "equal" and "workloads" not in MS.TARGETS[t]:
-        sys.exit("--workloads is required for a new target (one sentence, "
-                 "the study's form: 'three training cases (...) and ...')")
+        # a new target: one mechanical sentence from the case names
+        MS.TARGETS[t]["workloads"] = (
+            "%d training cases (%s)%s, %d runs each" % (
+                len(b["cases"]), ", ".join(b["cases"]),
+                "" if train_only else
+                " and the holdout cases of the same kinds",
+                repeats_per_case))
     if b["layout"] == "equal" and t != "hintbench":
         sys.exit("--equal-shares: the state text exists for hintbench only")
     s = MS.render_state(b)
@@ -324,6 +536,15 @@ def render_state(b, workloads):
                       "three cases of each set.",
                       "Training and holdout values are the equal-weight "
                       "means of the cases of each set.")
+    if len(b["cases"]) != 3:
+        s = s.replace("of the three cases of each set", "of the cases of "
+                      "each set").replace("reach in each of the three cases",
+                                          "reach in each case")
+    if train_only:
+        s = s.replace("The training numbers come from the training cases "
+                      "and the holdout numbers from the holdout cases.",
+                      "Only the training cases were recorded; the holdout "
+                      "columns are `-`.")
     return s
 
 
@@ -520,7 +741,13 @@ def write_marks(a, b, lines, folded, med, pvals, stats):
          "# `share` / `reach` in each comment: %s; a line's listed rows "
          "summed." % agg,
          "# Per line: the facts and why it is here. Details: %s."
-         % rel(a.report), ""]
+         % rel(a.report),
+         "# Produced by: scripts/target_marks.py %s" % a.argv_str,
+         "# Jev log: %s" % (stats["log"] if stats else
+                            "none (no gray-zone request was sent)"),
+         "# N: %d%s" % (a.n, "" if a.target in DEFAULTS else
+                        " (fallback for a target without frozen marks)"),
+         ""]
     rows_by_line = collections.defaultdict(list)
     for d in b["rows"]:
         rows_by_line[d["line"]].append(d)
@@ -650,7 +877,7 @@ def write_report(a, b, seed_lines, lines, folded, med, pvals, stats, mode):
     print("wrote", rel(a.report))
 
 
-def main():
+def main(argv=None):
     p = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -682,7 +909,11 @@ def main():
     g.add_argument("--seed-only", action="store_true")
     g.add_argument("--jev", action="store_true")
     p.add_argument("--json", help="also write the classified table here")
-    a = p.parse_args()
+    p.add_argument("--no-profile", action="store_true",
+                   help="never take a perf profile; stop if the tables are "
+                        "missing")
+    a = p.parse_args(argv)
+    a.argv_str = " ".join(sys.argv[1:] if argv is None else argv)
     t = a.target
     dfl = DEFAULTS.get(t, {})
     st = MS.TARGETS.get(t, {})
@@ -693,6 +924,18 @@ def main():
     if not a.equal_shares and not (a.perf_tsv_self and a.perf_tsv_inline):
         p.error("--perf-tsv-self and --perf-tsv-inline (or --equal-shares) "
                 "are required for %s" % t)
+    new_target = t not in DEFAULTS
+    if new_target:
+        # the automatic preparation's layout (decision 109): a
+        # training-only profile of the plugin-off baseline, per split file
+        md = os.path.join("artifacts", "%s-marks" % t)
+        a.perf_tsv_self = a.perf_tsv_self or os.path.join(
+            md, "perf-self-{split}.tsv")
+        a.perf_tsv_inline = a.perf_tsv_inline or os.path.join(
+            md, "perf-inline-{split}.tsv")
+        a.structure_tsv = a.structure_tsv or os.path.join(
+            md, "inline-structure.tsv")
+        a.binary = a.binary or base_binary(t)
     a.binary = a.binary or st.get("binary")
     if not a.binary:
         p.error("--binary is required for %s" % t)
@@ -700,21 +943,16 @@ def main():
         a.text_sha = st.get("text_sha")
     a.structure_tsv = a.structure_tsv or os.path.join(
         "artifacts", "jev-marks-study", "%s-inline-structure.tsv" % t)
-    if not os.path.isfile(ab(a.structure_tsv)):
-        p.error("no %s: run scripts/inline_structure.py --binary %s "
-                "--names-from <perf-self tsv> --top 300 --tsv %s first"
-                % (a.structure_tsv, a.binary, a.structure_tsv))
-    a.n = a.n or dfl.get("n")
-    if not a.n:
-        p.error("--n is required for %s" % t)
+    a.n = a.n or dfl.get("n") or DEFAULT_N_NEW
     a.out = a.out or os.path.join("targets", t, "jev-marks.jev.txt")
-    a.report = a.report or os.path.join("targets", t,
-                                        "jev-marks.jev.rationale.md")
+    a.report = a.report or re.sub(r"\.txt$", ".rationale.md", a.out)
     a.log_dir = a.log_dir or os.path.join("artifacts", "jev-marks", t)
     a.run_id = a.run_id or "tm-%s" % t
     if os.path.basename(a.out) == "jev-marks.txt":
         p.error("refusing to write the frozen jev-marks.txt; use "
                 "jev-marks.jev.txt")
+    if not a.equal_shares:
+        ensure_profile(a, run=(a.jev or a.seed_only) and not a.no_profile)
     mode = "jev" if a.jev else "seed-only" if a.seed_only else "dry-run"
 
     b = build_table(a)
@@ -761,7 +999,9 @@ def main():
     if a.jev and reqs:
         path = ask_gray(a, b, reqs)
         pv, stc = read_log(path, a.repeats)
-        stats = dict(stc)
+        stats = {k: stc.get(k, 0) for k in (
+            "requests", "attempts", "http_503", "max_body", "exhausted",
+            "billed_usd_e9", "list_usd_e9")}
         stats["log"] = rel(path)
         for d in gray:
             xs = pv.get(d["name"], [None] * a.repeats)

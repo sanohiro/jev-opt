@@ -1487,3 +1487,109 @@ reports`): the 6 `loop_in_mark` keys, their marks, hotness and the 12.5%
 shares match `artifacts/hintbench-sites/sites.json`; the capped set differs by
 design (the default rule keeps all 6, hintbench's frozen
 `selected_keys_loop_hint_kernels` keeps 4 by hint-under-test).
+
+## Marks: mechanical seed ∪ Jev gray zone (decision 109)
+
+`scripts/target_marks.py` (also `scripts/target_sites.sh marks`) chooses the
+marks of a target from the perf tables with no per-function judgement by
+anyone. It is preparation (it runs before `dump`), API only: nothing is
+built, timed or run. The inputs are the marks study's input set v2
+(`results.md` 176.7): `scripts/perf_hotness.py --inline` tables
+(`--perf-tsv-self`, `--perf-tsv-inline`; one table with `train-<case>` /
+`hold-<case>` columns, or per-split files with `{split}` in the path), the
+profiled binary (`nm`: own symbol, size) and `scripts/inline_structure.py`
+over that binary (`--structure-tsv`: instructions, backward jumps, hosts).
+
+The rule (owner, 2026-09-25; pre-registered in `results.md` 179):
+
+| class | rows | what happens |
+|---|---|---|
+| listed | reach >= 1% or self >= 1% in training or holdout, not C | the v2 table, alphabetical ids; it is the state Jev sees |
+| excluded | C / no IR, thunks (`insns` <= 8, `--thunk-insns`), below the 1% floor | never marked, never asked |
+| seed | top N by training reach ∪ top N by training self, ranked among listed rows that are neither excluded nor compiler-generated (`drop_glue` / `drop_in_place` / shims); alphabetical tie-break | always marked, no question |
+| covered | rows a seed line already matches (other instantiations, closures) | not asked |
+| gray | every other listed row | one Jev Choice {mark, skip}, the study's Q1 text on the whole v2 state, 3 repeats; marked if median P(mark) >= 0.5 |
+
+N defaults to the size of the frozen marks (jaq 15, zopfli 6, hintbench 8;
+`--marks-n` / `MARKS_N`); the final set may be larger (seed union + gray
+marks) and its size is recorded in the file header. A marks line is the
+row's name without its depth-0 `::<…>` groups when that still matches the
+row under the plugin's rule, else the full name; a line another selected
+line matches is folded into it.
+
+Modes: `--dry-run` (default; prints listed / seed / covered / gray /
+excluded, sends nothing, writes nothing), `--seed-only` (writes the seed),
+`--jev` (asks the gray zone, then writes). Output
+`targets/<t>/jev-marks.jev.txt` in the frozen files' format, with the
+`# share X%, reach Y%` comment directly above each line (what
+`shares_from_marks_file` reads; jaq: all six workloads, as the frozen file;
+otherwise the training set) and the facts and the reason for each line, and
+`targets/<t>/jev-marks.jev.rationale.md` (seed with ranks, gray answers with
+P per repeat and median, exclusions with reasons). The script refuses to
+write `jev-marks.txt`: the frozen marks stay what the existing comparisons
+used, and `target_sites.sh dump` keeps reading `targets/$TARGET/jev-marks.txt`
+unless `MARKS=<…>/jev-marks.jev.txt` is exported. Requests / responses are
+logged by `JevClient` in `artifacts/jev-marks/<t>/tm-<t>.{jsonl,log}`;
+`--resume` reuses the landed requests of an existing log. A new target
+needs its structure table first:
+`scripts/inline_structure.py --binary <profiled binary> --names-from
+<perf-self tsv> --top 300 --tsv <structure tsv>`, and a `--workloads`
+sentence for the state.
+
+```bash
+export TARGET=zopfli
+scripts/target_sites.sh marks                 # dry run: the lists only
+MARKS_JEV=1 scripts/target_sites.sh marks     # ask Jev, write the .jev files
+```
+
+### The driver's default marks
+
+`scripts/jev_search.py --marks` is optional. Resolution order:
+
+1. an explicit `--marks FILE` (every recorded command on the frozen targets
+   keeps its explicit `--marks`; the default applies to new runs);
+2. else the newest generated file of the target,
+   `targets/<t>/jev-marks.jev.txt` or `jev-marks.jev.vN.txt`;
+3. else it is generated **once** by `target_marks.py --jev` (seed ∪ Jev gray
+   zone) before the run starts. The marks file, its rationale and the request
+   JSONL are written and from then on are frozen inputs: the driver never
+   regenerates silently.
+
+`--marks-regenerate` forces a new generation into the next versioned file
+(`jev-marks.jev.v2.txt`, `…v3…`, log run id `tm-<t>-v2`), so earlier
+comparisons keep their file; `--marks-n` passes N. `--dry-run` and
+`--print-state` never generate (they stop with a message instead). A
+`--resume` without `--marks` keeps the marks file its `run-manifest.json`
+recorded. `run-manifest.json` records `marks`, `marks_sha256` and
+`marks_provenance`: `how` (`explicit` / `existing generated` / `generated
+now`), the file, its version and sha256, the rationale and the Jev log path
+(read from the marks file header's `# Produced by:` / `# Jev log:` lines).
+
+### Missing perf profile: taken automatically (preparation)
+
+When a target's tables are missing (the defaults for a target without a
+study entry are `artifacts/<t>-marks/perf-{self,inline}-{split}.tsv` and
+`artifacts/<t>-marks/inline-structure.tsv`), `target_marks.py --jev` /
+`--seed-only` (and therefore the driver's generation step) takes them:
+
+1. **busy check** --- refuse if any `bench.py` / `jev_search` / `cargo`
+   other than the process itself and its parents is running (`pgrep -af
+   '[b]ench.py|[j]ev_search|[c]argo'`, read-only). Never profile during a
+   timing or a build.
+2. **perf present** --- `scripts/perf_local.sh path` must name a perf that
+   runs; otherwise exit with "run `scripts/perf_local.sh setup` first". This
+   is the only error case.
+3. the plugin-off baseline binary `target-<t>-sites-base/…` (built with
+   `scripts/target_sites.sh base` if it is not there);
+4. `SETS=training BIN=<baseline bin> scripts/perf_marks_profile.sh
+   artifacts/<t>-marks 6` (the search-training cases only), then
+   `perf_hotness.py --binary <bin> --inline --tsv …-train.tsv --inline-tsv
+   …-train.tsv artifacts/<t>-marks/train-*.data` and `inline_structure.py
+   --binary <bin> --names-from perf-self-train.tsv --top 300`.
+
+Each command and its wall clock are printed. With a training-only profile
+the state's holdout columns are `-` and say so. For a target without frozen
+marks N falls back to 8 (recorded in the header as `# N:`). **Not exercised
+yet**: jaq, zopfli and hintbench have their tables on disk; the logic is
+unit-tested with stubs (`python3 scripts/test_target_marks.py`, results.md
+179).

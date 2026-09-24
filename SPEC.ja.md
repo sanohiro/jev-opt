@@ -1,12 +1,13 @@
 # jev-opt 実装仕様(v0.5、日本語正本)— マークした関数を Jev がヒントで速くする
 
-実験の問いは **「人または Claude がマークした関数を、Jev がヒントで最大限速くできるか」** の一点である。v0.3(ループヒントのグローバル掃引)と v0.4(PGO 訓練データ選定・FP 再結合)は git 履歴(`git show c58545d:SPEC.ja.md` が v0.4、その中の参照 `3a41f49` が v0.3)と `docs/decisions.ja.md` に残っており、否定結果と経緯はそちらを参照する。v0.5 は決定 58 の 4 項目にそのまま戻したもので、それ以外は仕様から落とす。本文は決定 66〜106 を反映済み(語彙 v5、state v5.0/v5.1、読み出し規則、採用規則、探索と再訪、ベクトル化後事実、503 方針、k5 の計測モード、反復による機能別評価、hintbench の実測、対象の順序、argv[0] 長の固定、語彙 v6、zopfli の訓練分割、zopfli の実測、no-op 指標、小さく検証、protocol v2、MDE v2 とその確定)。決定 60・62・75〜78 は実装状況として参照する。決定事項の一覧表はこの仕様には置かず `docs/decisions.ja.md` を正本とする。方針は 4 つ: **速さは追求する / 作りはシンプルにする / 判断は Jev に任せる / わかりやすくする。** 最適化は対象のソースを書き換えずに行う。本文中の主張は **実測 / 仮説(ソース確認のみ)/ 未測定** を明示する。
+実験の問いは **「人または Claude がマークした関数を、Jev がヒントで最大限速くできるか」** の一点である。v0.3(ループヒントのグローバル掃引)と v0.4(PGO 訓練データ選定・FP 再結合)は git 履歴(`git show c58545d:SPEC.ja.md` が v0.4、その中の参照 `3a41f49` が v0.3)と `docs/decisions.ja.md` に残っており、否定結果と経緯はそちらを参照する。v0.5 は決定 58 の 4 項目にそのまま戻したもので、それ以外は仕様から落とす。本文は決定 66〜109 を反映済み(語彙 v5、state v5.0/v5.1、読み出し規則、採用規則、探索と再訪、ベクトル化後事実、503 方針、k5 の計測モード、反復による機能別評価、hintbench の実測、対象の順序、argv[0] 長の固定、語彙 v6、zopfli の訓練分割、zopfli の実測、no-op 指標、小さく検証、protocol v2、MDE v2 とその確定、マーク選定の規則。決定 107・108 は API のみの study で、仕様には 108 の結論(Jev は機械規則と同点)と 109 の規則だけを入れる)。決定 60・62・75〜78 は実装状況として参照する。決定事項の一覧表はこの仕様には置かず `docs/decisions.ja.md` を正本とする。方針は 4 つ: **速さは追求する / 作りはシンプルにする / 判断は Jev に任せる / わかりやすくする。** 最適化は対象のソースを書き換えずに行う。本文中の主張は **実測 / 仮説(ソース確認のみ)/ 未測定** を明示する。
 
 ## 1. 一枚で分かる
 
-### (1) マーク: 速くしたい関数を人または Claude が指定する
+### (1) マーク: 速くしたい関数を指定する(既定は規則の種 + 灰色帯 Jev、人や Claude が指定してもよい)
 
-- perf の上位を見て、速くしたい関数を選ぶ。**方法は問わない**(人が読んで決めてもよい)。**ビルドの工程には組み込まない。** Claude は人間の代理人であってシステムの部品ではない。
+- **既定の手順(決定 109)**: `scripts/target_marks.py` が perf の表から機械的に選ぶ。**種** = 訓練 reach の上位 N ∪ 訓練 self の上位 N(C・サンク・コンパイラ生成を除いた中で。問わずにマーク)。**灰色帯** = reach か self が 1% 以上の残りの関数で、Jev に mark / skip の Choice を 3 回聞き中央値 P ≥ 0.5 でマーク。除外 = IR 無し / C、サンク(≤ 8 命令)、1% 未満。N は凍結マークの本数(jaq 15、zopfli 6、hintbench 8。`--marks-n`)で、最終集合は N を超えてよい。出力は `jev-marks.jev.txt` と根拠 `jev-marks.jev.rationale.md`。driver は `--marks` が無ければ最新の生成済みファイルを使い、無ければ 1 回だけ生成する(perf の表が無ければ準備として取る)。凍結済みの `jev-marks.txt` は既存の比較のために残し、置き換えは対象ごとにオーナーが決める。API での検証は `results.md` §179(jaq は 34 行で正解 2/2、zopfli は 14 行)。
+- 人または Claude が直接指定してもよい: perf の上位を見て、速くしたい関数を選ぶ。**方法は問わない**(人が読んで決めてもよい)。**ビルドの工程には組み込まない。** Claude は人間の代理人であってシステムの部品ではない。Jev だけにマークを選ばせる形は決定 108 で「機械規則と同点、上回らない」と分かっており、既定にはしない。
 - 形は 2 つ、どちらでも受ける。(a) `jev-marks.txt` — 1 行 1 関数、Rust のパス名(`jaq_core::interpret::run`)。(b) 対象ソース中の `#[jev_opt::optimize]` 属性 — CLI がソースを走査してマークに変換する。
 - **解決は CLI 側で行う**(plugin は Rust のパス名を知らない)。`dump` は**全関数**の表と**全ループ**を出し、CLI が `rustc-demangle` で demangle してマークに一致するものだけを site に残す。generic は全単相化にマッチさせる。解決件数 0 の行はエラーで止める。
 
@@ -225,7 +226,7 @@ jev_log_dir = "…"
 |---|---|
 | `jev-opt doctor` | toolchain 記録(解決後の `rustc -vV`)、`llvm-tools-preview` と `llvm-profdata` の LLVM メジャー一致、`llvm-knobs.json` 生成、テキスト remark の取得確認、**`perf` の有無**(無ければ代替を提示)、Jev 疎通、gate 0 と `-Zllvm-plugins` probe(**codegen を伴う emit** で行う) |
 | `jev-opt baseline` | 合成ワークロードで PGO を訓練 → `llvm-profdata merge` → 基準ビルド → A/A → ノイズフロアと MDE を凍結する。`merged.profdata` はここで作った 1 本を以降すべてで共有する |
-| `jev-opt mark` | perf(または代替)の上位を関数単位で表示し、人が選ぶのを助ける。`jev-marks.txt` の雛形を書く。Claude が書く場合も同じ形式。**ビルドの工程ではない** |
+| `jev-opt mark` | 既定は決定 109 の規則(`scripts/target_marks.py`: 種 = reach 上位 ∪ self 上位、灰色帯だけ Jev)で `jev-marks.jev.txt` を書く。人や Claude が選ぶ場合は perf(または代替)の上位を関数単位で表示して助け、同じ形式の `jev-marks.txt` を書く。**ビルドの工程ではない** |
 | `jev-opt search` | ラウンドを回す。`dump` → 提案 → plan → ビルド → 測定 → 結果を state へ、を `rounds` 回。`--proposer jev\|random\|oracle` でアームを切り替える。最良 plan と全ラウンドのログを残す |
 | `jev-opt bench` | 最良 plan / 基準 / oracle / random を holdout で交互実行、シャッフル、bootstrap、in-sweep null パネル、帰属 diff、`results.md` 生成 |
 
@@ -256,7 +257,7 @@ cargo への組み込みは「CLI が環境変数を組んで `cargo build --rel
 
 ## 10. スコープ外
 
-以下は本実験の主題ではない。別テーマとして扱い、成功と混同しない。**PGO の訓練ワークロードを選ぶこと**(経緯と数値は `docs/decisions.ja.md` 38・43〜55、`results.md` §62〜§69。v0.5 では合成ワークロードでの PGO を準備として固定する)、**浮動小数点の再結合を許す判断**(`decisions.ja.md` 40〜42・56。v0.5 は全アームで再結合を封鎖する側に固定)、**効果の出る対象を探して回ること**(`decisions.ja.md` 57・58。対象は hintbench → jaq に固定する。決定 72)、**v0.3 のヒント 5 ファミリーのグローバル掃引**(4 対象すべてフラットだった。`decisions.ja.md` 12〜14・21〜24・29〜31・37、`results.md` §12〜§61)、**語彙から外したヒント** — `inline`(inlinehint)と `cold` はこのレシピの下で inliner に対して不活性、`hot` はそもそも inliner の入力ではなく Rust の表層構文も無い(決定 77、`docs/experiments/hintbench/inline-attrs-under-pgo.md` §7。plugin は v1 / v2 の再現用に受理を残すだけ)。**callsite 文字列属性 `function-inline-threshold` / `function-inline-cost`**(クラス B・C・D で閾値を外から動かせる唯一の経路だが、plugin は関数を marking する設計なので、将来の site 種別の話であって語彙の話ではない)、意味変換(HashMap を線形探索に変える等)、パス挿入(unswitch / fusion / interchange)、AVX-512 幅選択(この機に無い)、PGO を使わない静的 Jev(全ループに問い合わせる方式は費用と待ち時間が成立しない)、他言語への展開、**Claude を参照点にする評価**(決定 69 の「Claude の判断との一致率」を主指標にする設計。hintbench の oracle で Claude が 8 問中 1 問だったので**決定 86 で補助に降格**した。Claude は準備工程(マーク、期待の事前登録)には残すが、正解の代理にはしない)。
+以下は本実験の主題ではない。別テーマとして扱い、成功と混同しない。**PGO の訓練ワークロードを選ぶこと**(経緯と数値は `docs/decisions.ja.md` 38・43〜55、`results.md` §62〜§69。v0.5 では合成ワークロードでの PGO を準備として固定する)、**浮動小数点の再結合を許す判断**(`decisions.ja.md` 40〜42・56。v0.5 は全アームで再結合を封鎖する側に固定)、**効果の出る対象を探して回ること**(`decisions.ja.md` 57・58。対象は hintbench → jaq に固定する。決定 72)、**v0.3 のヒント 5 ファミリーのグローバル掃引**(4 対象すべてフラットだった。`decisions.ja.md` 12〜14・21〜24・29〜31・37、`results.md` §12〜§61)、**語彙から外したヒント** — `inline`(inlinehint)と `cold` はこのレシピの下で inliner に対して不活性、`hot` はそもそも inliner の入力ではなく Rust の表層構文も無い(決定 77、`docs/experiments/hintbench/inline-attrs-under-pgo.md` §7。plugin は v1 / v2 の再現用に受理を残すだけ)。**callsite 文字列属性 `function-inline-threshold` / `function-inline-cost`**(クラス B・C・D で閾値を外から動かせる唯一の経路だが、plugin は関数を marking する設計なので、将来の site 種別の話であって語彙の話ではない)、意味変換(HashMap を線形探索に変える等)、パス挿入(unswitch / fusion / interchange)、AVX-512 幅選択(この機に無い)、PGO を使わない静的 Jev(全ループに問い合わせる方式は費用と待ち時間が成立しない)、他言語への展開、**Claude を参照点にする評価**(決定 69 の「Claude の判断との一致率」を主指標にする設計。hintbench の oracle で Claude が 8 問中 1 問だったので**決定 86 で補助に降格**した。Claude は準備工程(マーク、期待の事前登録)には残すが、正解の代理にはしない。マークの既定は決定 109 の規則で、Claude の手は要らない)。
 
 ## 言語方針
 

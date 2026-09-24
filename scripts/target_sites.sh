@@ -37,12 +37,21 @@
 #             two builds are normalised-code identical. baseline.json also
 #             records the plugin-off build's hashes and that verdict.
 #   all       base, dump, allkeys, sites, baseline.
+#   marks     scripts/target_marks.py (decision 109): the marks by rule, seed
+#             (top N reach ∪ top N self) ∪ Jev gray zone, from the perf and
+#             structure tables already on disk. No build, no run. Dry run by
+#             default (lists only); MARKS_JEV=1 asks Jev and writes
+#             targets/$TARGET/jev-marks.jev.txt + jev-marks.jev.rationale.md;
+#             MARKS_SEED_ONLY=1 writes the seed without asking. Never writes
+#             jev-marks.txt: `dump` keeps reading $MARKS (the frozen file)
+#             unless MARKS=<path to the .jev.txt> is exported. Allowed for
+#             jaq and hintbench too (it touches no site set).
 #
 # No timing of any kind is run here.
 #
 # Usage:
 #   export TARGET=zopfli          # `export`, not a temporary assignment (decision 31)
-#   scripts/target_sites.sh flags|base|dump|allkeys|sites|baseline|all
+#   scripts/target_sites.sh flags|base|dump|allkeys|sites|baseline|all|marks
 #
 # Environment:
 #   TARGET          required, exported. jaq and hintbench are refused unless
@@ -60,10 +69,34 @@
 #                   report falls back to v5 with a note if v6 is undefined).
 #   OUT             artifacts dir (default artifacts/$TARGET-sites).
 #   SITES_JSON/SITES_MD  outputs (default targets/$TARGET/sites.{json,md}).
+#   MARKS           the marks file (default targets/$TARGET/jev-marks.txt; export
+#                   it as targets/$TARGET/jev-marks.jev.txt to use the generated one).
+#   marks only: MARKS_JEV, MARKS_SEED_ONLY, MARKS_N (N, default per target),
+#                   MARKS_PERF_SELF / MARKS_PERF_INLINE (perf_hotness.py
+#                   tables; `{split}` for per-split files), MARKS_BINARY,
+#                   MARKS_STRUCTURE (inline_structure.py table),
+#                   MARKS_WORKLOADS (state sentence, new targets),
+#                   MARKS_ARGS (extra arguments, word-split).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${TARGET:?export TARGET=<target> first (decision 31)}"
+if [ "${1:-}" = marks ]; then
+  # API / read-only: dispatched before the frozen-site-set refusal and
+  # before target_common.sh (nothing here builds).
+  margs=(--target "$TARGET")
+  [ -n "${MARKS_N:-}" ] && margs+=(--n "$MARKS_N")
+  [ -n "${MARKS_PERF_SELF:-}" ] && margs+=(--perf-tsv-self "$MARKS_PERF_SELF")
+  [ -n "${MARKS_PERF_INLINE:-}" ] && margs+=(--perf-tsv-inline "$MARKS_PERF_INLINE")
+  [ -n "${MARKS_BINARY:-}" ] && margs+=(--binary "$MARKS_BINARY")
+  [ -n "${MARKS_STRUCTURE:-}" ] && margs+=(--structure-tsv "$MARKS_STRUCTURE")
+  [ -n "${MARKS_WORKLOADS:-}" ] && margs+=(--workloads "$MARKS_WORKLOADS")
+  if [ "${MARKS_JEV:-0}" = 1 ]; then margs+=(--jev)
+  elif [ "${MARKS_SEED_ONLY:-0}" = 1 ]; then margs+=(--seed-only)
+  else margs+=(--dry-run); fi
+  # shellcheck disable=SC2086
+  exec python3 "$REPO/scripts/target_marks.py" "${margs[@]}" ${MARKS_ARGS:-}
+fi
 case "$TARGET" in
   jaq|hintbench)
     if [ "${ALLOW_EXISTING:-0}" != 1 ]; then
@@ -76,7 +109,7 @@ export TARGET
 source "$REPO/scripts/target_common.sh"
 
 PLUGIN="$REPO/plugin/build/libjevplugin.so"
-MARKS="$REPO/targets/$TARGET/jev-marks.txt"
+MARKS="${MARKS:-$REPO/targets/$TARGET/jev-marks.txt}"
 OUT="${OUT:-$REPO/artifacts/$TARGET-sites}"
 SITES_JSON="${SITES_JSON:-$REPO/targets/$TARGET/sites.json}"
 SITES_MD="${SITES_MD:-$REPO/targets/$TARGET/sites.md}"
@@ -283,5 +316,5 @@ case "${1:-}" in
   sites)    do_sites ;;
   baseline) do_baseline ;;
   all)      do_base; do_dump; do_allkeys; do_sites; do_baseline ;;
-  *) echo "usage: TARGET=<t> $0 flags|base|dump|allkeys|sites|baseline|all" >&2; exit 2 ;;
+  *) echo "usage: TARGET=<t> $0 flags|base|dump|allkeys|sites|baseline|all|marks" >&2; exit 2 ;;
 esac

@@ -15263,3 +15263,117 @@ line), oracle-positive coverage (jaq `Val::hash`, `write_until`; zopfli
 `lz77_optimal`, separately `find_longest_match_loop`; hintbench k2 / k3 /
 k8), the lines Claude did not mark with their facts, requests / HTTP 503 /
 cost. Deviations will be recorded as 179.2 before any request they affect.
+
+#### 179.2 Results
+
+Sent 2026-09-25 03:42-03:54 JST (last response), sequentially (zopfli, then jaq; hintbench
+sent nothing), one sender, no other process running. Commands:
+
+```
+scripts/target_marks.py --target <t> --dry-run                     # 179.1 table
+scripts/target_marks.py --target <t> --jev --json artifacts/jev-marks/<t>-table.json
+scripts/target_marks.py --target <t> --jev --resume --json artifacts/jev-marks/<t>-table.json   # see deviation
+```
+
+**Deviation (no effect on what was sent).** The first `--jev` pass crashed
+*after* its requests had landed and the marks file was written, while
+writing the rationale (a `KeyError` on the request counter: zopfli and jaq;
+hintbench, with no requests, completed). Fixed in the script, then all three
+were re-run with `--resume`, which reuses every landed request of the log
+and sends nothing (console: `landed earlier` for all 3 / 6 requests). The
+marks files and rationales committed are those of the `--resume` pass; the
+`# Produced by:` header line says so.
+
+| target | seed lines | gray questions | gray marked (median P >= 0.5) | final lines | N | frozen marks covered | oracle positives |
+|---|--:|--:|--:|--:|--:|--:|---|
+| jaq | 26 (27 rows) | 85 | 8 | **34** | 15 | **15 / 15** | `Val::hash` yes (seed, self rank 13), `write_until` yes (seed, reach rank 10): **2/2** |
+| zopfli | 10 | 14 | 4 | **14** | 6 | **6 / 6** | `lz77_optimal` yes (seed), `find_longest_match_loop` yes (seed) |
+| hintbench | 8 | 0 | - | **8** | 8 | 8 / 8 | k2 / k3 / k8 yes (seed; no question) |
+
+**Gray-zone answers** (P(mark) per repeat; full tables in
+`targets/<t>/jev-marks.jev.rationale.md`). No median was exactly 0.50, so
+">= 0.5" and the study's "> 0.5" give the same sets; every question was
+answered in all 3 repeats.
+
+* zopfli, marked: `ZopfliLongestMatchCache::try_get` 0.96 0.96 0.95,
+  `find_longest_match` 0.87 0.89 0.91 (the frozen mark the seed missed,
+  reach rank 7), `ZopfliLongestMatchCache::fetch_sublen` 0.51 0.60 0.68,
+  `get_cost_stat` 0.52 0.53 0.57. Next below: `max_sublen` 0.44,
+  `Lz77Store::append_store_item` 0.43. Per-repeat sets identical (4 / 4 / 4).
+* jaq, marked: `read::parse_num` 0.88-0.90, `FromFn<fold…>::next` 0.61-0.67,
+  `num_string_with` 0.61-0.65, `<Val as ValT>::index` 0.55-0.66,
+  `Val::index_opt` 0.61-0.66, `IndexMapCore::push_entry` 0.50-0.57,
+  `RawTableInner::reserve_rehash_inner` 0.46-0.55, `Path<Result>::combinations`
+  0.49-0.56. Next below: `jaq_json::funs::base::{closure#3}` 0.47,
+  `BufWriter::write_fmt` 0.45, `drop_glue::<Val>` 0.45. Per-repeat sets 7 / 7
+  / 8 (union 8, intersection 6): the last three marked rows straddle 0.5.
+  The compiler-generated rows (10 `drop_glue` / `drop_in_place`) are all
+  below 0.5 here (v2 Q1 had marked a `drop_glue`, 177.1).
+
+**Lines Claude did not mark** (facts: training reach / self, insns / backward
+jumps, own symbol):
+
+* jaq, from the seed (11): `<&isize as Display>::fmt` (self rank 15; 1.03 /
+  1.03%, 222 / 17, own), `<&str as Display>::fmt` (self 12; 1.25 / 1.25%, 480
+  / 25, own), `BufWriter::write_all` (reach 5.17%, self 0, 226 / 3, own),
+  `Copied<Iter<u8>>::position` and `::try_fold` and `Iter<u8>::try_fold` (the
+  iterator adapters under the lexer, reach 5.62% each, 43 / 2, no own symbol;
+  one line each after stripping, their 80-insn second instantiations
+  covered), `FlatMap<…>::next` (self 10; 1.59 / 1.59%, 434 / 18, own),
+  `IndexMap::insert` (reach 8.16%, 284 / 10, no own symbol),
+  `IndexMap::insert_full` (8.16%, 234 / 10, own), `IndexMapCore::insert_full`
+  (6.19%, 205 / 9), `read::parse_string` (reach 7.65%, 715 / 46, own). From
+  the gray zone (8): the eight rows above (reach 0.99-3.24%, self 0 except
+  `FromFn` and `combinations` at ~1%, 76-1052 insns, 5-35 backward jumps).
+* zopfli, from the seed (5): `Cache::store` (self rank 5; 1.10 / 1.10%, 127
+  / 4), `HashThing::update` (reach 11.62%, 348 / 15, no own symbol; the
+  plugin reported it `unmatched` when Claude's rule picked it, so `dump`'s
+  existence gate would remove it again), `katajainen::Thing::boundary_pm`
+  (self 4; 1.62%, 123 / 6), `Lz77Store::follow_path` (self 3; 9.61%, 921 /
+  56), `Lz77Store::lit_len_dist` (self 6; train self 0.62%, reach 0.99%,
+  listed by its holdout reach; 790 / 40). From the gray zone (3): `try_get`
+  (reach 11.01%, 705 / 32, own), `fetch_sublen` (6.53%, 547 / 27),
+  `get_cost_stat` (4.41%, 191 / 3, own).
+* hintbench: none (the row list is the frozen marks, 179.1).
+
+**Against the expectations of 179.1**: (1) jaq covers both positives through
+the seed and all 15 frozen marks; 34 lines, inside the 30-40 expected. (2)
+zopfli covers `lz77_optimal` and all 6 frozen marks; `find_longest_match`
+came in through the gray zone (P 0.87-0.91). (3) hintbench: seed 8, gray 0,
+no request, as corrected in 179.1; the "k2 rescued in the gray zone"
+expectation does not apply to the adopted rule.
+
+**What the rule costs in marks.** The final sets are 2.3x (jaq, 34 vs 15)
+and 2.3x (zopfli, 14 vs 6) the frozen sizes; the seed alone is already 1.7x
+on both (26, 10), because top-N reach and top-N self overlap little on these
+tables (jaq: 3 functions in both lists of 15). The oracle's build count grows
+with the marks (SPEC.ja.md 2: Σ sites x candidates + 1), so a site cap
+(`SITE_CAP_RULE`) matters more with these files than with the frozen ones.
+Whether a `.jev.txt` replaces a frozen file is the owner's call per target,
+in a new registration; nothing measured so far used these files.
+
+**Requests, gateway, cost** (`artifacts/jev-marks/<t>/tm-<t>.jsonl`):
+
+| target | requests | questions | HTTP attempts | HTTP 503 | exhausted | max body | billed | list price |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| zopfli | 3 | 42 | 4 | 1 | 0 | 15 784 B | $0 | $0.0007 |
+| jaq | 6 | 255 | 201 | 195 | 0 | 59 863 B | $0 | $0.0057 |
+| hintbench | 0 | 0 | 0 | 0 | 0 | - | $0 | $0 |
+
+**Driver integration (owner's additions, 2026-09-25, during this check).**
+`scripts/jev_search.py --marks` is now optional: explicit file -> the newest
+generated `jev-marks.jev[.vN].txt` -> generate once via `target_marks.py`;
+`--marks-regenerate` writes the next versioned file; `run-manifest.json`
+records `marks_provenance` (how, file, sha256, rationale, Jev log). When a
+target's perf / structure tables are missing, `target_marks.py --jev` (and so
+the driver's generation) takes them: busy check, perf present or "run
+`scripts/perf_local.sh setup` first", plugin-off baseline, `SETS=training
+perf_marks_profile.sh`, `perf_hotness.py --inline`, `inline_structure.py`.
+**The auto-profile path is implemented but not exercised: no profile was
+taken in this session** (all three targets have their tables); it and the
+resolution order are covered by 15 unit tests with stubs
+(`python3 scripts/test_target_marks.py`: 15 passed). The resolution was also
+checked read-only on zopfli (no `--marks` -> `existing generated`
+`targets/zopfli/jev-marks.jev.txt`, Jev log path read from its header;
+explicit `--marks targets/zopfli/jev-marks.txt` -> `explicit`). No search was
+run.

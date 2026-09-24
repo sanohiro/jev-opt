@@ -5368,6 +5368,9 @@ class Search:
             "config": self.cfg["_path"], "config_sha256": self.cfg["_sha256"],
             "marks": os.path.abspath(self.args.marks),
             "marks_sha256": sha256_file(self.args.marks),
+            # Decision 109: explicit / existing generated / generated now,
+            # with the rationale and the Jev log of a generated file.
+            "marks_provenance": getattr(self.args, "marks_provenance", None),
             "sites": os.path.abspath(self.args.sites) if self.args.sites else None,
             "plugin_sha256": sha256_file(PLUGIN),
             "profdata_sha256": sha256_file(self.shell["profdata"]),
@@ -5563,12 +5566,39 @@ def sha256_file(path):
 # CLI
 # ---------------------------------------------------------------------------
 
+def resolve_marks_arg(args):
+    """Decision 109: explicit --marks -> the newest generated marks file of
+    the target -> generate one (once) with scripts/target_marks.py. A
+    --resume keeps the marks file its run-manifest recorded."""
+    import target_marks as TM
+    if args.resume and not args.marks and not args.marks_regenerate:
+        mp = os.path.join(args.out or "", "run-manifest.json")
+        if args.out and os.path.isfile(mp):
+            prev = json.load(open(mp)).get("marks")
+            if prev and os.path.isfile(prev):
+                return TM.resolve_marks(args.target, explicit=prev)
+    return TM.resolve_marks(
+        args.target, explicit=args.marks, regenerate=args.marks_regenerate,
+        marks_n=args.marks_n,
+        allow_generate=not (args.dry_run or args.print_state))
+
+
 def main():
     p = argparse.ArgumentParser(
         description="jev-opt hint search (SPEC.ja.md 1(3), decision 62)")
     p.add_argument("--target", required=True,
                    help="a TARGET scripts/target_common.sh knows")
-    p.add_argument("--marks", required=True, help="jev-marks.txt")
+    p.add_argument("--marks", default=None,
+                   help="the marks file. Optional (decision 109): without "
+                        "it the newest targets/<t>/jev-marks.jev[.vN].txt is "
+                        "used, and if there is none it is generated once by "
+                        "scripts/target_marks.py (seed ∪ Jev gray zone). "
+                        "Frozen targets keep their explicit --marks")
+    p.add_argument("--marks-regenerate", action="store_true",
+                   help="generate a new marks file into the next versioned "
+                        "name (jev-marks.jev.v2.txt, ...); never rewrites one")
+    p.add_argument("--marks-n", type=int, default=None,
+                   help="N for a generated marks file (target_marks.py --n)")
     p.add_argument("--sites", default=None,
                    help="optional sites.json with profile shares and caps")
     p.add_argument("--proposer", required=True,
@@ -5767,6 +5797,7 @@ def main():
                    help="measure a round even if a plan entry was unmatched "
                         "or vanished (recorded either way)")
     args = p.parse_args()
+    args.marks, args.marks_provenance = resolve_marks_arg(args)
 
     cfg = load_config(args.config)
     if args.proposer == "oracle" and args.rounds:
