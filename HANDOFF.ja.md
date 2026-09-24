@@ -167,6 +167,6 @@ Claude Code の記憶ディレクトリ `~/.claude/projects/-home-hiro/memory/` 
 
 1. `git log --oneline | head -20`、`tail -150 docs/decisions.ja.md`、`results.md` の末尾 2 節を読む。
 2. §3.3 の進行中 2 件は完了済み(jaq 関数属性 oracle v4 は決定 91・`results.md`「Oracle A2 (jaq)」、hintbench 探索付き Jev は Exp5 決定 92 と Exp6 決定 93〜95、`docs/experiments/hintbench/exp5.md`・`exp6.md`)。新たに「進行中」を残した作業があれば、終わり次第ここと決定ログと §3.4 に追記する。
-3. §4 の表の次の行(3a 探索の適格条件の見直し → 3e jaq / zopfli の 2 クラス A/A 確認 → 3d `inline(never)` の site 落ちの理解 → jaq ループ oracle → zopfli)を、オーナーの承認を得て進める。
+3. §4 の表で未着手なのは 3a(探索の適格条件の見直し)、3d(`inline(never)` の site 落ちの理解)、jaq ループ oracle。3e と zopfli(行 6)は済(決定 99〜101)。いずれもオーナーの承認を得て進める。
 4. **オーナー判断待ち**: 記事の主対象(§4 の行 7)、`cache.rs:108` を足した zopfli の追加 site-set(Stage 0 の唯一のレバー。上限規則で今回の 5 site から漏れた。同じ 6 マークの上で、新しい事前登録として)、再訪の適格条件(3a)。zopfli の oracle と Jev vs ランダムは済んだ(決定 100・101、`results.md` §168・§169)。判断が出るまで、新しい計測は始めない。
 5. 何かを「やらない」と決めたら、その理由を決定ログに書く。
