@@ -14590,3 +14590,34 @@ a KEEP-first wording or the two-step ask, **but only by losing the function
 truths** (k2, `write_until`). No variant passes both bars; nothing is
 proposed for freezing. Under B0 the per-round speed gate remains what stops
 the residual false positives (decision 101).
+
+#### 174.5 Addendum (same session, before hand-off): three pre-registered items and one correction
+
+* **Correction to 174.2**: L10 is listed among the variants that pass the fn
+  bar and, in the same parenthesis, as failing jaq (10 < 13). It **fails**
+  the fn bar (jaq hits 10 [9, 10] < B0's 13). The passing set is L6, L11,
+  L12, L13 (and L1-L5 by construction).
+* **(a) P on the good set at k3** (`unroll_count_2` + `unroll_count_4`,
+  the only site where it differs from P(best)): B0 0.30 [0.27, 0.33]; L13
+  0.35 [0.34, 0.39] (disjoint from B0, so it *moves* by the 173.5 rule), L5
+  0.35 [0.31, 0.35], L11 0.32 [0.28, 0.33], L3 0.30, L4 0.29, H2 0.29, L10 /
+  L12 / H1 0.25, L1 0.18, L6 0.17, L2 0.15, H3 0.05, L8 0.01. The argmax at
+  k3 stays `KEEP_DEFAULT` in every repeat of every Choice variant, so no
+  finding changes.
+* **(b) no-op-equivalent hits** equal the strict hits for every Choice
+  variant on every target (no Choice argmax ever landed on an arm the oracle
+  built identical to the baseline); they differ only for L7 Score (zopfli
+  loops 2-3/5 vs 0-1/5, jaq 12 vs 11, hintbench fn 6 vs 5-6).
+* **Score framing is worse on (c), not only on (a)**: L7 is the only framing
+  with harmful argmax picks on loops (hintbench 1 [1, 2]/4, zopfli
+  0 [0, 1]/2); every Choice variant has 0 there except the single-repeat
+  flips of L1/L2/L10/L11/L13 on hintbench (0 [0, 1]/4).
+* **Deviation 173.7(4) did not move the jaq baseline**: the three
+  *unbatched* jaq B0.A requests that landed before it (the smoke request and
+  one in each aborted run; not scored) give the same argmax as batched B0
+  repeat 1 at **15/15** sites each, max |ΔP| 0.12-0.15, `write_until
+  inline_always` P 0.70-0.78 (batched 0.77), `Val::hash` KEEP with
+  P(`inline_always`) 0.13-0.15 (batched 0.11).
+* `truth.json` still lists jaq `read::parse` `align_64` as harmful (an
+  Oracle A2 v4 arm). v6 has no `align_*` candidates, so it never receives
+  probability and does not enter any number above.
