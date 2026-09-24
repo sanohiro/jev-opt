@@ -1,0 +1,131 @@
+{
+ "run_id": "zopfli-jev-r0",
+ "target": "zopfli",
+ "proposer": "jev",
+ "oracle_phase": null,
+ "ts": "2026-09-24T07:34:42.198203+09:00",
+ "smoke": false,
+ "vocab_version": "v6-2026-09-23",
+ "state_format": "state-v6.0-2026-09-23",
+ "source_comments": "strip",
+ "readout": "forced_top1",
+ "explore": 2,
+ "exploration": {
+  "k": 2,
+  "revisit": 0,
+  "max_visits": 2,
+  "revisit_text": null,
+  "pv_untried": "off"
+ },
+ "platform_block": "/home/hiro/prj/jev-optimize/artifacts/zopfli-search/zopfli-jev-r0/platform.json",
+ "config": "/home/hiro/prj/jev-optimize/jev-opt.toml",
+ "config_sha256": "25274b5b61eff4e71e504a769e85b5be6d7ebbef8c1570aae890be592acbab64",
+ "marks": "/home/hiro/prj/jev-optimize/targets/zopfli/jev-marks.txt",
+ "marks_sha256": "5bfd79adddc6fbe70081a873fcde97515007629d4c94ca133ebb5f3a2cbc77bd",
+ "sites": "/home/hiro/prj/jev-optimize/targets/zopfli/sites.json",
+ "plugin_sha256": "ca4a6625f2bdea45b69db4b7a23e2ca8ce54661835b1085328f74c05fdcfcff7",
+ "profdata_sha256": "f066f5072627b070f19acfe1bfa4772b25cf5babc7752799931f579036e0ace8",
+ "baseline_bin_sha256": "8b0ba235be9bf45c167f7cbf39edb096668e0f2eb1d320dcbd1718d1f97ea8a4",
+ "case_set": "training",
+ "workloads": [
+  "text=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/search-text.dat",
+  "binary=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/search-binary.dat",
+  "json=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/search-json.dat"
+ ],
+ "taskset_cpu": "2",
+ "gap_ms": "0",
+ "repetitions": 15,
+ "warmup": 3,
+ "seed": 20260921,
+ "seed_offset": 0,
+ "argv0": {
+  "len": 80,
+  "class": 96,
+  "root": "/home/hiro/prj/jev-optimize/artifacts/timing-run"
+ },
+ "rustc": "rustc 1.100.0-nightly (bba531001 2026-09-20)\nbinary: rustc\ncommit-hash: bba531001d4de6d7f49693e0836a2668ca063282\ncommit-date: 2026-09-20\nhost: x86_64-unknown-linux-gnu\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1\n",
+ "lscpu_e": "CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE\n  0    0      0    0 0:0:0:0          yes\n  1    0      0    0 0:0:0:0          yes\n  2    0      0    1 1:1:1:0          yes\n  3    0      0    1 1:1:1:0          yes\n  4    0      0    2 2:2:2:0          yes\n  5    0      0    2 2:2:2:0          yes\n  6    0      0    3 3:3:3:0          yes\n  7    0      0    3 3:3:3:0          yes\n  8    0      0    4 4:4:4:0          yes\n  9    0      0    4 4:4:4:0          yes\n 10    0      0    5 5:5:5:0          yes\n 11    0      0    5 5:5:5:0          yes\n 12    0      0    6 6:6:6:0          yes\n 13    0      0    6 6:6:6:0          yes\n 14    0      0    7 7:7:7:0          yes\n 15    0      0    7 7:7:7:0          yes\n 16    0      0    8 8:8:8:0          yes\n 17    0      0    8 8:8:8:0          yes\n 18    0      0    9 9:9:9:0          yes\n 19    0      0    9 9:9:9:0          yes\n 20    0      0   10 10:10:10:0       yes\n 21    0      0   10 10:10:10:0       yes\n 22    0      0   11 11:11:11:0       yes\n 23    0      0   11 11:11:11:0       yes\n 24    0      0   12 12:12:12:0       yes\n 25    0      0   12 12:12:12:0       yes\n 26    0      0   13 13:13:13:0       yes\n 27    0      0   13 13:13:13:0       yes\n 28    0      0   14 14:14:14:0       yes\n 29    0      0   14 14:14:14:0       yes\n 30    0      0   15 15:15:15:0       yes\n 31    0      0   15 15:15:15:0       yes\n",
+ "best": {
+  "round": 0,
+  "ratio": 1.0,
+  "plan": null,
+  "label": "baseline",
+  "plan_sig": "e00203fe6bcd2040be722030725adbabb47b010c0ceb80595ea364c8b0350f97",
+  "batches": []
+ },
+ "holdout": {
+  "plan": "baseline",
+  "null_arm": true,
+  "case_set": "holdout",
+  "cases": [
+   "text=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/hold-text.dat",
+   "binary=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/hold-binary.dat",
+   "json=/home/hiro/prj/jev-optimize/targets/zopfli/workloads/hold-json.dat"
+  ],
+  "ratio": 1.0007616189962076,
+  "ci95": [
+   0.9992559059435572,
+   1.0021981577426464
+  ],
+  "aa": {
+   "ratio": 1.0004248633859925,
+   "halfwidth": 0.0015412391487321098
+  },
+  "argv0": {
+   "len": 80,
+   "class": 96
+  },
+  "mde": 0.03
+ },
+ "jev_totals": {
+  "requests": 14,
+  "questions": 55,
+  "latency_ms": 24152.6444490014,
+  "max_latency_ms": 2249.935270000151,
+  "input_tokens": 189860,
+  "output_tokens": 4735,
+  "cost_usd": 0.0
+ },
+ "retry_policy": {
+  "backoff": 2.0,
+  "cap_s": 5.0,
+  "jitter": 0.2,
+  "timeout_s": 20.0,
+  "wall_budget_s": 600.0,
+  "retries_cap": 200,
+  "phase_resend_max": 2
+ },
+ "gateway": {
+  "requests": 14,
+  "attempts": 108,
+  "landed": 14,
+  "exhausted": 0,
+  "lost_phases": 0,
+  "lost_rounds": 0,
+  "seconds_waiting": 188.51342349032853,
+  "attempts_by_phase": {
+   "A": {
+    "requests": 5,
+    "attempts": 61,
+    "landed": 5,
+    "body_bytes_total": 287898,
+    "mean_body_bytes": 57579.6
+   },
+   "B": {
+    "requests": 5,
+    "attempts": 42,
+    "landed": 5,
+    "body_bytes_total": 212316,
+    "mean_body_bytes": 42463.2
+   },
+   "explore": {
+    "requests": 4,
+    "attempts": 5,
+    "landed": 4,
+    "body_bytes_total": 74335,
+    "mean_body_bytes": 18583.8
+   }
+  }
+ },
+ "wall_s": 3453.1
+}

@@ -1,6 +1,6 @@
 # HANDOFF — jev-opt の引き継ぎ(2026-09-23)
 
-この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(100 項目、番号で参照)、数値は `results.md`(章番号で参照、§168 まで)。この 3 つが正本で、本文書はそこへの案内図。
+この文書は、次に作業する人・エージェント(Claude でも Codex でも)が、経緯と現状と予定と作法を全部引き継げるように書いたもの。規約の短縮版は `AGENTS.md`(英語)。仕様は `SPEC.ja.md`、知見と判断の履歴は `docs/decisions.ja.md`(101 項目、番号で参照)、数値は `results.md`(章番号で参照、§169 まで)。この 3 つが正本で、本文書はそこへの案内図。
 
 ---
 
@@ -68,7 +68,8 @@
 - **hintbench の A/A のみパネル調査(決定 97)**: 7 パネル約 17 分、基準バイナリのコピーだけ。k5 のモードは argv[0] の長さのクラスで決まる(周期 32 バイト、31/31 脚、len 88|89 で段差)。ファイル配置・seed・CPU・スタック位置・SMT 負荷では変わらない。機構(ヒープのオフセット)は未確定。Exp6 の訓練比と holdout 比は oracle と同クラス(c96)、confirm とパネルは c112 か混在。`results.md` §161(クラスをまたぐ既存結果の脚注表)、`docs/experiments/hintbench/aa-study.md`。修正後の 3 脚 A/A で検証済み(§162)。
 - **次にやること(§4 の表の 3a〜)**: 探索の適格条件の見直し、`inline(never)` でループが site 集合から落ちる件の理解、jaq / zopfli の 2 クラス A/A 確認、jaq ループ oracle、zopfli。
 - **zopfli キャンペーン開始(2026-09-23 夜)**: 準備完了(決定 98・99、`results.md` §165〜166): 探索用訓練セット(search-*.dat、896 KiB × 3)、plugin off 基準は Stage 0 と `.text` 同一、A/A 訓練 0.2% / holdout 0.05%(geomean)、MDE 3%、マーク 6 本(93.4%)、site 5 本(`oracle.selected_keys_top6`)、語彙 v6。oracle 68 arm(6 マーク × 関数属性 12 + 5 site × ループ候補 55 + 組み合わせ 1)を 22:1x に起動、成果物 `artifacts/zopfli-search/oracle/`、ログ `artifacts/zopfli-search/oracle-run.log`。見込み最悪 10 h、期待はそれより短い(§166「4. Oracle command」「Cost estimate」)。記録(結果の書き起こし)は測定担当とは別のエージェントが oracle 完了後に行う。§167(`results.md`)に Jev vs ランダム(n=3 ずつ、6 走行)の事前登録を追記済み --- oracle の後、oracle と同じ 6 マーク / 5 site / 語彙 v6 の上で走らせる。
-- **zopfli の oracle 結果(決定 100、2026-09-24 朝)**: 68 arm、正しさ 68/68、基準と同一 38(未計測)。**「良い」arm は 0/67**、有害 2(`squeeze.rs:275` の unroll 4 / 8、−3.6% / −8.3%)。関数属性 12 本は no-op 4、コード変化 8 のうち 7 が確認済みの負方向(−0.3〜−2.7%、MDE 未満)で、正は 1 本も無い。最良は `squeeze.rs:325` の `unroll.count=8`(訓練 +1.26% / +1.29%、holdout +1.33%)、組み合わせ(325 と 563 の unroll 8)は訓練 +1.81% / +2.06%、holdout +1.77%。いずれも MDE 3% 未満で「良い」ではない。Stage 0 の `-unroll-max-count=1`(+1.6%、`cache.rs:108`)に対応する arm は無い(`cache.rs:108` は上限規則で site 集合外、`unroll.disable` は届いた site で no-op)。WSL 再起動(05:53)でラウンド 68 が途切れ、`--resume` でラウンド 68 だけ再計測。`results.md` §168、`docs/experiments/zopfli/oracle.md`。§167 の 6 走行はこの後そのまま計測中。
+- **zopfli の oracle 結果(決定 100、2026-09-24 朝)**: 68 arm、正しさ 68/68、基準と同一 38(未計測)。**「良い」arm は 0/67**、有害 2(`squeeze.rs:275` の unroll 4 / 8、−3.6% / −8.3%)。関数属性 12 本は no-op 4、コード変化 8 のうち 7 が確認済みの負方向(−0.3〜−2.7%、MDE 未満)で、正は 1 本も無い。最良は `squeeze.rs:325` の `unroll.count=8`(訓練 +1.26% / +1.29%、holdout +1.33%)、組み合わせ(325 と 563 の unroll 8)は訓練 +1.81% / +2.06%、holdout +1.77%。いずれも MDE 3% 未満で「良い」ではない。Stage 0 の `-unroll-max-count=1`(+1.6%、`cache.rs:108`)に対応する arm は無い(`cache.rs:108` は上限規則で site 集合外、`unroll.disable` は届いた site で no-op)。WSL 再起動(05:53)でラウンド 68 が途切れ、`--resume` でラウンド 68 だけ再計測。`results.md` §168、`docs/experiments/zopfli/oracle.md`。§167 の 6 走行はこの後そのまま計測した(次の行)。
+- **zopfli で Jev vs ランダム(各 n=3、決定 101、2026-09-24 昼)**: 6 走行(06:37〜11:54)のすべてで採用 plan は 0。代表値は 6 本とも基準の 1.0000 で、中央値の差は 0 pt。**n=3 で未解像(フラット)**。Jev の 15 plan のうち 14 本は基準より遅く(0.9656〜0.9974。残る 1 本は 1.0001 で CI が 1 をまたぐ)、6 本は両バッチとも −3% を超えた。中身は oracle の MDE 未満の損失か no-op(とくに `find_longest_match` の `inline(always)`)。有害 arm(`squeeze.rs:275` の unroll 4 / 8)は 0/15。平坦 site での KEEP 率は 80%(71 / 77 / 91%)で、Jev 自身が全問 KEEP に達したのは 1/3 走行(jev-r2 のラウンド 3〜5)だけ。基準を守ったのは速度ゲート。ランダムは有害な unroll 8 を 2 回引いた(0.9429、0.8803)が、どちらもゲートが棄却した。ラウンド 1 の要求は 3 対ともバイト一致し、max |ΔP| 0.07、argmax 反転 0。それでも強制選択の同点(0.07 / 0.07)で 1 走行の plan が変わった。ゲートウェイは 42 要求がすべて着地して喪失 0、費用 $0。holdout は全部 null arm(基準対基準)。`results.md` §169、`docs/experiments/zopfli/jev-vs-random.md`。
 
 ## 4. 今後の計画(Claude の提案。オーナー未承認の部分は「提案」)
 
@@ -86,8 +87,8 @@
 | 3d | `inline(never)` を付けたカーネルのループが同ラウンドの phase B の site 集合から落ちる件の理解 | 未調査のバグを潰す(exp6.md §7) | — | 提案 |
 | 4 | jaq ループ oracle(重複除去、post_vectorize の事実で state を埋める) | jaq でループヒントの正解を得る | 約 9 h(夜間) | 提案 |
 | 5 | jaq で探索付き Jev 5〜8 ラウンド + ランダム | 記事の主数字。ノイズ 4% なので集計でのみ語る | jaq では jev n=3 + ランダム n=3 の 6 走行だけを回し、機能ごとのアブレーションは 1 走行 30 分の hintbench で行う。費用は 1 走行 5 ラウンドとして、Exp3 の実測(約 5 分/ラウンド、確認バッチ無し、`results.md` §102)なら約 3〜4 h、確認バッチ込み(未測定)なら数倍。最初の走行で壁時計を測ってから事前登録を確定する。 | 提案 |
-| 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | **oracle 済(決定 100)、Jev/ランダム 6 走行 計測中**: oracle は「良い」0/67、最良 +1.3%(`squeeze.rs:325` unroll 8)、組み合わせ +1.8%(holdout +1.77%)、いずれも MDE 未満(`results.md` §168)。Jev vs ランダム(n=3、§167)を `artifacts/zopfli-search/zopfli-{jev,rand}-r{0,1,2}` に計測中。 |
-| 7 | jaq が薄ければ記事の主対象を zopfli に(オーナー判断) | 「効果が出る対象を探して回る」のではなく、既に測った 2 対象からの選択 | — | 要判断。zopfli も oracle で MDE 未満(決定 100)。主対象の選択はオーナー判断 |
+| 6 | **zopfli を通す**: perf でマーク → oracle(fn + loop)→ Jev | 転移先。ノイズ 0.3% で静か、実プログラム。hintbench の勝ち筋(引数の定数特殊化)が出やすい | 8〜10 h | **済(決定 100・101)**: oracle は「良い」0/67、最良 +1.3%(`squeeze.rs:325` unroll 8)、組み合わせ +1.8%(holdout +1.77%)で、いずれも MDE 未満(`results.md` §168)。Jev vs ランダム(各 n=3)は採用 plan が 6 走行とも 0、代表値はすべて 1.0000 で、n=3 で未解像(§169)。 |
+| 7 | jaq が薄ければ記事の主対象を zopfli に(オーナー判断) | 「効果が出る対象を探して回る」のではなく、既に測った 2 対象からの選択 | — | **要判断**(決定 101)。事実: jaq はフラット(関数属性 oracle の組み合わせ +0.2%、決定 91)。zopfli もフラット(oracle の天井 +1.8% < MDE 3%、Jev・ランダムとも採用 0、決定 100・101)。正の結果は hintbench の +7.4〜7.8%(決定 93)だけ。主対象の選択はオーナー判断 |
 | 8 | 記事の骨格: hintbench で機構、実プログラムで転移、PGO 下で死ぬヒントの発見、測定の教訓 | zenn 記事(オーナーが書く)の素材 | — | 提案 |
 | 9 | 英語版 `SPEC.md` の生成、`work/` の zenn 草稿の破棄または更新 | 英語記事の参照先 | 半日 | 提案 |
 
@@ -167,6 +168,5 @@ Claude Code の記憶ディレクトリ `~/.claude/projects/-home-hiro/memory/` 
 1. `git log --oneline | head -20`、`tail -150 docs/decisions.ja.md`、`results.md` の末尾 2 節を読む。
 2. §3.3 の進行中 2 件は完了済み(jaq 関数属性 oracle v4 は決定 91・`results.md`「Oracle A2 (jaq)」、hintbench 探索付き Jev は Exp5 決定 92 と Exp6 決定 93〜95、`docs/experiments/hintbench/exp5.md`・`exp6.md`)。新たに「進行中」を残した作業があれば、終わり次第ここと決定ログと §3.4 に追記する。
 3. §4 の表の次の行(3a 探索の適格条件の見直し → 3e jaq / zopfli の 2 クラス A/A 確認 → 3d `inline(never)` の site 落ちの理解 → jaq ループ oracle → zopfli)を、オーナーの承認を得て進める。
-4. **zopfli の oracle**(§3.4、§4 の行 6)が終わっていたら、まず書き起こす: `results.md` §166 の直後に `## Oracle (zopfli)` を追加し、§166「4. Oracle command」「5. Rules before numbers」に書いた規則(no-op skip、確認バッチ、MDE、正しさゲート、argv0 クラス 96 など)どおりに数値を記録する。書き起こしが終わったら `results.md` §167 に事前登録済みの 6 走行(`zopfli-jev-r0/r1/r2`、`zopfli-rand-r0/r1/r2`、jev/random を交互に)を §167 のコマンド・規則のまま実行する。進捗の見方: `tail artifacts/zopfli-search/oracle-run.log`(または各走行の `oracle-run.log` 相当)と成果物ディレクトリの `rounds.jsonl` の更新時刻。`ps -eo cmd | grep -E 'bench.py|jev_search|cargo'` に何も無く 15 分以上 `rounds.jsonl` が動いていなければ止まっている可能性(§5「止まった担当の見つけ方」)。**計測は同時に 1 つ**: oracle が終わってから §167 を始める(6 走行も 1 つずつ)。測定担当と記録担当は別エージェントにする。
-   なお oracle にも限界がある(§166 の「3. A stated limitation」): Stage 0 で唯一効いたグローバル勝ち筋 `-unroll-max-count=1`(+1.6%)が通る `cache.rs:108` のループは、cap 規則(`per_mark:2` → `top:6`)でこの oracle の 5 site から漏れている(マークからではなく cap から漏れている)。別の `--site-set`(cap を広げる、または手で key を足す)を**同じ 6 マークの上で**試すかはオーナー判断で、マークファイル自体は変えない。
+4. **オーナー判断待ち**: 記事の主対象(§4 の行 7)、`cache.rs:108` を足した zopfli の追加 site-set(Stage 0 の唯一のレバー。上限規則で今回の 5 site から漏れた。同じ 6 マークの上で、新しい事前登録として)、再訪の適格条件(3a)。zopfli の oracle と Jev vs ランダムは済んだ(決定 100・101、`results.md` §168・§169)。判断が出るまで、新しい計測は始めない。
 5. 何かを「やらない」と決めたら、その理由を決定ログに書く。

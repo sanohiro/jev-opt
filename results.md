@@ -13104,3 +13104,463 @@ Following §167's wording, with the §166 verdicts above:
 * The per-case readout is the three input cases, not per-site kernels: a
   site's own contribution is not separated from layout effects elsewhere in
   the binary (the function arms change 3-9 symbols each).
+
+### 169. Jev vs random on zopfli: results (n=3 each)
+
+This section was written from artifacts only, by a write-up agent separate from the
+measuring agent (HANDOFF.ja.md §5). Nothing was re-measured for it. The rules
+are §167's, unchanged, read with §168.8's statement of what (a), (b) and (c)
+mean against the oracle's verdicts. All six runs sit under
+`artifacts/zopfli-search/zopfli-{jev,rand}-r{0,1,2}/`, with the per-round
+records in `rounds.jsonl`, the provenance and totals in `run-manifest.json`
+and a human table in `summary.md`. Jev requests are in
+`jev-log/<run>.jsonl` and `.log`. Run logs are `artifacts/zopfli-search/<run>-run.log`.
+Copies are in `docs/experiments/zopfli/jev-vs-random/`, and the write-up is
+`docs/experiments/zopfli/jev-vs-random.md`.
+
+**Command.** `run-manifest.json` has no argv field. The command comes from
+the chain script that launched the runs, which was checked against the live
+process table for `zopfli-rand-r2`. It is §167's template word for word,
+with `<proposer>`/`<seed-offset>`/`<run id>` filled in from §167's table:
+
+```
+export TARGET=zopfli
+python3 -u scripts/jev_search.py --target zopfli \
+    --marks targets/zopfli/jev-marks.txt --sites targets/zopfli/sites.json \
+    --site-set oracle.selected_keys_top6 \
+    --proposer <jev|random> --seed-offset <0|1000|2000> \
+    --rounds 5 --vocab v6 --readout forced_top1 \
+    --source-comments strip --explore 2 --explore-revisit 0 --pv-untried off \
+    -n 15 --warmup 3 \
+    --baseline-dir artifacts/zopfli-sites/baseline \
+    --measure-holdout --out artifacts/zopfli-search/<run id> \
+    > artifacts/zopfli-search/<run id>-run.log 2>&1
+```
+
+Each manifest confirms its own parameters: `proposer`, `seed_offset`
+0/1000/2000, and `seed` 20260921 / 20261921 / 20262921 (= 20260921 +
+offset). The following are identical in all six runs:
+`exploration {k: 2, revisit: 0, max_visits: 2, pv_untried: off}`,
+`readout forced_top1`, `source_comments strip`, vocabulary `v6-2026-09-23`,
+state `state-v6.0-2026-09-23`, `repetitions 15`, `warmup 3`,
+`taskset_cpu 2`, `case_set training`, and `argv0 {len: 80, class: 96}`.
+The provenance hashes also match §168's oracle in all six: config
+`25274b5b…`, marks `5bfd79ad…`, plugin `ca4a6625…`, profdata `f066f507…`,
+baseline binary `8b0ba235…`. Runs were started one after another in §167's
+alternating order and never overlapped (chain log, times JST 2026-09-24):
+
+| run | start | exit | `wall_s` |
+|---|---|---|--:|
+| `zopfli-jev-r0` | 06:37:08 | 07:34:42 (rc 0) | 3453.1 s (57.6 min) |
+| `zopfli-rand-r0` | 07:34:42 | 08:22:58 (rc 0) | 2896.1 s (48.3 min) |
+| `zopfli-jev-r1` | 08:22:58 | 09:14:37 (rc 0) | 3098.7 s (51.6 min) |
+| `zopfli-rand-r1` | 09:14:37 | 10:06:26 (rc 0) | 3108.6 s (51.8 min) |
+| `zopfli-jev-r2` | 10:06:26 | 11:01:46 (rc 0) | 3319.3 s (55.3 min) |
+| `zopfli-rand-r2` | 11:01:46 | 11:53:56 (rc 0) | 3130.0 s (52.2 min) |
+
+#### 169.1 Per-run rounds
+
+How to read the columns. **Phase A / phase B picks** are the proposer's
+non-`KEEP_DEFAULT` answers that went into the plan. For Jev these are the
+argmax, and `(forced)` marks the one hint `forced_top1` adds when a whole
+phase answered `KEEP_DEFAULT`. **explored** lists the driver's `--explore 2`
+picks: a site nothing has been tried at yet is asked again with `KEEP` not on
+offer, and Jev's top-ranked candidate is built. The random proposer answers
+every question at random and makes no exploration picks. `always` / `never`
+= `inline_always` / `inline_never`. Loop sites are named by source line; the
+driver's key also carries the inlining context (`#dN`). **ratio / 95% CI** are
+the round batch's aggregate (geomean over text, binary and json) against the
+in-batch baseline. The MDE is 3% except where the table notes otherwise.
+**confirm** is decision 80(a)'s confirmation batch, and `sign -` means
+`confirmed_aggregate_sign = -1` (both batches' CIs exclude 1 on the loss
+side). **A/A** is the in-batch second copy of the baseline. **accepted** is
+the run's acceptance rule, decision 80(a)/89(a).
+
+`zopfli-jev-r0` (`artifacts/zopfli-search/zopfli-jev-r0/rounds.jsonl`):
+
+| round | phase A picks | phase B picks | explored | ratio | 95% CI | confirm | A/A | accepted |
+|--:|---|---|---|--:|---|---|---|---|
+| 1 | `lz77::find_longest_match_loop` always, `ZopfliHash::update` always, `lz77::find_longest_match` always | `index.rs:184` unroll_count_4 (forced) | `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` always | 0.9826 | [0.9803, 0.9851] | 0.9806 [0.9783, 0.9825] (sign -) | 1.0009 ±0.0024 | no |
+| 2 | `lz77::find_longest_match` always | `lz77.rs:563` unroll_count_2 (forced) | `squeeze::lz77_optimal_run` always, `lz77.rs:530` unroll_count_4, `squeeze.rs:275` unroll_disable | 0.9656 | [0.9624, 0.9683] | 0.9664 [0.9647, 0.9680] (sign -) | 1.0002 ±0.0016 | no |
+| 3 | `ZopfliHash::update` always, `lz77::find_longest_match` always | `lz77.rs:530` unroll_count_4 (forced) | `squeeze.rs:325` unroll_disable | 0.9681 | [0.9662, 0.9698] | 0.9685 [0.9666, 0.9705] (sign -) | 0.9979 ±0.0020 | no |
+| 4 | `lz77::find_longest_match` always | `lz77.rs:530` unroll_count_4, `lz77.rs:563` unroll_count_2, `squeeze.rs:275` unroll_disable | none | 0.9684 | [0.9671, 0.9697] | 0.9662 [0.9651, 0.9673] (sign -) | 0.9996 ±0.0017 | no |
+| 5 | `squeeze::lz77_optimal_run` always | `lz77.rs:530` unroll_count_4, `squeeze.rs:275` unroll_disable, `lz77.rs:563` unroll_count_2, `index.rs:184` unroll_count_4 | none | 0.9861 | [0.9842, 0.9880] | 0.9872 [0.9853, 0.9890] (sign -) | 1.0001 ±0.0018 | no |
+
+`zopfli-jev-r1` (`artifacts/zopfli-search/zopfli-jev-r1/rounds.jsonl`):
+
+| round | phase A picks | phase B picks | explored | ratio | 95% CI | confirm | A/A | accepted |
+|--:|---|---|---|--:|---|---|---|---|
+| 1 | `lz77::find_longest_match_loop` always, `ZopfliHash::update` always, `lz77::find_longest_match` always | `index.rs:184` unroll_count_2 (forced) | `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` always | 0.9832 | [0.9813, 0.9853] | 0.9824 [0.9807, 0.9839] (sign -) | 1.0005 ±0.0027 | no |
+| 2 | `ZopfliHash::update` always, `lz77::find_longest_match` always | `lz77.rs:530` unroll_count_2 (forced) | `squeeze::lz77_optimal_run` always, `lz77.rs:563` unroll_count_2, `squeeze.rs:275` unroll_disable | 0.9669 | [0.9651, 0.9691] | 0.9647 [0.9613, 0.9669] (sign -) | 0.9995 ±0.0025 | no |
+| 3 | `ZopfliHash::update` always, `lz77::find_longest_match` always | `lz77.rs:530` unroll_count_2 (forced) | `squeeze.rs:325` unroll_disable | 0.9657 | [0.9644, 0.9671] | 0.9640 [0.9627, 0.9653] (sign -) | 1.0019 ±0.0016 | no |
+| 4 | `lz77::find_longest_match_loop` always | `index.rs:184` unroll_count_2 (forced) | none | 0.9967 | [0.9882, 1.0115] (MDE 6.58%) | not triggered | 1.0076 ±0.0104 | no |
+| 5 | `lz77::find_longest_match_loop` always | `index.rs:184` unroll_count_2 | none | 0.9895 | [0.9853, 0.9925] | 0.9907 [0.9896, 0.9919] (sign -) | 1.0002 ±0.0016 | no |
+
+`zopfli-jev-r2` (`artifacts/zopfli-search/zopfli-jev-r2/rounds.jsonl`):
+
+| round | phase A picks | phase B picks | explored | ratio | 95% CI | confirm | A/A | accepted |
+|--:|---|---|---|--:|---|---|---|---|
+| 1 | `lz77::find_longest_match_loop` always, `ZopfliHash::update` always, `lz77::find_longest_match` always | `index.rs:184` unroll_count_4 (forced) | `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` always | 0.9825 | [0.9808, 0.9843] | 0.9811 [0.9799, 0.9824] (sign -) | 1.0020 ±0.0013 | no |
+| 2 | `lz77::find_longest_match` always | `lz77.rs:530` unroll_count_4 (forced) | `squeeze::lz77_optimal_run` always, `lz77.rs:563` unroll_count_2, `squeeze.rs:275` unroll_disable | 0.9689 | [0.9672, 0.9707] | 0.9675 [0.9659, 0.9691] (sign -) | 1.0019 ±0.0035 | no |
+| 3 | `ZopfliHash::update` always (forced) | `index.rs:184` unroll_count_4 (forced) | `squeeze.rs:325` unroll_disable | 1.0001 | [0.9988, 1.0013] | not triggered | 1.0005 ±0.0019 | no |
+| 4 | `ZopfliHash::update` always (forced) | `index.rs:184` unroll_count_4 (forced) | none | 0.9974 | [0.9953, 0.9995] | 0.9965 [0.9945, 0.9984] (sign -) | 1.0010 ±0.0020 | no |
+| 5 | `ZopfliHash::update` always (forced) | `index.rs:184` unroll_count_4 (forced) | none | 0.9964 | [0.9931, 0.9990] | 0.9959 [0.9930, 0.9987] (sign -) | 1.0044 ±0.0051 | no |
+
+`zopfli-rand-r0` (`artifacts/zopfli-search/zopfli-rand-r0/rounds.jsonl`):
+
+| round | phase A picks | phase B picks | explored | ratio | 95% CI | confirm | A/A | accepted |
+|--:|---|---|---|--:|---|---|---|---|
+| 1 | `lz77::find_longest_match_loop` always, `squeeze::lz77_optimal` never, `squeeze::lz77_optimal_run` always, `lz77::find_longest_match` never | `squeeze.rs:325` interleave_count_4, `squeeze.rs:275` unroll_count_8, `index.rs:184` unroll_count_2 | none | 0.9429 | [0.9410, 0.9453] | 0.9427 [0.9412, 0.9440] (sign -) | 1.0000 ±0.0020 | no |
+| 2 | `lz77::find_longest_match_loop` never, `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` always, `squeeze::lz77_optimal_run` always, `ZopfliHash::update` never | `lz77.rs:530` vectorize_width_16, `lz77.rs:563` unroll_count_2 | none | 0.9908 | [0.9893, 0.9924] | 0.9899 [0.9884, 0.9917] (sign -) | 1.0002 ±0.0021 | no |
+| 3 | `lz77::find_longest_match_loop` always, `squeeze::lz77_optimal` never, `squeeze::get_best_lengths` never, `ZopfliHash::update` never | none | none | 0.9727 | [0.9698, 0.9754] | 0.9746 [0.9726, 0.9764] (sign -) | 0.9996 ±0.0019 | no |
+| 4 | `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` never, `ZopfliHash::update` never, `lz77::find_longest_match` never | `lz77.rs:530` vectorize_width_2, `lz77.rs:563` vectorize_width_4 | none | 0.9702 | [0.9684, 0.9720] | 0.9673 [0.9655, 0.9688] (sign -) | 1.0004 ±0.0022 | no |
+| 5 | `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` always, `lz77::find_longest_match` always | `lz77.rs:530` unroll_disable, `lz77.rs:563` unroll_count_4 | none | 0.9882 | [0.9786, 1.0027] (MDE 6.67%) | not triggered | 0.9879 ±0.0162 | no |
+
+`zopfli-rand-r1` (`artifacts/zopfli-search/zopfli-rand-r1/rounds.jsonl`):
+
+| round | phase A picks | phase B picks | explored | ratio | 95% CI | confirm | A/A | accepted |
+|--:|---|---|---|--:|---|---|---|---|
+| 1 | `squeeze::lz77_optimal` never, `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` never, `lz77::find_longest_match` never | `lz77.rs:530` interleave_count_4, `index.rs:184` unroll_count_4, `lz77.rs:563` unroll_count_2 | none | 0.9712 | [0.9695, 0.9728] | 0.9719 [0.9697, 0.9749] (sign -) | 1.0004 ±0.0016 | no |
+| 2 | `lz77::find_longest_match_loop` always, `squeeze::lz77_optimal` never, `squeeze::lz77_optimal_run` always, `ZopfliHash::update` always | `squeeze.rs:275` vectorize_width_8, `squeeze.rs:325` unroll_count_4, `index.rs:184` vectorize_width_4 | none | 0.9978 | [0.9961, 0.9994] | 0.9968 [0.9951, 0.9984] (sign -) | 1.0000 ±0.0020 | no |
+| 3 | `lz77::find_longest_match_loop` always, `squeeze::get_best_lengths` always, `lz77::find_longest_match` always | `squeeze.rs:275` vectorize_width_2, `squeeze.rs:325` vectorize_width_8 | none | 0.9768 | [0.9748, 0.9788] | 0.9786 [0.9771, 0.9802] (sign -) | 1.0002 ±0.0017 | no |
+| 4 | `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` always, `lz77::find_longest_match` always | `lz77.rs:530` unroll_count_4, `lz77.rs:563` interleave_count_4 | none | 0.9646 | [0.9619, 0.9680] | 0.9631 [0.9609, 0.9656] (sign -) | 1.0012 ±0.0028 | no |
+| 5 | `lz77::find_longest_match_loop` always, `squeeze::lz77_optimal` never, `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` always, `ZopfliHash::update` never | none | none | 0.9739 | [0.9710, 0.9763] | 0.9927 [0.9738, 1.0183] (no sign) | 0.9980 ±0.0030 | no |
+
+`zopfli-rand-r2` (`artifacts/zopfli-search/zopfli-rand-r2/rounds.jsonl`):
+
+| round | phase A picks | phase B picks | explored | ratio | 95% CI | confirm | A/A | accepted |
+|--:|---|---|---|--:|---|---|---|---|
+| 1 | `squeeze::get_best_lengths` always, `squeeze::lz77_optimal_run` never | `lz77.rs:530` vectorize_width_4, `lz77.rs:563` unroll_disable | none | 0.9787 | [0.9771, 0.9804] | 0.9807 [0.9786, 0.9824] (sign -) | 0.9995 ±0.0015 | no |
+| 2 | `squeeze::lz77_optimal` always, `squeeze::lz77_optimal_run` never | `lz77.rs:530` vectorize_width_2, `lz77.rs:563` unroll_disable, `index.rs:184` unroll_disable | none | 0.9779 | [0.9755, 0.9802] | 0.9770 [0.9736, 0.9813] (sign -) | 1.0011 ±0.0026 | no |
+| 3 | `lz77::find_longest_match_loop` always, `squeeze::get_best_lengths` always, `ZopfliHash::update` always | `squeeze.rs:275` unroll_count_8, `squeeze.rs:325` unroll_count_2, `index.rs:184` vectorize_width_8 | none | 0.8803 | [0.8785, 0.8820] | 0.8786 [0.8771, 0.8799] (sign -) | 1.0004 ±0.0025 | no |
+| 4 | `lz77::find_longest_match_loop` never, `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` always, `lz77::find_longest_match` always | `lz77.rs:530` interleave_count_4, `lz77.rs:563` unroll_disable | none | 0.9801 | [0.9794, 0.9808] | 0.9825 [0.9804, 0.9843] (sign -) | 1.0008 ±0.0011 | no |
+| 5 | `lz77::find_longest_match_loop` never, `squeeze::lz77_optimal` always, `squeeze::get_best_lengths` never, `squeeze::lz77_optimal_run` always | `lz77.rs:530` vectorize_width_8, `lz77.rs:563` vectorize_width_4, `index.rs:184` unroll_disable | none | 0.9805 | [0.9779, 0.9835] | 0.9801 [0.9779, 0.9825] (sign -) | 1.0018 ±0.0025 | no |
+
+**Correctness.** All 30 rounds of all six runs are `correct: true`,
+i.e. all nine `.gz` sha256 lines match the baseline. No round has an apply
+problem (`summary.md`, "apply problems: none"). The correctness gate
+rejected no plan, because no plan needed rejecting.
+
+**No round was accepted in any run.** Every built plan but one measured
+slower than the baseline; the exception is described below. 27 of the 30 round batches exclude 1 on the loss
+side, and so does every confirmation batch that ran except
+`zopfli-rand-r1` round 5's. The three batches without a confirmation
+did not trigger one because their CI included 1 (jev-r1 r4 [0.9882, 1.0115] with MDE 6.58%; jev-r2 r3 [0.9988, 1.0013]; rand-r0 r5 [0.9786, 1.0027] with MDE 6.67%). The best
+single round of the whole study is `zopfli-jev-r2` round 3, at 1.0001
+[0.9988, 1.0013]: `ZopfliHash::update inline_always` (oracle 0.9999,
+§168.3) plus `index.rs:184 unroll_count_4` (oracle 0.9948 / 0.9966) plus
+`squeeze.rs:325 unroll_disable`, which the oracle found identical to the
+baseline (§168.2). It is a null plan in all but name.
+
+#### 169.2 Per-run representative and holdout
+
+§167 defines the representative as "that run's best *accepted* plan's
+training ratio (the ratio the run's own acceptance rule ... promoted to
+best)". The acceptance rule starts from the baseline as incumbent, "(the
+baseline, 1.0000, is the first)" in every `summary.md`. No round was
+promoted, so each run's `best` is `{"round": 0, "ratio": 1.0, "label":
+"baseline", "plan": null}` (`run-manifest.json`). **Every run's
+representative is therefore 1.0000: the baseline was kept.** §167 does not
+treat a baseline-kept run as a special case. By its own definition the
+value is the incumbent's ratio, 1.0000, and it counts like any other value.
+It is not a missing value and not a failed run.
+
+`--measure-holdout` measures the run's best plan once on the holdout cases.
+Here the best plan is the baseline, so every holdout batch is a **null arm**
+(`holdout.null_arm: true`): cand, base and aa are all the baseline binary.
+The holdout ratio is therefore a three-leg A/A, not transfer evidence.
+There is no plan whose transfer could be tested.
+
+| run | representative (training) | holdout ratio | holdout 95% CI | holdout in-run A/A | holdout MDE | file |
+|---|--:|--:|---|---|--:|---|
+| `zopfli-jev-r0` | 1.0000 (baseline kept) | 1.0008 | [0.9993, 1.0022] | 1.0004 ±0.0015 | 3.00% | `zopfli-jev-r0/holdout/stats.md` |
+| `zopfli-jev-r1` | 1.0000 (baseline kept) | 1.0029 | [0.9988, 1.0094] | 0.9981 ±0.0029 | 3.03% | `zopfli-jev-r1/holdout/stats.md` |
+| `zopfli-jev-r2` | 1.0000 (baseline kept) | 0.9971 | [0.9922, 1.0004] | 0.9871 ±0.0163 | 8.89% | `zopfli-jev-r2/holdout/stats.md` |
+| `zopfli-rand-r0` | 1.0000 (baseline kept) | 1.0360 | [0.9853, 1.0850] | 1.0218 ±0.0373 | 18.26% | `zopfli-rand-r0/holdout/stats.md` |
+| `zopfli-rand-r1` | 1.0000 (baseline kept) | 1.0219 | [1.0006, 1.0554] | 1.0101 ±0.0154 | 12.56% | `zopfli-rand-r1/holdout/stats.md` |
+| `zopfli-rand-r2` | 1.0000 (baseline kept) | 1.0019 | [0.9999, 1.0038] | 1.0004 ±0.0018 | 3.00% | `zopfli-rand-r2/holdout/stats.md` |
+
+Several of these holdout batches were disturbed. They compare a binary
+with itself, so any deviation is noise. In `zopfli-rand-r0`, the means sit
+above the medians by as much as 11.5% (base binary: mean 1921.1 ms, median
+1722.7 ms; base text: 3171.7 against 2895.7 ms), which put the per-workload half-widths at 6.7–9.1% and
+the MDE at 18.26%. `zopfli-rand-r1`'s aggregate CI [1.0006, 1.0554] excludes
+1 **for the baseline against itself**, with per-case half-widths up to
+6.28% (MDE 12.56%). `zopfli-jev-r2`'s aa/binary leg reads 0.9663 [0.9097,
+0.9986] (half-width 4.45%, MDE 8.89%). These are interference readings,
+consistent with other work on the machine at those times (§168's write-up
+was done while this chain ran; what else ran is not recorded). They are not proposer
+effects, and no conclusion uses them. The three clean holdouts
+(`zopfli-jev-r0`, `zopfli-jev-r1`, `zopfli-rand-r2`, MDE ≈ 3%) read 1.0008,
+1.0029 and 1.0019, i.e. the baseline against itself.
+
+#### 169.3 The pre-registered comparison
+
+| arm | run representatives | median | range |
+|---|---|--:|---|
+| Jev | 1.0000, 1.0000, 1.0000 | **1.0000** | [1.0000, 1.0000] |
+| random | 1.0000, 1.0000, 1.0000 | **1.0000** | [1.0000, 1.0000] |
+
+* Direction pre-registered: Jev >= random. Both medians are 1.0000, so the difference is 0 and has no direction.
+* Do the ranges overlap? Yes. Both ranges are the single point [1.0000, 1.0000] and coincide, so there is no non-overlap in either direction and no "reverse indication" either.
+* Median difference: 0.00 pt, against an MDE of 3%. All round batches
+  had MDE 3% except the flagged ones, and none of those is a
+  representative.
+* **Verdict: not resolved at n=3.** Neither arm moved zopfli, and their
+  representatives are identical. This is the outcome §168.8 predicted
+  before any §167 run was read.
+
+What the verdict does *not* say. It is not "Jev equals random" as a
+proposer. The two arms proposed different plans that lost different
+amounts (169.5), and the speed gate rejected both. The representative
+measures what survives the gate, and on zopfli nothing did. A descriptive
+line, not pre-registered and carrying no verdict: the median of the 15 Jev
+round ratios is 0.9826 (range 0.9656–1.0001). The median of the
+15 random round ratios is 0.9768 (range 0.8803–0.9978).
+Jev built 6 of 15 plans that lost more than 3% in both batches;
+random built 3 of 15 (169.5).
+
+#### 169.4 Mechanism checks, k/n (§167, as refined by §168.8)
+
+**(a) void.** The oracle confirmed no "good" site (§168.7: 0 of 67), so
+under §167's own words (a) does not apply. A run that changes nothing is
+described as "flat; correct no-ops", not as a failed check.
+*Descriptive line, not pre-registered, no pass/fail.* **No Jev plan in any
+round contains `squeeze.rs:325 unroll_count_8`** (the oracle's best single
+arm, sub-MDE +1.26% / +1.29%), and **none contains `lz77.rs:563
+unroll_count_8`**. Jev reached `squeeze.rs:325` only through exploration, in
+round 3 of every Jev run. The exploration question offers 11 non-`KEEP`
+candidates. Jev's top pick was `unroll_disable` at P = 0.54 / 0.54 / 0.48,
+and the oracle found `unroll_disable` identical to the baseline there. The
+sub-MDE positive arms got little mass: P(`unroll_count_2`) = 0.11 / 0.12 /
+0.18 and P(`unroll_count_8`) = 0.02 in all three
+(`rounds.jsonl` round 3 `phase_b.why`). In the main-phase answers at that
+loop, Jev put P(`KEEP_DEFAULT`) at 0.74–0.98 in every round.
+
+**(b) no oracle-harmful arm in the final plan: 3/3, but vacuously.** Every
+Jev final plan is the baseline, and the baseline contains no arm. The
+informative count is over every *built* plan. **0 of the 15 Jev round plans
+contain `squeeze.rs:275 unroll_count_4` or `unroll_count_8`.** Jev's only
+entry at `squeeze.rs:275` was `unroll_disable`: `zopfli-jev-r0` rounds 2, 4
+and 5 and `zopfli-jev-r1` / `zopfli-jev-r2` round 2, via exploration or
+argmax. The oracle found that arm identical to the baseline (§168.2), so
+putting it in a plan is a no-op, not a sign that Jev avoided the harmful
+arms. When `squeeze.rs:275` was explored, the harmful `unroll_count_4` was
+Jev's second-ranked candidate (P = 0.17 / 0.19 / 0.17) behind
+`unroll_disable` (0.46 / 0.46 / 0.45), and `unroll_count_8` had P = 0.01. The
+losses in the rounds that carried `squeeze.rs:275 unroll_disable` come from
+their other entries.
+
+**(c) Jev's `KEEP_DEFAULT` rate at oracle-flat sites.** Flat sites (§168.8)
+are the six function marks and `lz77.rs:530`, `squeeze.rs:325`,
+`lz77.rs:563` and `index.rs:184`, i.e. every site except `squeeze.rs:275`.
+The count is over Jev's main-phase answers (phases A and B, all rounds;
+exploration questions have no `KEEP` option and are excluded), from
+`jev-log/<run>.jsonl` `response.answers[].choice`:
+
+| run | KEEP at flat sites, all rounds | round 1 only | rounds whose raw answers were all-`KEEP` (A / B / both) |
+|---|--:|--:|---|
+| `zopfli-jev-r0` | 32 / 45 (71%) | 4 / 7 | 0 / 3 / 0 of 5 |
+| `zopfli-jev-r1` | 33 / 43 (77%) | 4 / 7 | 0 / 4 / 0 of 5 |
+| `zopfli-jev-r2` | 42 / 46 (91%) | 4 / 7 | 3 / 5 / 3 of 5 |
+| total | 107 / 134 (80%) | 12 / 21 | --- |
+
+(The all-`KEEP` columns are `phase_{a,b}.readout.all_keep_default` in
+`rounds.jsonl`.) The 27 non-`KEEP` answers at flat sites break down as
+follows. Twenty-one are `inline_always` on four functions:
+`find_longest_match` 4+3+2 answers, `ZopfliHash::update` 2+3+1,
+`find_longest_match_loop` 1+3+1, `lz77_optimal_run` 1+0+0. In the oracle
+these are `inline_always` at −2.0% / −2.0%, 0.9999 (flat, unconfirmed),
+−0.7% / −0.9% and identical to the baseline, respectively (§168.2, §168.3):
+sub-MDE losses or no-ops, never gains. The other six are loop unrolls:
+`lz77.rs:530 unroll_count_4` 2 and `lz77.rs:563 unroll_count_2` 2 (jev-r0
+rounds 4–5), plus `index.rs:184 unroll_count_4` (jev-r0 round 5) and
+`unroll_count_2` (jev-r1 round 5). All six are flat or sub-MDE in the oracle.
+
+In round 1 the request was byte-identical across the three runs (169.6).
+All three runs answered the same way: `inline_always` at
+`find_longest_match_loop` (P 0.64–0.68), `ZopfliHash::update` (0.46–0.50 vs
+`KEEP` 0.44–0.46) and `find_longest_match` (0.49–0.56 vs `KEEP` 0.40–0.47),
+with `KEEP` at the other three functions. The last two are near-ties. Over
+the rounds the rate rises in every run as the history of losses
+accumulates. By rounds 3–5, `zopfli-jev-r2` answered `KEEP_DEFAULT` at every
+site in both phases. Its last three plans (`ZopfliHash::update
+inline_always` + `index.rs:184 unroll_count_4`, with round 3 also carrying
+one exploration pick, `squeeze.rs:325 unroll_disable`) exist only because
+`forced_top1` builds one hint per all-`KEEP` phase. **So Jev's own answers
+reached "keep the baseline" in 1 of 3 runs (jev-r2, from round 3), and in
+0 of 3 runs in round 1.** In all 15 Jev rounds the driver built a non-empty
+plan. `forced_top1` plus `--explore 2` make an all-`KEEP` round impossible
+by construction (`docs/search-driver.md`). The baseline survived in every
+run because the speed gate rejected every plan, not because Jev proposed
+it.
+
+#### 169.5 Random's picks
+
+The random proposer drew non-`KEEP` answers at 2–5 of the 6 function marks
+and 0–3 loops per round. **It drew an oracle-harmful arm in 2
+of 15 rounds.** `zopfli-rand-r0` round 1 carried `squeeze.rs:275
+unroll_count_8` (oracle −8.3% / −8.4%) together with six other hints and
+measured **0.9429 [0.9410, 0.9453], confirmation 0.9427** (sign −). The speed gate
+rejected it, as it should.
+`zopfli-rand-r2` round 3 drew the same arm, `squeeze.rs:275
+unroll_count_8`, together with `inline_always` on three functions,
+`squeeze.rs:325 unroll_count_2` and `index.rs:184 vectorize_width_8`. It
+measured **0.8803 [0.8785, 0.8820], confirmation 0.8786** (sign −; json
+0.8453, text 0.8573). That is a −12% plan, the worst of the study, and the gate rejected it
+too. `zopfli-rand-r1` touched `squeeze.rs:275` twice, with
+`vectorize_width_8` (round 2) and `vectorize_width_2` (round 3), both
+identical to the baseline in the oracle. Random's round ratios:
+`zopfli-rand-r0` 0.9429 / 0.9908 / 0.9727 / 0.9702 / 0.9882,
+`zopfli-rand-r1` 0.9712 / 0.9978 / 0.9768 / 0.9646 / 0.9739, `zopfli-rand-r2` 0.9787 / 0.9779 / 0.8803 / 0.9801 / 0.9805.
+Plans beyond −3% in both batches: `zopfli-rand-r0` round 1 and
+`zopfli-rand-r1` round 4 (0.9646 / 0.9631), and `zopfli-rand-r2` round 3 (0.8803 / 0.8786). That is 3 of 15, and two of the three carry the harmful arm.
+
+Jev built 6 such plans of 15: `zopfli-jev-r0` rounds 2/3/4
+(0.9656 / 0.9664, 0.9681 / 0.9685, 0.9684 / 0.9662), `zopfli-jev-r1` rounds
+2/3 (0.9669 / 0.9647, 0.9657 / 0.9640) and `zopfli-jev-r2` round 2 (0.9689 /
+0.9675). All six carry `lz77::find_longest_match inline_always` (oracle
+−2.0%), and all six also carry an unroll at `lz77.rs:530` (and in four of
+them at `lz77.rs:563` too), loop keys taken under a changed inlining context that the
+oracle never timed together. The product of the oracle's single-arm round
+ratios predicts 0.9783 (jev-r0 r2/r4, jev-r2 r2: 0.9799 × 0.9943 ×
+1.0041), 0.9742 (jev-r0 r3), 0.9695 (jev-r1 r2) and 0.9657 (jev-r1 r3).
+The measured values are equal to that or up to 1.3 pt worse. Those oracle
+arms were timed under the baseline's inlining, not under these plans'
+inlining. None contains an
+oracle-harmful arm.
+
+#### 169.6 Jev nondeterminism (decision 94/96(e))
+
+Round-1 requests carry an empty history. **For every pair of Jev runs, all
+round-1 requests are byte-identical**: A, A.explore and B, with the same
+`request_sha256` in all three `jev-log/<run>.jsonl`. Round 1 had no
+B.explore request (one loop site, forced). From round 2 on, every request
+differs across runs, because the history differs (measured ratios), so no
+later pair is on identical input.
+
+| round-1 phase | pair | identical | questions | max \|ΔP\| (where) | argmax flips |
+|---|---|---|--:|---|--:|
+| A | r0–r1 | yes | 6 | 0.07 (`get_best_lengths`, `KEEP`) | 0 |
+| A | r0–r2 | yes | 6 | 0.07 (`lz77_optimal`, `KEEP`) | 0 |
+| A | r1–r2 | yes | 6 | 0.07 (`get_best_lengths`, `KEEP`) | 0 |
+| A.explore | r0–r1 | yes | 2 | 0.06 (`get_best_lengths`, `inline_always`) | 0 |
+| A.explore | r0–r2 | yes | 2 | 0.03 | 0 |
+| A.explore | r1–r2 | yes | 2 | 0.03 | 0 |
+| B | r0–r1 | yes | 1 | 0.02 | 0 |
+| B | r0–r2 | yes | 1 | 0.01 | 0 |
+| B | r1–r2 | yes | 1 | 0.02 | 0 |
+
+**0 argmax flips in 27 compared answers; max |ΔP| 0.07.** That is smaller
+than hintbench's 0.10 and one flip (exp6.md §4). The two argmax near-ties
+(`ZopfliHash::update`, margin 0.01–0.06, and `find_longest_match`, margin
+0.02–0.16) held in all three runs. **The plan still differed.** Phase B was
+all-`KEEP` (P 0.83–0.85), so `forced_top1` built the best non-`KEEP`
+candidate at `index.rs:184`. That was `unroll_count_4` in r0 (0.07 vs
+`unroll_count_2` 0.05) and r2 (0.08 vs 0.05), but a tie in r1 (0.07 / 0.07)
+went to `unroll_count_2`. So r0 and r2 built plan `5ed127e9…` and r1 built
+`ebad178d…`. A 0.02 move on a secondary probability changed the built plan
+with no argmax flip. The measured cost of that difference is small (0.9826
+/ 0.9825 vs 0.9832).
+
+Measurement-only component, for decision 96(d): the same `bin_sha256`
+measured in different batches gave the following.
+* `3a7068aa…` (jev-r0 r1, jev-r2 r1): 0.9826 / 0.9825.
+* `6469d3a8…` (jev-r0 r2, jev-r0 r4, jev-r2 r2): 0.9656 / 0.9684 / 0.9689,
+  a 0.33 pt spread. jev-r0 r4's plan differs from r2's only by
+  `lz77_optimal_run inline_always`, which the oracle found identical.
+* `25e9dca2…` (jev-r2 r3/r4/r5): 1.0001 / 0.9974 / 0.9964, 0.37 pt.
+* `f7d611dd…` (rand-r0 r3, rand-r1 r5): 0.9727 / 0.9739.
+* `5a5b95ae…` (jev-r1 r4/r5): 0.9967 / 0.9895. r4's batch was disturbed
+  (MDE 6.58%, A/A 1.0076 ±0.0104).
+
+The k5 argv0 mode of hintbench does not apply here (decision 99, NULL on
+zopfli). Every batch was taken at class 96: `argv0.class` and
+`confirm.argv0.class` are 96 on all 30 rows, `status: measured` on all 30,
+and every holdout is at class 96, so no batch was `measure-failed`.
+
+**In-run A/A.** Over the round and confirmation batches, the aa aggregate
+CI excluded 1 in 4 of 28 Jev batches (jev-r0 r3 0.9979; jev-r1 r3 1.0019 and
+r4 1.0076; jev-r2 r1 1.0020) and in 2 of 29 random batches (rand-r0 r3/r4
+confirmations 0.9986 / 0.9984; rand-r2 0 of 10). All of these are within ±0.8%.
+Batches with MDE above 3% were: jev-r1 r4 (6.58%), rand-r0 r5 (6.67%) and
+rand-r1 r5's confirmation (12.76%); rand-r2 had none, plus the holdouts in 169.2. No
+verdict depends on any of them, because none was accepted and none is a
+representative.
+
+#### 169.7 Gateway
+
+§167's gateway rule makes a run invalid if it loses more than 2 of its 10
+main-phase requests. **No Jev run lost any request**: all 14 requests of
+each run landed, with 0 exhausted, 0 lost phases and 0 lost rounds. All
+three Jev runs are valid and no `-b` rerun was owed. Figures from
+`run-manifest.json` `gateway`:
+
+| run | A req / attempts / mean bytes | B req / attempts / mean bytes | explore req / attempts / mean bytes | total attempts | seconds waiting |
+|---|---|---|---|--:|--:|
+| `zopfli-jev-r0` | 5 / 61 / 57 580 | 5 / 42 / 42 463 | 4 / 5 / 18 584 | 108 | 188.5 |
+| `zopfli-jev-r1` | 5 / 23 / 57 581 | 5 / 37 / 38 766 | 4 / 12 / 18 614 | 72 | 117.6 |
+| `zopfli-jev-r2` | 5 / 65 / 57 578 | 5 / 65 / 44 482 | 4 / 4 / 18 575 | 134 | 238.9 |
+| total | 15 / 149 | 15 / 144 | 12 / 21 | 314 | 545.0 |
+
+The largest attempt counts per request were jev-r0 round 4 A (25) and
+round 5 B (29), and jev-r2 round 5 B (41), all within the 200-attempt /
+600 s budget. Random runs make no requests (`gateway: null`).
+
+#### 169.8 Cost
+
+| | jev-r0 | jev-r1 | jev-r2 | total |
+|---|--:|--:|--:|--:|
+| HTTP requests (landed) | 14 | 14 | 14 | 42 |
+| Choice questions | 55 | 53 | 56 | 164 |
+| latency total / max | 24.2 s / 2250 ms | 29.3 s / 2826 ms | 27.9 s / 3047 ms | 81.4 s |
+| tokens in / out | 189 860 / 4 735 | 184 206 / 4 420 | 192 948 / 4 865 | 567 014 / 14 020 |
+| cost | $0.00 | $0.00 | $0.00 | $0.00 |
+| Jev share of wall clock | 0.70% | 0.95% | 0.84% | --- |
+
+(Source: `run-manifest.json` `jev_totals` and each `summary.md`. The
+503 wait time is in 169.7 and is not included in latency.) The total of
+42 requests is within §167's cap of ≤ 75. Wall clock was 48–58 min per run
+(table above), over §167's structural floor estimate of "30–50 min of
+timing alone". The six runs took 19 005.8 s = 5.28 h of `wall_s`, and 06:37:08–11:53:56 elapsed h in total.
+
+#### 169.9 Deviations
+
+* **`best-plan.json` does not exist in any of the six run directories.**
+  Every `summary.md` still says "`best-plan.json` is a copy of it". When the
+  best is the baseline (`plan: null`), the driver writes no file and the
+  summary text is wrong. This is recorded as a driver inconsistency and was
+  not patched. Nothing was copied for it; the baseline-kept best is in each
+  manifest's `best` field.
+* The holdout batches are null arms (169.2), and three of them were
+  disturbed (MDE 8.9–18.3%).
+* Nothing was re-run, and no run was added after the results were seen
+  (optional stopping, §167).
+* None of the six runs needed a `-b` rerun, a resume or a manual intervention.
+
+#### 169.10 Verdict
+
+* **Representatives: Jev 1.0000 / 1.0000 / 1.0000, random 1.0000 / 1.0000 /
+  1.0000. Not resolved at n=3.** Both arms have median 1.0000 and range [1.0000, 1.0000]. The difference is 0 pt, the ranges coincide, and the MDE is 3%.
+* **Flat, but not correct no-ops from Jev.** Jev proposed non-`KEEP` hints
+  in every round. 14 of its 15 plans measured slower than the baseline
+  (0.9656–0.9974), and the 15th read 1.0001 with its CI across 1.
+  6 of the 15 lost more than 3% in both batches. The baseline was kept 3/3
+  because the acceptance gate rejected every plan. Jev's hints were the
+  oracle's known sub-MDE losses, above all `find_longest_match
+  inline_always`, the same pick in round 1 of every run. Jev drifted toward
+  `KEEP_DEFAULT` as its history filled (KEEP at flat sites 71% / 77% / 91%),
+  and reached an all-`KEEP` answer set in 1 of 3 runs (jev-r2, rounds 3–5).
+* **(a) void. (b) 3/3 vacuously; 0/15 Jev built plans contain a harmful
+  arm. (c) 80% `KEEP` at flat sites (12/21 in round 1).** Random drew the
+  harmful `squeeze.rs:275 unroll_count_8` twice (rand-r0 r1, 0.9429; rand-r2
+  r3, 0.8803), and the gate rejected both.
+* **Nondeterminism:** round-1 requests were byte-identical across all three
+  pairs, with max |ΔP| 0.07 and 0 argmax flips. A 0.07/0.07 tie on a
+  secondary probability changed the forced pick and hence the built plan
+  in 1 of 3 runs.
+* **Not established:** any Jev-vs-random difference in outcome, and
+  whether Jev finds a good hint on zopfli where one exists. None is reachable
+  in this vocabulary and site set (§168: ceiling +1.8%, under the MDE).
+  Also not established: anything about `cache.rs:108`, which lies outside
+  this site set.
