@@ -137,6 +137,120 @@ Q2_LEVELS = [
     "program's speed.",
 ]
 
+# ---------------------------------------------------------------------------
+# phase 3 (results.md 176.8): verdict lines (M1), per-case questions (M2),
+# a uniform criteria block (M3), and their combinations (M4 = M1+M3,
+# M5 = M1+M2+M3). All on the v2 state; texts identical for every function.
+# ---------------------------------------------------------------------------
+
+OWN_CRATES = {"jaq": ("jaq", "jaq_json", "jaq_core", "jaq_std", "jaq_all"),
+              "zopfli": ("zopfli",), "hintbench": ("hbkernels", "hintbench")}
+P3_VERDICT_PREAMBLE = (
+    "Mechanical readings for this function. Each line is produced by a tool "
+    "from the table in the state, by the same rule for every function in "
+    "this request; none of them is an opinion about whether to mark it.")
+M3_CRIT = {
+    "mark": ("Mark this function. A function attribute can change the "
+             "program's speed only if the function is called (not inlined) "
+             "or is inlined at a call with constant arguments; loop metadata "
+             "can change it only if a machine-code loop survives LTO."),
+    "skip": ("Do not mark this function. Neither condition holds for it: it "
+             "is not called and not inlined at a call with constant "
+             "arguments, and no machine-code loop of it survives LTO; it "
+             "will never be touched."),
+}
+M2_PREFIX = "For the `{case}` workload only. "
+P3_VARIANTS = ("M1", "M2", "M3", "M4", "M5")
+
+
+def p3_parts(q):
+    """'M5@strproc' -> ('M5', 'strproc'); 'M1' -> ('M1', None)."""
+    v, _s, case = q.partition("@")
+    return v, (case or None)
+
+
+def p3_expand(target, qs):
+    """M2 / M5 become one question set per case."""
+    out = []
+    for q in qs:
+        if q in ("M2", "M5"):
+            out += ["%s@%s" % (q, c) for c in CASES.get(target, [])]
+        else:
+            out.append(q)
+    return out
+
+
+def p3_ranks(b):
+    rows = b["rows"]
+    alpha = {d["name"]: i for i, d in enumerate(rows)}
+    rr = sorted(rows, key=lambda d: (-d["reach_train"], alpha[d["name"]]))
+    sr = sorted(rows, key=lambda d: (-(d["self_train"] or 0.0),
+                                     alpha[d["name"]]))
+    def comp(order, key):        # competition ranking: ties share a rank
+        out, prev, rank = {}, None, 0
+        for i, d in enumerate(order, 1):
+            v = key(d)
+            if v != prev:
+                rank, prev = i, v
+            out[d["name"]] = rank
+        return out
+    return (comp(rr, lambda d: d["reach_train"]),
+            comp(sr, lambda d: d["self_train"] or 0.0))
+
+
+def p3_verdict_lines(b, d, ranks):
+    target = b["target"]
+    rr, sr = ranks
+    M = len(b["rows"])
+    own = OWN_CRATES[target]
+    lines = []
+    be = d.get("backedges")
+    lines.append("machine-code loops after LTO: %s" % (
+        "unknown (none of its code is in a sampled symbol)" if be is None
+        else ("yes (%d backward jumps)" % be if be > 0
+              else "no (0 backward jumps)")))
+    hosts = d.get("hosts") or 0
+    if d["own_symbol"]:
+        called = ("yes" if hosts <= 1 else
+                  "yes, and copies are also inlined into %d other symbols"
+                  % (hosts - 1))
+    else:
+        called = "no (its code is inlined into %d symbols)" % hosts
+    lines.append("called, not inlined: %s" % called)
+    lines.append("own symbol in the final binary: %s"
+                 % ("yes" if d["own_symbol"] else "no"))
+    crate = d.get("crate") or "?"
+    from_other = crate not in own
+    on_ours = any(("%s::" % c) in d["name"] for c in own)
+    lines.append("generic from another crate instantiated inside this "
+                 "program's LTO unit: %s" % (
+                     "yes" if from_other and on_ours else "no"))
+    if d.get("per_case"):
+        lines.append("share of cycles per case (reach): " + ", ".join(
+            "%s %.1f%%" % (c, d["per_case"][c]) for c in CASES[target]))
+    else:
+        lines.append("share of cycles per case (reach): not measured")
+    lines.append("reach rank: %d of %d" % (rr[d["name"]], M))
+    lines.append("self-time rank: %s" % (
+        "%d of %d" % (sr[d["name"]], M) if d["self_train"] is not None
+        else "not measured"))
+    return lines
+
+
+def p3_question(b, d, q, ranks):
+    v, case = p3_parts(q)
+    instr = Q1_INSTR.format(fid=d["id"], name=cut(d["name"], NAME_CAP_Q))
+    if case:
+        instr = M2_PREFIX.format(case=case) + instr.replace(
+            "Decide whether to mark it.",
+            "Decide whether to mark it for this workload.")
+    if v in ("M1", "M4", "M5"):
+        instr += ("\n\n" + P3_VERDICT_PREAMBLE + "\n" + "\n".join(
+            "  - " + l for l in p3_verdict_lines(b, d, ranks)))
+    crit = dict(M3_CRIT) if v in ("M3", "M4", "M5") else dict(Q1_CRIT)
+    return {"type": "choice", "instructions": instr, "criteria": crit}
+
+
 STATE_HEAD = """\
 # Profile of the program `{target}`
 
@@ -504,6 +618,13 @@ def render_state_v1(b):
 
 def questions(b, q):
     out, site_map = {}, {}
+    if p3_parts(q)[0] in P3_VARIANTS:
+        ranks = p3_ranks(b)
+        for d in b["rows"]:
+            qn = "%s_%s" % (q.lower().replace("@", "_"), d["id"])
+            out[qn] = p3_question(b, d, q, ranks)
+            site_map[qn] = {"site_id": d["name"], "fid": d["id"], "q": q}
+        return out, site_map
     for d in b["rows"]:
         if q == "Q3" and d.get("rule") != "gray":
             continue
@@ -543,7 +664,9 @@ def build_requests(b, q):
 
 def all_request_text(b):
     parts = [render_state(b)]
-    for q in ("Q1", "Q2") + (("Q3",) if b.get("input_set") == "v2" else ()):
+    extra = (("Q3",) + tuple(p3_expand(b["target"], P3_VARIANTS))
+             if b.get("input_set") == "v2" else ())
+    for q in ("Q1", "Q2") + extra:
         qs, _ = questions(b, q)
         for qq in qs.values():
             parts.append(qq["instructions"])
@@ -562,6 +685,8 @@ def leak_report(b):
         if d.get("crate"):
             txt = txt.replace("| %s |" % d["crate"], "| <crate> |")
     txt = txt.replace("`%s`" % b["target"], "`<target>`")
+    for c in CASES.get(b["target"], []):
+        txt = txt.replace("`%s`" % c, "`<case>`")
     return leak_check(txt)
 
 
@@ -629,7 +754,7 @@ def cmd_run(a):
             print("[resume] %d landed requests" % len(landed))
         t0 = time.time()
         for rep in range(1, a.repeats + 1):
-            for q in a.questions:
+            for q in p3_expand(target, a.questions):
                 for req in build_requests(b, q):
                     if (rep, req["tag"]) in landed:
                         continue
@@ -650,8 +775,9 @@ def cmd_run(a):
 
 def jev_answers(path, repeats):
     """{rep: {"Q1": {name: P(mark)}, "Q2": {name: score}}}"""
-    out = {r: {"Q1": {}, "Q2": {}, "Q3": {}, "requests": 0,
-               "questions": collections.Counter()}
+    out = {r: collections.defaultdict(dict, {
+        "Q1": {}, "Q2": {}, "Q3": {}, "requests": 0,
+        "questions": collections.Counter()})
            for r in range(1, repeats + 1)}
     for line in open(path):
         rec = json.loads(line)
@@ -664,7 +790,7 @@ def jev_answers(path, repeats):
             a = ans.get(qn)
             if not a:
                 continue
-            if sm["q"] in ("Q1", "Q3"):
+            if sm["q"] != "Q2":
                 out[rec["round"]][sm["q"]][sm["site_id"]] = float(
                     (a.get("probabilities") or {}).get("mark", 0.0))
             else:
@@ -823,6 +949,32 @@ def cmd_score(a):
                 n for n in names if rule[n] == "mark"]
             sets["hybrid rule + all gray marked"] = [
                 n for n in names if rule[n] in ("mark", "gray")]
+        # 176.8 phase 3: M1/M3/M4 = P > 0.5; M2/M5 = union over cases
+        keys = sorted({k for r in ans for k in ans[r]
+                       if p3_parts(k)[0] in P3_VARIANTS and ans[r][k]})
+        for v in P3_VARIANTS:
+            vk = [k for k in keys if p3_parts(k)[0] == v]
+            if not vk:
+                continue
+            for rep_ in ans:
+                sel = set()
+                for k in vk:
+                    pk = ans[rep_][k]
+                    cs = {n for n in names if pk.get(n, 0.0) > 0.5}
+                    if p3_parts(k)[1]:
+                        sets["%s %s r%d" % (v, p3_parts(k)[1], rep_)] = [
+                            n for n in names if n in cs]
+                    sel |= cs
+                sets["%s r%d" % (v, rep_)] = [n for n in names if n in sel]
+            sel = set()
+            for k in vk:
+                mp = {n: statistics.median(ans[r][k].get(n, 0.0)
+                                           for r in ans) for n in names}
+                sel |= {n for n in names if mp[n] > 0.5}
+                for n in names:
+                    res["per_function"].setdefault(n, {})["P_" + k] = [
+                        ans[r][k].get(n) for r in sorted(ans)]
+            sets["%s medP" % v] = [n for n in names if n in sel]
         res["requests"] = {r: {"requests": ans[r]["requests"],
                                "questions": dict(ans[r]["questions"])}
                            for r in ans}
@@ -844,17 +996,23 @@ def cmd_score(a):
         sets["Claude marks"] = [n for n in names
                                 if strip_generics(n) in
                                 {strip_generics(m) for m in b["marks"]}]
+        refs = set()
+        for k in ("top-N reach", "top-N self", "90%-reach rule",
+                  "Claude marks"):
+            refs |= {strip_generics(x) for x in sets.get(k, [])}
         for k, s in sets.items():
             res["arms"][k] = dict(metrics(target, b, s, cov), members=s)
+            res["arms"][k]["false"] = sorted(
+                x for x in {strip_generics(y) for y in s} if x not in refs)
         for n in names:
             d = next(x for x in b["rows"] if x["name"] == n)
-            res["per_function"][n] = {
+            res["per_function"].setdefault(n, {}).update({
                 "id": d["id"],
                 "reach_rank": by_reach.index(n) + 1,
                 "rule": rule.get(n),
                 "P_mark": [ans[r]["Q1"].get(n) for r in sorted(ans)],
                 "P_mark_Q3": [ans[r]["Q3"].get(n) for r in sorted(ans)],
-                "score": [ans[r]["Q2"].get(n) for r in sorted(ans)]}
+                "score": [ans[r]["Q2"].get(n) for r in sorted(ans)]})
         out["targets"][target] = res
     json.dump(out, open(a.out, "w"), indent=1)
     print("wrote", a.out)
@@ -891,7 +1049,7 @@ def write_report(out, inp, path):
         L += ["## %s (N = %d, %d functions listed)" % (target, res["N"],
                                                         b["n_listed"]), ""]
         L += ["| arm | size | overlap | positives | extra | harmful | "
-              "coverage |", "|---|--:|--:|--:|--:|--:|--:|"]
+              "false | coverage |", "|---|--:|--:|--:|--:|--:|--:|--:|"]
         groups = collections.OrderedDict()
         for k in arms:
             g = re.sub(r" r\d+$", "", k)
@@ -904,19 +1062,20 @@ def write_report(out, inp, path):
                 cs = (" - " if "all_lo" in ck else " / ").join(
                     _med([c[x] for c in covs], "%.1f") for x in ck) + "%"
                 L.append("| %s (3 repeats: median (range)) | %s | %s | %s | "
-                         "%s | %s | %s |" % (
+                         "%s | %s | %s | %s |" % (
                              g, _med([m["size"] for m in ms], "%d"),
                              _med([m["overlap"] for m in ms]),
                              _med([m["pos"] for m in ms]),
                              _med([len(m["pos_extra"]) for m in ms], "%d"),
                              _med([len(m["harm_hit"]) for m in ms], "%d"),
+                             _med([len(m["false"]) for m in ms], "%d"),
                              cs))
             else:
                 m = ms[0]
-                L.append("| %s | %d | %.2f | %.2f | %d | %d | %s |" % (
+                L.append("| %s | %d | %.2f | %.2f | %d | %d | %d | %s |" % (
                     g, m["size"], m["overlap"], m["pos"],
                     len(m["pos_extra"]), len(m["harm_hit"]),
-                    _cov_str(m["cov"])))
+                    len(m["false"]), _cov_str(m["cov"])))
         L.append("")
         pf = res["per_function"]
         L += ["Per function (reach rank, P(mark) and Score per repeat), "
@@ -948,7 +1107,7 @@ def main():
     sub.add_parser("build")
     r = sub.add_parser("render")
     r.add_argument("target", choices=sorted(TARGETS))
-    r.add_argument("q", choices=("Q1", "Q2", "Q3"))
+    r.add_argument("q")
     r.add_argument("--full", action="store_true")
     ru = sub.add_parser("run")
     ru.add_argument("--targets", nargs="+", default=list(TARGETS))

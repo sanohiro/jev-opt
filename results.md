@@ -14993,3 +14993,78 @@ No phase lost. Latency of landed requests 0.9-2.4 s.
 the jaq (d) column prints lower-upper bounds (the report script first
 printed them as "lo / hi" like zopfli's training / holdout; fixed before
 this section was written, numbers unchanged).
+
+#### 176.8 Amendment (owner via coordinator, 2026-09-24 21:40): phase 3, verdict lines and per-case questions
+
+Registered after 177 was written and **before any phase-3 request**. API
+only. Same v2 state (176.7), same list, ids, floor and metrics; logs
+`ms3-*`; `scripts/jev_marks_study.py --inputs v2 run --run-prefix ms3
+--questions ...`.
+
+**Why.** Decisions 73 / 84: Jev followed mechanical readings placed next to
+the question (not in the state) and balanced option texts, where it ignored
+the same facts in the state. Goal: rescue the functions Claude marked and
+Jev (v2 Q1) dropped --- jaq `Val::hash` (P 0.45) and the per-workload picks
+(`Rc<IndexMap>::drop_slow`, `Adapter::write_str`, `<&String as
+Display>::fmt`, `base_run::{closure#7}`) --- without adding marks outside
+every reference set, and with no per-function judgement text.
+
+**Variants** (all Choice mark / skip, one question per listed function, the
+Q1 instruction text as the base):
+
+* **M1 verdict lines**: the Q1 question plus a fixed block (preamble: "Mechanical
+  readings for this function. Each line is produced by a tool from the table
+  in the state, by the same rule for every function in this request; none of
+  them is an opinion about whether to mark it.") with exactly these lines,
+  from the v2 facts: `machine-code loops after LTO: yes (N backward jumps)` /
+  `no (0 backward jumps)` / `unknown (…)`; `called, not inlined: yes` /
+  `yes, and copies are also inlined into K other symbols` / `no (its code is
+  inlined into K symbols)` (from own symbol + `hosts`); `own symbol in the
+  final binary: yes/no`; `generic from another crate instantiated inside this
+  program's LTO unit: yes/no` (yes = the name's crate is not one of the
+  program's own crates and the name contains `<own crate>::`; own crates:
+  jaq `jaq, jaq_json, jaq_core, jaq_std, jaq_all`, zopfli `zopfli`,
+  hintbench `hbkernels, hintbench`); `share of cycles per case (reach): …`
+  (per-case reach of the v2 table; hintbench "not measured"); `reach rank: r
+  of M`; `self-time rank: r of M` (training values, competition ranking,
+  ties share a rank; hintbench self "not measured"). The self-time rank is
+  added to the coordinator's list because it is the ranking under which
+  `Val::hash` is visible (rank 13); it is the same mechanical line for every
+  function.
+* **M2 per-case questions**: the Q1 question prefixed "For the `<case>`
+  workload only." and "Decide whether to mark it for this workload.", one
+  question set per case (jaq objsearch / readwrite / strproc, zopfli binary /
+  json / text; not applicable to hintbench, which has no per-case data).
+  Readout = union over cases of P > 0.5; per-case sets are reported too.
+* **M3 uniform criteria**: the option texts become (lengths 214 / 229
+  characters): mark = "Mark this function. A function attribute can change
+  the program's speed only if the function is called (not inlined) or is
+  inlined at a call with constant arguments; loop metadata can change it only
+  if a machine-code loop survives LTO."; skip = "Do not mark this function.
+  Neither condition holds for it: it is not called and not inlined at a call
+  with constant arguments, and no machine-code loop of it survives LTO; it
+  will never be touched."
+* **M4** = M1 + M3. **M5** = M1 + M2 + M3.
+
+**Plan and order** (sequential, one sender, `--resume`, 60 KB chunks as
+before): first M1, M3, M4 on hintbench, zopfli, jaq (3 repeats; jaq 17
+requests per repeat), then M2 on zopfli, jaq (jaq 12 per repeat), then M5
+(jaq 21 per repeat) "if budget allows": M5 is sent only if the gateway
+landed M1-M4 and M2 without a lost request; if it is cut, 178 says so.
+About 150 jaq requests in total at ~60 KB (v2 needed ~20 attempts each).
+
+**Readouts and metrics**: as 176.3 / 176.5 (median over 3 repeats; set from
+the median P), plus **false marks** = selected functions (generic-stripped)
+that are in **no** reference set (top-N reach, top-N self, 90% rule,
+Claude's marks). This is a proxy: the oracle measured only Claude's marks,
+so "false" means "outside every reference", not "measured worthless".
+Reference values computed with the same code on the v2 data before this
+amendment: v2 Q1 false marks jaq 10 (9-10 per repeat), zopfli 3, hintbench 0.
+
+**Success rule per variant** (fixed now): a variant **rescues** if its
+median-P set contains `Val::hash` (jaq (b) 2/2) **or** raises jaq (a) above
+v2 Q1's 0.67, **while** jaq false marks <= 10, zopfli (a) = 1.00 with (b)
+1/1, and hintbench (M1/M3/M4) keeps k2, k3, k8. `Val::hash`'s P per repeat
+is reported for every variant. A variant that rescues is proposed as the
+Choice text of `--marks-by jev` in decision 108's addendum; otherwise 108
+stands unchanged.
