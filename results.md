@@ -14621,3 +14621,151 @@ the residual false positives (decision 101).
 * `truth.json` still lists jaq `read::parse` `align_64` as harmful (an
   Oracle A2 v4 arm). v6 has no `align_*` candidates, so it never receives
   probability and does not enter any number above.
+
+### 176. Marks study (API only): can Jev choose the marks from perf? Pre-registration
+
+Written 2026-09-24 before any request of this study was sent. API only: no
+build, no timing, no cargo, no binary run (the only local work is reading
+the perf tables and perf.data already on disk and `nm -S` / `objcopy` on the
+profiled binaries). Script: `scripts/jev_marks_study.py` (`build`, `render`,
+`run`, `score`); logs `artifacts/jev-marks-study/` (copied gzip'd to
+`docs/experiments/jev-marks-study/` at the end).
+
+**Question (owner, 2026-09-24).** The marks (where jev-opt works) are chosen
+today by Claude from perf tables (jaq "Marks (jaq)" 80-86, zopfli 166 and
+`targets/zopfli/jev-marks.rationale.md`). Can Jev do that step from the
+profile data alone, with no hand-written logic, so the pipeline has no
+manual point? Reference = Claude's marks; truth = where the oracles found
+an effect.
+
+#### 176.1 Inputs, uniform per function
+
+| target | table (on disk) | binary (`.text` sha256 checked) | listed | N (Claude's marks) |
+|---|---|---|--:|--:|
+| jaq | `artifacts/jaq-marks/perf-{self,inline}.tsv` (the tables "Marks (jaq)" 82-85 cite; one recording of all six workloads; the perf.data files were not kept, 86) | `target-jaq-pgo-use/.../jaq` `642dd55e…` | 124 | 15 |
+| zopfli | `artifacts/zopfli-marks/perf-{self,inline}-{train,hold}.tsv` (+ the six `*.data` for union coverage) | `target-zopfli-sites-base/.../zopfli` `9aca86fc…` | 26 | 6 |
+| hintbench | none: 8 kernels, 12.5% each by construction (`targets/hintbench/jev-marks.txt` header) | `target-hintbench-pgo-use/.../hintbench` `df5968bc…` | 8 | 8 |
+
+* **One row per row of the inline table** (one source function, generic
+  instantiations and closures are separate rows, as `perf_hotness.py`
+  writes them). No merging, no crate filter, no entry-glue skip (none of
+  `main` / `lang_start` reaches the floor on either target).
+* **List floor** (mechanical, for request size): a row is listed if its
+  reach is >= 1.0% in the training or the holdout set. This keeps every
+  one of Claude's marks and every oracle-positive function on both targets
+  (checked by `build`: `missing none`), so overlap is not capped by
+  construction. jaq 124 rows listed (1553 below the floor), zopfli 26 (459).
+* **Excluded**: rows in C (`lang c` in the self table, or a name without
+  `::` / `<`: jaq's 14 mimalloc rows at >= 1%), because a plugin has no IR
+  to put a hint on (86). Said in the state in one sentence.
+* **Fields** (the same sentence for every row): id (`F001`... in
+  alphabetical order of the name, not by hotness), demangled name (cut at
+  300 characters with `…`, uniform), self % training / holdout, reach %
+  training / holdout, own symbol yes/no (`nm -C` of the profiled binary has
+  a text symbol of exactly that name), size (bytes of those symbols, `-` if
+  none). **Call counts: not given** (no call graphs on this machine,
+  decision 59), stated in the state. jaq's training / holdout values are the
+  equal-weight means of the three per-case columns (its table has one
+  aggregate over all six workloads); zopfli's are the tables' own
+  summed-period aggregates per set. hintbench: reach 12.5% in both sets,
+  self `-` ("not measured"), own symbol and size from `nm` (only `k2_mix`
+  and `k6_hot_loop` have one).
+* **Not in the state**: Stage 0, oracle, sites, candidates, Claude's marks,
+  N, any hint name, any measured speed. The state header says what the
+  program is (Rust, opt-level 3, native, fat LTO, 1 CGU, PGO), that a hint is
+  a function attribute or loop metadata, how the profile was taken and what
+  the columns mean. `leak_check()` greps the rendered state and questions
+  (with the function names blanked) for hint names, oracle / Stage 0 /
+  Claude / marks-file words and `+digit`; all three targets are clean
+  before sending.
+
+#### 176.2 Questions (fixed texts, identical for every function)
+
+* **Q1** (Choice, one question per listed function): "Function {id} of the
+  table in the state (`{name}`). Decide whether to mark it. A marked
+  function is one where a compiler hint (function attribute or loop
+  metadata on its loops) could plausibly change the program's speed;
+  unmarked functions are never touched." Options `mark` / `skip`.
+* **Q2** (Score, one question per listed function, 5 ordered levels "Very
+  unlikely" ... "Very likely"): "... How likely is a hint on this function
+  to change the program's speed? A hint is a compiler hint on this
+  function: a function attribute, or loop metadata on its loops." Read out
+  as the API's probability-weighted `score`.
+* The state is the whole table; the questions are split into chunks so each
+  request body is <= 60 000 bytes (the study-2 size at which requests
+  landed, 174 deviation), every chunk carrying the same full state. Plan:
+  jaq Q1 3 chunks, Q2 3 chunks; zopfli and hintbench 1 each. **Each request
+  is sent 3 times** (decision 94): 3 x (6 + 2 + 2) = **30 requests**.
+  Retry policy and logging are `jev_search.JevClient` (as study 2: 200
+  attempts / 600 s per request, fixed 2 s pause, up to 2 re-sends).
+
+#### 176.3 Readouts (per repeat; then median over the 3 repeats)
+
+* **Jev Q1** = {functions with P(mark) > 0.5} (its size M is Jev's; it is
+  not forced to N). Secondary: **Q1-top** = top N by P(mark).
+* **Jev Q2** = top N by Score. Ties (both readouts) are broken by list
+  order (alphabetical), never by hotness.
+* Also reported: the sets from the per-function median over the 3 repeats
+  (median P > 0.5; top N by median Score), and the per-repeat churn.
+
+#### 176.4 Controls (mechanical)
+
+* **top-N reach**: top N by training reach.
+* **top-N self**: top N by training self.
+* **90%-reach rule** (zopfli only): the rationale 1 walk (training reach
+  order; add until the union covers >= 90% of in-binary training cycles),
+  union computed exactly from the six perf.data files with
+  `perf_hotness.py`'s own resolution. No existence gate (the plugin's view
+  is not an input to any arm; `HashThing::update`, which the gate removed
+  from Claude's marks, stays listed and is footnoted wherever it is picked).
+  **jaq: not applicable** (22.9% of in-binary cycles are mimalloc, so 90%
+  is unreachable, and the perf.data needed for a union is gone).
+  hintbench: every control is all 8 (equal shares).
+
+#### 176.5 Metrics (for every Jev readout and every control)
+
+* **(a) overlap** = |Claude's marks hit| / N. A selected row hits mark M if
+  its name with the depth-0 `::<…>` groups removed equals M's (so either
+  instantiation of `write_until` or `seq` hits the mark; a closure row does
+  not hit its parent).
+* **(b) oracle-positive coverage** (same hit rule): jaq `Val::hash`
+  (`inline(always)` +4.5%) and `write_until` (`inline(always)` +1.5 / +2.2%
+  under MDE v2), 2 functions; zopfli `lz77_optimal` (owns `squeeze.rs:325`,
+  +1.3%), 1 function, and **separately** `find_longest_match_loop` (owns
+  `lz77.rs:563`, +0.5%, below the MDE); hintbench k2, k3, k8.
+* **(c) oracle-harmful functions covered** (informational): jaq
+  `write_until` (`inline(never)`); zopfli `find_longest_match`,
+  `get_best_lengths`, `lz77_optimal` (owner of `squeeze.rs:275`).
+* **(d) cycles covered**: zopfli the exact union (training / holdout);
+  jaq bounds over the six-workload table, lower = max(sum of self, max
+  reach), upper = min(100, sum of reach) (no perf.data, 86); hintbench
+  12.5% per function.
+* Reported alongside: the reach rank of `write_until` (and of `Val::hash`)
+  in the listed table; functions Jev picked that no control picked and vice
+  versa; the range over repeats; requests, 503s, cost.
+
+#### 176.6 Verdict rule
+
+For each Jev readout (Q1, Q2) separately: Jev **"adds something"** if, on
+**both** jaq and zopfli, the median over the 3 repeats of (b) is >= (b) of
+**every** control available for that target, and the median of (a) is
+>= 0.6. If at least one readout passes, the verdict is "Jev can choose the
+marks" and decision 108 proposes `--marks-by jev` (design only). Otherwise
+the verdict is **"marks are a mechanical rule"**, which is also a valid
+conclusion: the rule needs no Claude judgement either, so it removes the
+manual point too. hintbench is a sanity check only and does not enter the
+verdict: with 8 equal rows and N = 8, Q2 and every control are all 8 by
+construction; only Q1 (does Jev mark every kernel?) is informative.
+
+**Caveats written before the numbers.** Claude's marks were themselves
+chosen by ranking perf tables (jaq by self + a judgement to add the lexer
+children, zopfli by the 90% rule), so (a) mostly measures agreement with
+hotness; **(b) versus the controls is the informative part**. On zopfli
+both positives are in the top 2 of every control, so (b) cannot separate
+Jev from a control there; jaq's `write_until` (self 0, reach 7.5%) and
+`Val::hash` (self 1.2%, reach 1.2%) are the discriminating cases. A tie
+with the controls on (b) passes the rule as written ("Jev matches the
+mechanical rule"); the write-up will say whether it tied or exceeded.
+
+**Deviations** will be recorded here as 176.7 before any request they
+affect.
