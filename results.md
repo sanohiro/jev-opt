@@ -14377,3 +14377,14 @@ requests of repeat 1 had landed and before any further request.
 3. **Resume.** `run --resume` skips a (repeat, variant, tag) request that
    already landed in the target's JSONL, so the relaunch does not re-ask
    what was answered; exhausted lines stay in the JSONL and are not scored.
+4. **jaq sites are batched** (registered 17:25 JST, before any scored jaq
+   request). The relaunched jaq run landed B0 repeat 1 (119 KB) after 52
+   attempts and lost L6 (126 KB) after 142 attempts in 600 s; at that rate
+   jaq alone would take many hours and lose requests. Its JSONL is kept as
+   `aborted2-ps2-jaq.*` and is **not scored**. Every jaq request of every
+   variant (B0 included) is now sent in site batches of at most 40 000
+   state characters, cut by the same rule as the driver's own `_batches`
+   (SPEC.ja.md 6: "split only when the state would be too large"): 3
+   batches of 5 / 8 / 2 function sites, each with the full state header.
+   L10 (one site per request) is unchanged. hintbench and zopfli are not
+   batched (their phase states are 22-54 KB and landed).

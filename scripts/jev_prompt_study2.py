@@ -64,7 +64,11 @@ TARGETS = {
         marks="targets/jaq/jev-marks.txt",
         sites="targets/jaq/sites.json",
         site_set="oracle.selected_keys_top3",
-        baseline_dir="artifacts/jaq-search/jev-r5/baseline", phases="A"),
+        baseline_dir="artifacts/jaq-search/jev-r5/baseline", phases="A",
+        # results.md 173.7 (4): a whole-phase jaq request is 119-126 KB and
+        # did not land; sites are batched the driver's way (`_batches`) at
+        # this state size instead, for every jaq variant alike.
+        batch_chars=40000),
 }
 
 # ---------------------------------------------------------------------------
@@ -793,11 +797,44 @@ def parse_variant(variant):
     return qts, (st[0] if st else "B0")
 
 
+def site_batches(search, phase, items, ctx):
+    cap = TARGETS[search.target].get("batch_chars")
+    if not cap:
+        return [items]
+    overhead = len(S.state_header(ctx, len(items)))
+    out, cur, size = [], [], overhead
+    for it in items:
+        n = len(S.state_section(it, ctx))
+        if cur and size + n > cap:
+            out.append(cur)
+            cur, size = [], overhead
+        cur.append(it)
+        size += n
+    if cur:
+        out.append(cur)
+    return out
+
+
 def build_requests(search, variant, phase):
     """A list of {tag, state, questions, site_map, readout, meta} dicts."""
     items = phase_items(search, phase)
     if not items:
         return []
+    _qts, shape = parse_variant(variant)
+    ctx0 = phase_ctx(search, phase)
+    batches = ([items] if shape == "L10"
+               else site_batches(search, phase, items, ctx0))
+    if len(batches) == 1:
+        return _build_requests(search, variant, phase, items)
+    out = []
+    for bi, b in enumerate(batches):
+        for r in _build_requests(search, variant, phase, b):
+            r["tag"] = r["tag"].replace(phase, "%s.b%d" % (phase, bi), 1)
+            out.append(r)
+    return out
+
+
+def _build_requests(search, variant, phase, items):
     kind = "fn" if phase == "A" else "loop"
     qts, shape = parse_variant(variant)
     ctx = phase_ctx(search, phase)
