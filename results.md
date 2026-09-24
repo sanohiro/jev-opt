@@ -13923,3 +13923,172 @@ the 2.84% cross-check it would stay). The best arm's holdout aggregate
 * The zopfli combination is **not** a confirmed α under v2 as written (round
   batch 0.027 pt short). It is confirmed under the sensitivity readings in
   171.2; which frozen `h` zopfli registers is the owner's choice.
+
+### 172. MDE rule v2 final (aggregate A/A × 2, floor 1%) in the driver; toy verification
+
+**The owner's decision (2026-09-24, "おすすめでなおして", decision 106).**
+MDE rule v2 final: `MDE = max(2 × h, 1%)`, where `h` is the **aggregate
+(geomean) 95% CI half-width of the A/A legs** of the target's registered A/A
+panel on the measured case set (the worst over the panel's identical-binary
+legs), frozen per target before the arms run. A **per-case** claim (e.g.
+hintbench's own-kernel readout) uses `max(2 × that case's A/A half-width,
+1%)`. Effect = round batch and confirmation batch both beyond the MDE on the
+same side (decision 80 (a), §171). Decision 27's 3% policy floor is
+withdrawn. This replaces §171's "worst per-case half-width" reading of `h`
+for aggregate claims: the headline is an aggregate, so its MDE comes from the
+aggregate A/A. Every verdict before this section stands as recorded (v1:
+per-batch `max(2 × worst per-case half-width, 3%)`).
+
+#### 172.1 The v2 MDE per target
+
+Half-widths read from the panels' `stats.json`
+(`aggregate.<leg>.halfwidth`, `per_workload.<leg>.<case>.halfwidth`; worst
+over the A/A legs named), no new timing:
+
+```
+python3 -c "import json; d=json.load(open(P)); print({l: a['halfwidth'] for l, a in d['aggregate'].items()})"
+```
+
+| target / case set | registered A/A panel (legs) | aggregate A/A half-width | v2 MDE (aggregate) | per-case v2 MDEs |
+|---|---|--:|--:|---|
+| zopfli, training | §165 `artifacts/zopfli-sites/aa-training/stats.json` (aa 0.332%, aa2 0.414%) | 0.414% | 0.83% -> **1.00%** (floor) | text 1.00, binary 1.84, json 1.48% |
+| zopfli, holdout | §165 `artifacts/zopfli-sites/aa-holdout/stats.json` (aa 0.154%, aa2 0.187%) | 0.187% | 0.37% -> **1.00%** (floor) | --- |
+| hintbench (pinned, future runs) | §162 `artifacts/hintbench-aa-study/p6-pinned/stats.json` (aa 0.275%, cand = same binary 0.317%) | 0.317% | 0.63% -> **1.00%** (floor) | k1 1.58, k2 1.35, k3 2.24, k4 1.63, k5 1.70, k6 1.00, k7 2.53, k8 3.18% |
+| hintbench (§118-128 oracle) | §119 null panels `artifacts/hintbench-oracle-nullpanel-{1,2}/stats.json` (n1-n3; 0.198-0.268%) | 0.268% | 0.54% -> **1.00%** (floor) | 1.00-1.27%, k8 3.75% (§171.3 side note) |
+| jaq, Oracle A2 | §140 `artifacts/jaq-search/oracle-A2-holdout/stats.json` (aa) | 0.564% | **1.13%** | objsearch 3.27, strproc 1.13, readwrite 1.00% |
+| jaq, cross-check | §164 `artifacts/jaq-aa-classes/stats.json` (c80/c112/c128 vs c96) | 0.707% (c128) | 1.41% | --- |
+
+jaq is the one target the floor does not reach. Its within-batch half-width
+is known to be over-confident (A2 in-run A/A: 28 of 60 intervals exclude 1,
+sd 1.10%, §139; decision 80), so 1.13% is a lower bound on jaq's noise, not
+an estimate of it.
+
+For hintbench runs under protocol v2 the frozen values are
+`--mde 0.01 --mde-case k1=0.0158,k2=0.0135,k3=0.0224,k4=0.0163,k5=0.0170,k6=0.0100,k7=0.0253,k8=0.0318`
+(§162; the own-kernel readout uses `--mde-case`, the aggregate `--mde`).
+This supersedes decision 104 (b)'s single `--mde 0.0318`.
+
+#### 172.2 What now counts (post hoc, labelled)
+
+**zopfli (training 1.00%, holdout 1.00%)**, numbers from §171.2
+(`artifacts/zopfli-search/oracle/rounds.jsonl` `ratio`, `confirm.ratio`;
+`holdout-panel/stats.json`):
+
+| round | arm | round batch | confirm | holdout | v2 final |
+|--:|---|--:|--:|--:|---|
+| 68 | combination (`squeeze.rs:325` + `:563` `unroll_count_8`) | +1.811% | +2.063% | +1.77% [1.0163, 1.0193] | **effect** (all three clear 1.00%) |
+| 37 | `squeeze.rs:325` `unroll_count_8` | +1.256% | +1.285% | +1.33% [1.0116, 1.0151] | **effect** (all three clear 1.00%) |
+
+This is a reproducible +α of about +1.8% on top of O3 + native + fat LTO +
+PGO on zopfli, **read post hoc**: the oracle was pre-registered under v1 (3%)
+and §168.7's "good: 0 of 67" stands as the pre-registered verdict. On the
+negative side the 1.00% reading makes 9 arms harmful (§171.2 sensitivity
+list). A v2 pre-registration that re-measures these arms would remove the
+post-hoc label.
+
+**jaq (1.13%)**, re-read of `artifacts/jaq-search/oracle-A2/rounds.jsonl`
+(`ratio`, `confirm.ratio`) at 1.128% with the same ad-hoc read-only script
+as §171, post hoc: effects r66 `Val::hash inline_always` (+4.26 / +4.84%) and
+r16 `write_until inline_always` (+1.53 / +2.15%); harmful r1 `read::parse
+inline_always` (−2.59 / −2.62), r5 `read::parse align_64` (−1.44 / −1.51),
+r7, r17, r26, r51 `Rc<IndexMap>::drop_slow inline_always` (−4.75 / −1.52).
+Given the over-confident half-width above, these are the least trustworthy
+of the three targets.
+
+**hintbench**: the oracle's own-kernel arms are per-case claims; their
+per-kernel re-read is §171.3's side note (post hoc). **The hintbench Jev
+headlines (Exp4-6, +7.4-7.8%) are not re-scored** under v2; they stand under
+v1 as recorded.
+
+#### 172.3 The driver change
+
+`scripts/bench.py stats` gains `--mde-floor` (default 0.01) and
+`--mde-from aggregate|worst_case` (default `aggregate`). `stats.json` now
+carries `mde` (the selected rule), `mde_aggregate`, `mde_worst_case`,
+`mde_per_case`, `mde_h_labels` (the A/A labels `aa*`, or, in a batch without
+an A/A leg, the non-base labels = the candidate's own spread),
+`mde_halfwidth_aggregate`, `mde_rule` (`v2-aggregate` / `worst-case`),
+`mde_from`, `mde_floor`. `scripts/jev_search.py` reads `[evaluation]
+mde_floor` / `mde_from` / `mde_case` (flags `--mde-floor`, `--mde-from`,
+`--mde-case`), passes them to every timed batch (round, confirmation,
+holdout), floors a frozen `--mde` at `mde_floor` (was 0.03), uses the
+per-case MDE for the own-kernel readout under `mde_from = aggregate`, and
+records `mde_rule`, `mde_floor`, `mde_from` in each `rounds.jsonl` record,
+`holdout.json` and the manifest's `protocol` block (plus `mde_per_case` per
+batch, `confirm_mde_case` beside `confirm_mde`). The state text's `{mde}` is
+now the frozen `mde` if set, else `mde_floor` ("1%"; it was always "3%"), so
+Jev is shown a different number in new runs; the template is unchanged and
+the manifest fields distinguish the runs. `jev-opt.toml` sets `mde_floor =
+0.01`, `mde_from = "aggregate"` explicitly, so `config_sha256` changes from
+this commit on. The report scripts (`hintbench_oracle_report.py`,
+`hintbench_exp4_score.py`) read each round's recorded `mde` and are
+unchanged (their 0.03 is a missing-value fallback). No recorded artifact was
+altered.
+
+#### 172.4 Toy verification
+
+(1) `python3 -m py_compile scripts/jev_search.py scripts/bench.py`: OK.
+
+(2) The old rule is reproduced bit for bit. Re-running `bench.py stats` on
+recorded toy batches with their own seed and resamples:
+
+```
+python3 scripts/bench.py stats artifacts/toy-search/<run>/round-NN/samples.json --base base \
+    --seed <stats.json seed> --resamples <stats.json resamples> \
+    --mde-from worst_case --mde-floor 0.03 --json <scratch>
+```
+
+| batch | recorded `mde` | worst_case / 0.03 | equal | aggregate / 0.01 (h from) |
+|---|--:|--:|---|---|
+| `protocol-v2/round-02` (no A/A leg) | 0.034434 | 0.034434 | yes | 1.24% (cand 0.62%) |
+| `protocol-v2/round-04` (no A/A leg) | 0.030000 | 0.030000 | yes | 1.00% (cand 0.42%) |
+| `protocol-v1/round-02` (A/A leg) | 0.064413 | 0.064413 | yes | 1.00% (aa 0.34%) |
+
+A stub check of `confirm_thresholds` (in-process, no timing): aggregate
+threshold = max(rec `mde`, floor) (a frozen 0.005 becomes 0.01); the kernel
+threshold is the frozen `mde_case[case]`, else the frozen `mde`, else the
+batch's `mde_per_case[case]`; with `per_case = False` (mde_from worst_case)
+and floor 0.03 both thresholds equal the old `max(mde, 0.03)`.
+
+(3) One toy oracle run, protocol v2, MDE v2 defaults, reusing §170's
+baseline:
+
+```
+export TARGET=toy
+python3 scripts/jev_search.py --target toy --marks artifacts/plugin-day3/marks/toy-all.txt \
+    --proposer oracle --oracle-phase A --vocab v6 --protocol v2 \
+    --baseline-dir artifacts/toy-search/protocol-v2/baseline \
+    --out artifacts/toy-search/mde-v2        # log: artifacts/toy-search/mde-v2-run.log
+```
+
+Manifest `protocol` block: `name v2, confirm_when mde, aa_leg_oracle_arms
+false, reps 15, reps_oracle 8, mde null, mde_case null, mde_rule
+v2-aggregate, mde_floor 0.01, mde_from aggregate, mde_source "per batch,
+max(2 x aggregate A/A half-width, 1%)"`. Every round record carries
+`mde_rule v2-aggregate, mde_floor 0.01, mde_from aggregate`. 7 rounds (4
+no-op, not timed), correctness 7/7, wall 135.4 s.
+
+| round | arm | ratio | 95% CI | batch MDE (v2) | same batch, old rule | confirm |
+|--:|---|--:|---|--:|--:|---|
+| 2 | `count_quotes inline_never` | 0.9981 | [0.9878, 1.0113] | 2.35% | 10.94% | none (sub-MDE) |
+| 4 | `dot_f64 inline_never` | 0.9944 | [0.9875, 1.0022] | 1.47% | 4.91% | none |
+| 6 | `find_special inline_never` | 0.9972 | [0.9887, 1.0057] | 1.69% | 5.35% | none |
+
+All three batch MDEs are below 3% under the new rule (1.47-2.35%); the old
+rule on the same samples gives 4.9-10.9% (the toy's `sum` case is noisy per
+case at n = 8). Without an A/A leg (v2 oracle arms) the aggregate `h` is the
+candidate's own spread, as the old rule's was.
+
+#### 172.5 Caveats
+
+* **Post hoc.** 172.2's effects are a re-read under a rule fixed after the
+  numbers were known; the pre-registered verdicts (§139, §124, §168) stand.
+* **A 1-2% claim needs n ≥ 3.** Decision 94's sampling variance (the same
+  binary moved 0.37-1.48 pt between runs) is the size of a 1-2% effect; a
+  Jev-vs-random comparison at 1-2% needs n ≥ 3 per arm (decision 96).
+* **Not re-scored**: the hintbench Jev headlines (Exp4-6) and the jaq / zopfli
+  Jev-vs-random runs keep their v1 reading.
+* **Acceptance changes for future runs.** Under protocol v2 a plan is
+  accepted only through a confirmation, which now fires at ≥ 1% on zopfli;
+  sub-3% plans can be accepted where they could not before (decision 104
+  (c)).

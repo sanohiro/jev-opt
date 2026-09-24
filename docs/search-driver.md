@@ -302,7 +302,32 @@ explicit key or flag beats the `--protocol` preset:
 | `confirm_when` | `--confirm-when ci\|mde` | `"ci"` | `"mde"` |
 | `aa_leg` | `--aa-leg on\|off` | `true` | `false` |
 | `reps_oracle` | `--reps-oracle N` | = `repetitions` / `-n` | 8 |
-| `mde` | `--mde X` | (unused) | unset: each batch's own `max(2 x worst half-width, 3%)`; set: that value, floor 0.03 |
+| `mde` | `--mde X` | (unused) | unset: each batch's own MDE (below); set: that value, floored at `mde_floor` |
+| `mde_case` | `--mde-case CASE=X[,CASE=X]` | (unused) | unset: `mde`, else the batch's own per-case MDE; set: the own-case (kernel) readout's frozen MDE |
+| `mde_floor` | `--mde-floor X` | 0.01 | 0.01 |
+| `mde_from` | `--mde-from aggregate\|worst_case` | `"aggregate"` | `"aggregate"` |
+
+**MDE rule v2 final (decision 106, results.md 172).** `bench.py stats`
+computes a batch's own MDE as `max(2 x h, mde_floor)`. With
+`mde_from = "aggregate"` (the default) `h` is the aggregate (geomean) 95% CI
+half-width of the A/A leg(s) --- labels named `aa*` --- or, in a batch
+without an A/A leg (v2 oracle arms), of the worst non-base label, i.e. the
+candidate's own spread; `stats.json` names the labels in `mde_h_labels`. A
+per-case claim (hintbench's own-kernel readout) uses `mde_per_case[case]` =
+`max(2 x that case's A/A half-width, mde_floor)`. `mde_from = "worst_case"`
+with `mde_floor = 0.03` is the rule of every run before decision 106
+(2 x the worst per-case half-width over every non-base label, floor 3%,
+decision 27); it reproduces those runs' recorded `mde` exactly. Registered
+per-target values (results.md 172): zopfli training and holdout 1.00%,
+hintbench aggregate 1.00% (per-kernel `mde_case` from §162), jaq 1.13%. The
+MDE named in the state text (`{mde}`) is the frozen `mde` if set, else
+`mde_floor`: "1%" from decision 106 on, "3%" before. `stats.json`,
+`rounds.jsonl` (each round: `mde_rule`, `mde_floor`, `mde_from`,
+`mde_per_case`; `confirm_mde_case` beside `confirm_mde`), `holdout.json` and
+the manifest's `protocol` block record the rule, so a comparison with a run
+from before decision 106 is explicit. The report scripts
+(`hintbench_oracle_report.py`, `hintbench_exp4_score.py`) read each round's
+recorded `mde` and fall back to 0.03 only when it is missing.
 
 What is recorded: every round carries `protocol` (`v1`, `v2` or `custom`),
 `confirm_rule`, `reps` (the reps of its first batch) and `labels` (the
@@ -329,9 +354,10 @@ Three consequences to state when v2 is used:
 * **n = 8 widens the per-batch MDE where a case is noisy.** On the existing
   samples, re-read at their first 8 rounds (results.md 170), zopfli's
   per-batch MDE stays at the 3% floor (median 3.0%, max 3.1%) but
-  hintbench's rises from a median 4.2% to 5.3% (max 10.8%, all from k8). On
-  a target like that, freeze `mde` (the target's A/A MDE, floor 3%) or keep
-  `reps_oracle` = `n`, or a real 4-5% effect is reported flat.
+  hintbench's rises from a median 4.2% to 5.3% (max 10.8%, all from k8)
+  (both under the worst-case rule with floor 3%). On a target like that,
+  freeze `mde` / `mde_case` (the target's registered A/A MDEs, decision 106)
+  or keep `reps_oracle` = `n`, or a real effect is reported flat.
 
 `--rounds N` caps the oracle's arms (it was ignored before; no frozen run
 passed it), and `--oracle-candidates GLOB[,GLOB]` keeps only the one-factor

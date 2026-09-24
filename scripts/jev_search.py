@@ -176,6 +176,11 @@ DEFAULTS = {
         "confirm_when": "ci",
         "aa_leg": True,
         "reps_oracle": None,
+        # MDE rule v2 final (decision 106): each batch's own MDE is
+        # max(2 x the aggregate A/A half-width, mde_floor). Every run before
+        # decision 106 used mde_from "worst_case" with floor 0.03.
+        "mde_floor": 0.01,
+        "mde_from": "aggregate",
     },
     "jev": {
         "base_url": "https://ai-gateway.vercel.sh/typesafe",
@@ -3861,6 +3866,8 @@ PROTOCOLS = {
     "v2": {"confirm_when": "mde", "aa_leg": False, "reps_oracle": 8},
 }
 CONFIRM_RULES = ("ci", "mde")
+MDE_FROM = ("aggregate", "worst_case")
+MDE_RULE = {"aggregate": "v2-aggregate", "worst_case": "worst-case"}
 
 
 def batch_labels(aa=True):
@@ -3869,36 +3876,63 @@ def batch_labels(aa=True):
     return ["base", "cand", "aa"] if aa else ["base", "cand"]
 
 
-def confirm_trigger(rec, own_wl, rule, mde=None):
+def confirm_thresholds(rec, own_wl, mde=None, floor=0.01, mde_case=None,
+                       per_case=True):
+    """(aggregate MDE, own-case MDE) for confirm_trigger, both floored.
+    `per_case` False (mde_from worst_case, the rule before decision 106)
+    gives the kernel readout the aggregate threshold, as before."""
+    floor = float(floor)
+    thr = mde if mde is not None else rec.get("mde")
+    thr = max(float(thr if thr is not None else floor), floor)
+    kthr = None
+    if mde_case and own_wl in mde_case:
+        kthr = mde_case[own_wl]
+    elif mde is not None:
+        kthr = mde
+    elif per_case and own_wl and \
+            (rec.get("mde_per_case") or {}).get(own_wl) is not None:
+        kthr = rec["mde_per_case"][own_wl]
+    kthr = max(float(kthr), floor) if kthr is not None else thr
+    return thr, kthr
+
+
+def confirm_trigger(rec, own_wl, rule, mde=None, floor=0.01, mde_case=None,
+                    per_case=True):
     """Which readouts of a first batch call for a confirmation batch.
 
     rule "ci" (protocol v1, decision 80 a): the 95% CI excludes 1.
     rule "mde" (protocol v2): |ratio - 1| >= MDE, where MDE is `mde` if
     given (the frozen `[evaluation] mde` / `--mde`) and otherwise the
-    batch's own `rec["mde"]` = max(2 x worst half-width, 3%) from bench.py
-    stats. A difference below the MDE is reported as flat with one batch.
-    Returns the list of readouts that fired ("aggregate" and/or own_wl).
+    batch's own `rec["mde"]` from bench.py stats (decision 106: max(2 x the
+    aggregate A/A half-width, floor)); either is floored at `floor`
+    (`[evaluation] mde_floor`, 0.01; 0.03 before decision 106). The own-case
+    (kernel) readout is a per-case claim: its MDE is `mde_case[own_wl]` if
+    frozen, else the frozen `mde`, else the batch's own
+    `rec["mde_per_case"][own_wl]` (2 x that case's A/A half-width), else the
+    aggregate threshold. A difference below the MDE is reported as flat with
+    one batch. Returns the list of readouts that fired ("aggregate" and/or
+    own_wl).
     """
     if rule not in CONFIRM_RULES:
         raise ValueError("unknown confirm rule %r" % rule)
-    thr = mde if mde is not None else rec.get("mde")
-    thr = max(float(thr if thr is not None else 0.03), 0.03)
+    thr, kthr = confirm_thresholds(rec, own_wl, mde, floor, mde_case,
+                                   per_case)
 
-    def fires(ratio, ci):
+    def fires(ratio, ci, t):
         if rule == "ci":
             return bool(excludes_one(ci))
-        return ratio is not None and abs(ratio - 1.0) >= thr
+        return ratio is not None and abs(ratio - 1.0) >= t
     fired = []
-    if fires(rec.get("ratio"), rec.get("ci95")):
+    if fires(rec.get("ratio"), rec.get("ci95"), thr):
         fired.append("aggregate")
     k = rec.get("kernel")
-    if k and fires(k.get("ratio"), k.get("ci95")):
+    if k and fires(k.get("ratio"), k.get("ci95"), kthr):
         fired.append(own_wl)
     return fired
 
 
 def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples,
-            aa=True):
+            aa=True, mde_floor=0.01, mde_from="aggregate"):
     """Interleaved timing of cand vs base vs an in-run A/A copy of base.
 
     `aa` False times base and cand only (protocol v2's oracle arm batches);
@@ -3925,7 +3959,9 @@ def measure(cand_bin, base_bin, shell, out_dir, reps, warmup, seed, resamples,
     stats_json = os.path.join(out_dir, "stats.json")
     p = subprocess.run([sys.executable, BENCH, "stats", samples,
                         "--base", "base", "--json", stats_json,
-                        "--resamples", str(resamples), "--seed", str(seed)],
+                        "--resamples", str(resamples), "--seed", str(seed),
+                        "--mde-floor", repr(float(mde_floor)),
+                        "--mde-from", mde_from],
                        text=True, capture_output=True)
     if p.returncode != 0:
         return None, "bench.py stats failed: %s" % p.stderr[-2000:]
@@ -4136,6 +4172,29 @@ class Search:
         if mde is None:
             mde = ev.get("mde")
         self.mde = float(mde) if mde is not None else None
+        # Decision 106: the MDE floor and which half-width the batch's own
+        # MDE comes from. Flag > config > default; not part of the preset.
+        floor = getattr(args, "mde_floor", None)
+        self.mde_floor = float(floor if floor is not None else ev.get(
+            "mde_floor", DEFAULTS["evaluation"]["mde_floor"]))
+        self.mde_from = (getattr(args, "mde_from", None)
+                         or ev.get("mde_from",
+                                   DEFAULTS["evaluation"]["mde_from"]))
+        if self.mde_from not in MDE_FROM:
+            sys.exit("[evaluation] mde_from must be one of %s, got %r"
+                     % (MDE_FROM, self.mde_from))
+        mc = getattr(args, "mde_case", None)
+        if mc:
+            try:
+                mc = {k: float(v) for k, v in
+                      (x.split("=", 1) for x in mc.split(","))}
+            except ValueError:
+                sys.exit("--mde-case wants CASE=X[,CASE=X], got %r" % mc)
+        else:
+            mc = ev.get("mde_case")
+        self.mde_case = ({k: float(v) for k, v in mc.items()} if mc
+                         else None)
+        self.mde_rule = MDE_RULE[self.mde_from]
         v1 = (self.confirm_when == "ci" and self.aa_leg
               and self.reps_oracle == self.reps)
         v2 = (self.confirm_when == "mde" and not self.aa_leg
@@ -4146,16 +4205,38 @@ class Search:
                          "aa_leg_oracle_arms": self.aa_leg,
                          "reps": self.reps, "reps_oracle": self.reps_oracle,
                          "mde": self.mde,
+                         "mde_case": self.mde_case,
+                         "mde_rule": self.mde_rule,
+                         "mde_floor": self.mde_floor,
+                         "mde_from": self.mde_from,
                          "mde_source": ("frozen" if self.mde is not None
-                                        else "per batch, max(2 x worst "
-                                        "half-width, 3%)")}
+                                        else "per batch, max(2 x %s "
+                                        "half-width, %g%%)" % (
+                                            "aggregate A/A" if
+                                            self.mde_from == "aggregate"
+                                            else "worst per-case",
+                                            self.mde_floor * 100))}
         if not v1:
             print("[protocol] %s: confirm_when=%s, A/A leg in oracle "
-                  "one-factor arms %s, reps %d (oracle arms %d), MDE %s"
+                  "one-factor arms %s, reps %d (oracle arms %d), MDE %s "
+                  "(rule %s, floor %g)"
                   % (self.protocol["name"], self.confirm_when,
                      "on" if self.aa_leg else "off", self.reps,
                      self.reps_oracle, "%.4f" % self.mde if self.mde
-                     else "per batch"))
+                     else "per batch", self.mde_rule, self.mde_floor))
+
+    def mde_kw(self):
+        """bench.py stats' MDE options for every timed batch (decision 106)."""
+        return {"mde_floor": self.mde_floor, "mde_from": self.mde_from}
+
+    def mde_text(self):
+        """The MDE the state text names. Before decision 106 it was always
+        "3%"; now the frozen `mde` if set, else the floor (the smallest
+        difference any batch can call a change). worst_case + floor 0.03
+        gives the old "3%" back."""
+        v = self.mde if self.mde is not None else self.mde_floor
+        v = max(v, self.mde_floor)
+        return "%g%%" % round(v * 100, 2)
 
     # -- baseline ---------------------------------------------------------
 
@@ -4638,7 +4719,8 @@ class Search:
         print("[holdout] measuring %s on %s"
               % (self.best["label"], shell["bench_set"]))
         stats, err = measure(best_bin, self.baseline_bin(), shell, hdir,
-                             self.reps, self.warmup, self.seed, self.resamples)
+                             self.reps, self.warmup, self.seed, self.resamples,
+                             **self.mde_kw())
         if stats is None:
             print("[holdout] %s" % err)
             self.holdout = {"error": err}
@@ -4651,7 +4733,11 @@ class Search:
                         "aa": {"ratio": agg["aa"]["ratio"],
                                "halfwidth": agg["aa"]["halfwidth"]},
                         "argv0": argv0_record(stats),
-                        "mde": stats["mde"]}
+                        "mde": stats["mde"],
+                        "mde_per_case": stats.get("mde_per_case"),
+                        "mde_rule": self.mde_rule,
+                        "mde_floor": self.mde_floor,
+                        "mde_from": self.mde_from}
         with open(os.path.join(hdir, "holdout.json"), "w") as f:
             json.dump(self.holdout, f, indent=1)
         print("[holdout] ratio %.4f CI [%.4f, %.4f]"
@@ -4694,7 +4780,7 @@ class Search:
                               + [i.id for i in loops]),
              "fn_items": self.fn_list, "history": self.history,
              "cases": [w.split("=", 1)[0] for w in self.shell["workloads"]],
-             "reps": self.reps, "mde_text": "3%",
+             "reps": self.reps, "mde_text": self.mde_text(),
              "source": self.source, "remarks": self.remarks,
              "inlines": getattr(self, "inlines", None),
              "share_placeholder": getattr(self, "share_placeholder", False),
@@ -4729,6 +4815,9 @@ class Search:
                "reps": self.reps, "warmup": self.warmup,
                "protocol": self.protocol["name"],
                "confirm_rule": self.confirm_when,
+               # Decision 106: which MDE rule this round's batches used.
+               "mde_rule": self.mde_rule, "mde_floor": self.mde_floor,
+               "mde_from": self.mde_from,
                "smoke": bool(self.args.smoke)}
         print("\n=== round %d (%s) ===" % (round_no, self.args.proposer))
 
@@ -4939,7 +5028,7 @@ class Search:
         rec["confirm_rule"] = self.confirm_when
         stats, err = measure(binary, self.baseline_bin(), self.shell, rdir,
                              reps, self.warmup, self.seed + round_no,
-                             self.resamples, aa=aa)
+                             self.resamples, aa=aa, **self.mde_kw())
         if stats is None:
             rec["status"] = "measure-failed"
             rec["error"] = err
@@ -4949,6 +5038,7 @@ class Search:
         rec["measured"] = True
         self.record_batch(rec, stats, own_wl, key=None)
         rec["mde"] = stats["mde"]
+        rec["mde_per_case"] = stats.get("mde_per_case")
         rec["status"] = "measured"
         print("[B] ratio %.4f  CI [%.4f, %.4f]  %s  [n=%d, %d labels]"
               % (rec["ratio"], rec["ci95"][0], rec["ci95"][1],
@@ -4974,13 +5064,19 @@ class Search:
         # Protocol v2 replaces "the interval excludes 1" by "the difference
         # reached the MDE" (`confirm_when = "mde"`). What v1 would have
         # fired is recorded beside it, so the saving can be counted.
-        fired = confirm_trigger(rec, own_wl, self.confirm_when, self.mde)
+        fired = confirm_trigger(rec, own_wl, self.confirm_when, self.mde,
+                                self.mde_floor, self.mde_case,
+                                self.mde_from == "aggregate")
         rec["confirm_trigger"] = fired
         if self.confirm_when != "ci":
             ci_fired = confirm_trigger(rec, own_wl, "ci")
             rec["confirm_trigger_ci_rule"] = ci_fired
-            rec["confirm_mde"] = max(float(self.mde if self.mde is not None
-                                           else rec.get("mde") or 0.03), 0.03)
+            thr, kthr = confirm_thresholds(rec, own_wl, self.mde,
+                                           self.mde_floor, self.mde_case,
+                                           self.mde_from == "aggregate")
+            rec["confirm_mde"] = thr
+            if rec.get("kernel"):
+                rec["confirm_mde_case"] = kthr
             if ci_fired and not fired:
                 rec["flat_below_mde"] = True
                 print("[B] CI excludes 1 but |ratio - 1| < MDE %.4f: "
@@ -4997,12 +5093,13 @@ class Search:
             # first batch's repetitions.
             cstats, cerr = measure(binary, self.baseline_bin(), self.shell,
                                    cdir, reps, self.warmup, cseed,
-                                   self.resamples, aa=True)
+                                   self.resamples, aa=True, **self.mde_kw())
             if cstats is None:
                 rec["confirm"] = {"error": cerr, "seed": cseed}
                 print("[B] confirmation batch failed: %s" % cerr)
             else:
-                rec["confirm"] = {"seed": cseed, "mde": cstats["mde"]}
+                rec["confirm"] = {"seed": cseed, "mde": cstats["mde"],
+                                  "mde_per_case": cstats.get("mde_per_case")}
                 self.record_batch(rec["confirm"], cstats, own_wl, key=None)
                 print("[B] confirm: ratio %.4f CI [%.4f, %.4f]%s"
                       % (rec["confirm"]["ratio"], rec["confirm"]["ci95"][0],
@@ -5341,6 +5438,11 @@ class Search:
                       "with base + cand + aa" if pr["aa_leg_oracle_arms"]
                       else "with base + cand only (no A/A leg)",
                       pr["reps_oracle"]))
+        out.append("MDE rule %s (decision 106): %s%s."
+                   % (pr["mde_rule"], pr["mde_source"],
+                      "; per-case (own-kernel) MDE frozen: %s" % ", ".join(
+                          "%s %.4f" % kv for kv in pr["mde_case"].items())
+                      if pr.get("mde_case") else ""))
         out.append("")
         out.append("Acceptance rule, fixed before the first round: a round "
                    "becomes the best so far only if its plan differs from "
@@ -5625,9 +5727,22 @@ def main():
                    help="override [evaluation] reps_oracle: repetitions of "
                         "an oracle one-factor arm batch and its confirmation")
     p.add_argument("--mde", type=float, default=None,
-                   help="frozen MDE for confirm_when=mde (floor 0.03); "
-                        "default [evaluation] mde, else each batch's own "
-                        "max(2 x worst half-width, 3%%)")
+                   help="frozen MDE for confirm_when=mde (floored at "
+                        "--mde-floor); default [evaluation] mde, else each "
+                        "batch's own max(2 x A/A half-width, floor)")
+    p.add_argument("--mde-floor", type=float, default=None,
+                   help="override [evaluation] mde_floor (decision 106: "
+                        "0.01; every run before it used 0.03)")
+    p.add_argument("--mde-from", default=None, choices=MDE_FROM,
+                   help="override [evaluation] mde_from: aggregate "
+                        "(decision 106, 2 x the aggregate A/A half-width) or "
+                        "worst_case (before it: 2 x the worst per-case "
+                        "half-width over non-base labels)")
+    p.add_argument("--mde-case", default=None, metavar="CASE=X[,CASE=X]",
+                   help="frozen per-case MDEs for the own-case (kernel) "
+                        "readout, e.g. hintbench's 2 x each kernel's A/A "
+                        "half-width; default [evaluation] mde_case, else "
+                        "--mde, else each batch's own per-case MDE")
     p.add_argument("--fn-attr-scope", default="own", choices=("own", "all"),
                    help="own (default): a function attribute goes on the "
                         "mark's own functions and every monomorphization, "

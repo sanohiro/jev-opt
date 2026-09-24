@@ -347,7 +347,33 @@ def cmd_stats(args):
     worst = max(halfwidths.values())
     out["noise_floor_halfwidth_per_workload"] = halfwidths
     out["noise_floor_halfwidth_worst"] = worst
-    out["mde"] = max(2 * worst, 0.03)
+    # MDE rule v2 final (decision 106): MDE = max(2 x h, floor). `h` is the
+    # aggregate (geomean) half-width of the A/A leg(s) --- labels named
+    # "aa*" --- or, in a batch without an A/A leg, of the worst non-base
+    # label (the candidate's own spread; recorded in `mde_h_labels`). A
+    # per-case claim uses that case's own A/A half-width (`mde_per_case`).
+    # `--mde-from worst_case --mde-floor 0.03` is the rule every run before
+    # decision 106 used: 2 x the worst per-case half-width over every
+    # non-base label, floor 3% (decision 27).
+    floor = args.mde_floor
+    nonbase = [l for l in labels if l != base]
+    aa_labels = [l for l in nonbase if l.startswith("aa")] or nonbase
+    h_agg = (max(out["aggregate"][l]["halfwidth"] for l in aa_labels)
+             if aa_labels else 0.0)
+    out["mde_worst_case"] = max(2 * worst, floor)
+    out["mde_aggregate"] = max(2 * h_agg, floor)
+    out["mde_per_case"] = {
+        w: max(2 * (max(out["per_workload"][l][w]["halfwidth"]
+                        for l in aa_labels) if aa_labels else 0.0), floor)
+        for w in workloads}
+    out["mde_h_labels"] = aa_labels
+    out["mde_halfwidth_aggregate"] = h_agg
+    out["mde_rule"] = ("v2-aggregate" if args.mde_from == "aggregate"
+                       else "worst-case")
+    out["mde_from"] = args.mde_from
+    out["mde_floor"] = floor
+    out["mde"] = (out["mde_aggregate"] if args.mde_from == "aggregate"
+                  else out["mde_worst_case"])
 
     # Decision 97: carry the exec paths' argv[0] length/class, so a consumer
     # can refuse a batch outside the pinned class. Old runs have none (null).
@@ -468,9 +494,19 @@ def markdown(out, doc):
                  ", ".join(f"{w} {v*100:.2f}%" for w, v in
                            out["noise_floor_halfwidth_per_workload"].items()))
     if not out.get("frozen_mde"):
-        lines.append(
-            f"worst half-width {out['noise_floor_halfwidth_worst']*100:.2f}%"
-            f" -> MDE = max(2 x half-width, 3%) = {out['mde']*100:.2f}%")
+        if out.get("mde_from") == "aggregate":
+            lines.append(
+                f"aggregate half-width of {'+'.join(out['mde_h_labels'])} "
+                f"{out['mde_halfwidth_aggregate']*100:.2f}% -> MDE = max(2 x "
+                f"half-width, {out['mde_floor']*100:g}%) = "
+                f"{out['mde']*100:.2f}% (rule v2-aggregate, decision 106); "
+                "per case: " + ", ".join(
+                    f"{w} {v*100:.2f}%" for w, v in out["mde_per_case"].items()))
+        else:
+            lines.append(
+                f"worst half-width {out['noise_floor_halfwidth_worst']*100:.2f}%"
+                f" -> MDE = max(2 x half-width, {out['mde_floor']*100:g}%) = "
+                f"{out['mde']*100:.2f}% (worst-case rule)")
     return "\n".join(lines)
 
 
@@ -521,6 +557,14 @@ def main():
     s.add_argument("--mde", type=float, default=None,
                    help="minimum detectable effect frozen by the A/A run, as a "
                         "fraction (0.03 = 3%%); enables the flagging columns")
+    s.add_argument("--mde-floor", type=float, default=0.01,
+                   help="floor of the batch's own MDE (decision 106: 0.01; "
+                        "every run before it used 0.03)")
+    s.add_argument("--mde-from", default="aggregate",
+                   choices=("aggregate", "worst_case"),
+                   help="aggregate (decision 106): 2 x the aggregate A/A "
+                        "half-width; worst_case (before decision 106): 2 x "
+                        "the worst per-case half-width over non-base labels")
     s.set_defaults(func=cmd_stats)
 
     args = p.parse_args()

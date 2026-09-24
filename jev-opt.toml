@@ -49,8 +49,8 @@ resamples = 10000
 # matching flags) and changes cost only where noted:
 #   confirm_when  "ci": a confirmation batch whenever the first batch's 95%
 #                 CI excludes 1 (v1). "mde": only when |ratio - 1| >= MDE
-#                 (`mde` below if set, else the batch's own max(2 x worst
-#                 half-width, 3%)); a sub-MDE difference is reported flat
+#                 (`mde` below if set, else the batch's own MDE, see
+#                 `mde_from`); a sub-MDE difference is reported flat
 #                 with one batch --- and so can never be accepted by a
 #                 search, since acceptance needs the confirmation.
 #   aa_leg        true: every batch carries the in-run A/A copy of the
@@ -59,12 +59,23 @@ resamples = 10000
 #                 arm, confirmation batches and the holdout keep it.
 #   reps_oracle   repetitions of an oracle one-factor arm batch (and its
 #                 confirmation). Unset = `repetitions` / `-n`.
-#   mde           a frozen MDE for confirm_when = "mde" (floor 0.03). Unset
-#                 = per batch.
+#   mde           a frozen MDE for confirm_when = "mde" (floored at
+#                 `mde_floor`). Unset = per batch.
+#   mde_case      frozen per-case MDEs for the own-case (kernel) readout,
+#                 e.g. { k8 = 0.0318 }. Unset = `mde`, else per batch.
+# MDE rule v2 final (decision 106): MDE = max(2 x h, mde_floor), where h is
+# the aggregate (geomean) A/A half-width (`mde_from = "aggregate"`); a
+# per-case claim uses that case's own A/A half-width. Every run before
+# decision 106 used mde_from = "worst_case" (2 x the worst per-case
+# half-width over the non-base labels) and mde_floor = 0.03 (decision 27);
+# set both to reproduce it. Each run records `mde_rule`, `mde_floor` and
+# `mde_from` in rounds.jsonl and run-manifest.json.
 confirm_when = "ci"
 aa_leg = true
 # reps_oracle = 8
-# mde = 0.03
+# mde = 0.01
+mde_floor = 0.01
+mde_from = "aggregate"
 
 [jev]
 base_url = "https://ai-gateway.vercel.sh/typesafe"
