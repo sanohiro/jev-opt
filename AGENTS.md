@@ -43,6 +43,14 @@ applied by our LLVM pass plugin; target sources are never modified.
 - **Record decisions.** Any time an experiment changes what we do or stop doing, append a
   numbered entry to `docs/decisions.ja.md` in the form 知見 → 判断 → 影響 (Japanese), with a
   pointer to the `results.md` section holding the numbers.
+- **Verify small.** Driver, exploration, vocabulary, state and measurement-protocol changes are
+  verified on `toy` or `hintbench` only (minutes per run). Real programs (jaq, zopfli, oxipng)
+  are measured exactly twice: a staged oracle (function attributes first, then only loops LLVM
+  actually vectorizes/unrolls) and the final article numbers. A real-program measurement longer
+  than an hour needs a pre-registered "what will we learn, why not on a small target, how long"
+  and the owner's go (decision 103).
+- **Stop rule.** If a target's oracle finds no "good" site (above MDE in both batches), do not
+  run the Jev/random search on it; record "no headroom" and stop (decision 103).
 - **Record results.** `results.md` is append-only: one `##` section per experiment, every number
   next to the command that produced it, pre-registered rules stated before the numbers.
 - **Jev logs.** Every request/response to Jev is logged as JSONL plus a human-readable `.log`
