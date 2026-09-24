@@ -901,8 +901,8 @@ def write_report(out, inp, path):
             covs = [m["cov"] for m in ms]
             if len(ks) > 1:
                 ck = list(covs[0].keys())
-                cs = " / ".join(_med([c[x] for c in covs], "%.1f")
-                                for x in ck) + "%"
+                cs = (" - " if "all_lo" in ck else " / ").join(
+                    _med([c[x] for c in covs], "%.1f") for x in ck) + "%"
                 L.append("| %s (3 repeats: median (range)) | %s | %s | %s | "
                          "%s | %s | %s |" % (
                              g, _med([m["size"] for m in ms], "%d"),

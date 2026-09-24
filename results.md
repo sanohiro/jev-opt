@@ -14823,3 +14823,173 @@ senders at once).
 set (v1 Q1, v1 Q2, v2 Q1, v2 Q2, v2 Q3). Q3's rule part is mechanical, so a
 Q3 pass is reported as "hybrid passes"; it counts as "Jev adds something"
 only if Q3 also beats "rule-marks only" on (b) or (a) on some target.
+
+### 177. Marks study: results
+
+Sent 2026-09-24 19:58-21:17 JST, sequentially, one sender at a time (v2
+queued behind v1). No build, no timing. Commands:
+
+```
+scripts/jev_marks_study.py build                    # v1 inputs (176.1)
+scripts/jev_marks_study.py run                      # v1: Q1, Q2 x 3
+scripts/jev_marks_study.py score                    # -> scores.json, report.md
+scripts/inline_structure.py --binary <verified binary> --names-from <perf-self tsv> \
+    --top 300 --tsv artifacts/jev-marks-study/<target>-inline-structure.tsv   # 176.7
+scripts/jev_marks_study.py --inputs v2 build
+scripts/jev_marks_study.py --inputs v2 run --questions Q1 Q2 Q3
+scripts/jev_marks_study.py --inputs v2 score        # -> scores-v2.json, report-v2.md
+```
+
+Full tables (every readout, per repeat, per function P(mark) / Score, reach
+rank): `docs/experiments/jev-marks-study/report.md` (v1) and `report-v2.md`
+(v2). Below, "median (range)" is over the 3 repeats; `(a)` overlap with
+Claude's marks / N; `(b)` oracle-positive functions covered; `(c)`
+oracle-harmful functions covered; `(d)` cycles covered (zopfli exact union
+training / holdout; jaq bounds lower-upper over all six workloads, 176.5).
+
+#### 177.1 jaq (N = 15, 124 functions listed; positives `Val::hash`, `write_until`)
+
+| arm | size | (a) | (b) | (c) | (d) |
+|---|--:|--:|--:|--:|--:|
+| v1 Q1 (P > 0.5) | 17 (16-20) | 0.53 (0.53-0.67) | 1/2 | 1 | 51-100% |
+| v1 Q1-top N | 15 | 0.53 (0.53-0.60) | 1/2 | 1 | 50-100% |
+| v1 Q2 top N | 15 | 0.53 (0.47-0.53) | 1/2 | 1 | 52-94% |
+| **v2 Q1 (P > 0.5)** | 25 (24-25) | **0.67** (0.67-0.67) | 1/2 | 1 | 54-100% |
+| v2 Q1-top N | 15 | 0.60 (0.60-0.67) | 1/2 | 1 | 51-100% |
+| v2 Q2 top N | 15 | 0.47 (0.47-0.53) | 1/2 | 1 | 48-100% |
+| **v2 Q3 hybrid** | 25 (24-28) | **0.67** (0.67-0.73) | 1/2 (1/2-2/2) | 1 | 51-100% |
+| hybrid rule only (gray skipped) | 15 | 0.40 | 1/2 | 1 | 42-100% |
+| hybrid rule + every gray row | 116 | 1.00 | 2/2 | 1 | 65-100% |
+| top-N reach | 15 | 0.40 | 1/2 (`write_until`) | 1 | 42-100% |
+| top-N self | 15 | 0.80 | 1/2 (`Val::hash`) | 0 | 63% |
+| 90%-reach rule | n/a (176.4) | | | | |
+| Claude's marks (reference) | 15 marks = 17 rows | 1.00 | 2/2 | 1 | 60-91% (60.91% measured, "Marks (jaq)" 85) |
+
+**The two discriminating functions.**
+
+* `write_until` (`::<…str_fold::string_end>` instantiation, self 0.00%,
+  reach 7.5%): **reach rank 10 of 124**, so top-N reach catches it and
+  top-N self cannot. Jev marks it in every repeat of every readout
+  (P(mark) v1 0.77-0.83, v2 0.78-0.83; Score 1.41-1.66, rank ~6). The other
+  instantiation (`num_bytes_with`, reach 1.2%, rank 77) gets P 0.22-0.33;
+  either would hit the mark.
+* `Val::hash` (self = reach 1.2%, 1492 insns / 90 loops): **reach rank 83**,
+  so only top-N self catches it (self rank 14). Jev does not mark it: v1
+  P(mark) 0.30-0.38, v2 0.45-0.46, Q3 (gray) 0.42 / 0.44 / **0.52** --- one
+  Q3 repeat crosses 0.5, which is the only 2/2 of any Jev readout. The v2
+  facts (`loops` 90) moved it by about +0.12, not across the line.
+
+So on (b) every Jev readout **ties** both controls at 1/2, but with the
+control that shares its bias: Jev finds what reach finds (`write_until`) and
+misses what only self finds (`Val::hash`). No Jev readout covers both in
+its median; Claude's set does.
+
+Claude's marks that Jev v2 Q1 (median P) does not mark: `Val::hash`,
+`Rc<IndexMap>::drop_slow`, `Adapter::write_str`, `<&String as
+Display>::fmt`, `base_run::{closure#7}` --- all five are self-hot bodies on
+the write / object path with reach < 5%. What Jev v2 Q1 marks that neither
+control has: `parse_num`, `num_string_with`, `Val::index`, `index_opt`,
+`Path<Result>::run`, `FromFn<fold>`, `RawTableInner::reserve_rehash_inner`,
+`IndexMapCore::insert_full` variants and **`core::ptr::drop_glue`** (which
+the rationale left out as compiler-generated). What the controls have and
+Jev does not: the `core::iter` adapters under the lexer (top-N reach) and
+the `Display` / `write_str` / `drop_slow` / `FlatMap` bodies (top-N self).
+
+#### 177.2 zopfli (N = 6, 26 functions listed; positive `lz77_optimal`, extra `find_longest_match_loop`)
+
+| arm | size | (a) | (b) | extra | (c) of 3 | (d) train / hold |
+|---|--:|--:|--:|--:|--:|--:|
+| v1 Q1 (P > 0.5) | 9 (8-10) | **1.00** (0.83-1.00) | 1/1 | 1 | 3 | 94.0 / 95.5% |
+| v1 Q1-top N | 6 | 0.67 | 1/1 | 1 | 2 | 94.0 / 95.5% |
+| v1 Q2 top N | 6 | 0.67 | 1/1 | 1 | 2 | 94.0 / 95.5% |
+| **v2 Q1 (P > 0.5)** | 13 (12-13) | **1.00** | 1/1 | 1 | 3 | 96.3 / 96.9% |
+| v2 Q1-top N | 6 | 0.67 | 1/1 | 1 | 2 | 94.0 / 95.5% |
+| v2 Q2 top N | 6 | 0.67 | 1/1 | 1 | 2 | 94.0 / 95.5% |
+| **v2 Q3 hybrid** | 12 (11-12) | **1.00** | 1/1 | 1 | 3 | 95.6 / 96.3% |
+| hybrid rule only | 10 | 1.00 | 1/1 | 1 | 3 | 94.0 / 95.5% |
+| hybrid rule + every gray row | 24 | 1.00 | 1/1 | 1 | 3 | 97.6 / 98.3% |
+| top-N reach | 6 | 0.83 | 1/1 | 1 | 2 | 89.9 / 91.1% |
+| top-N self | 6 | 0.33 | 1/1 | 1 | 1 | 96.8 / 97.5% |
+| 90%-reach rule | 7 | 1.00 | 1/1 | 1 | 3 | 93.4 / 94.9% |
+| Claude's marks | 6 | 1.00 | 1/1 | 1 | 3 | 93.4 / 94.9% |
+
+`find_longest_match_loop` and `lz77_optimal` are reach ranks 1 and 2 and get
+P(mark) 0.97-0.99 in every repeat; (b) cannot separate anything here, as
+176.6 said. The forced-N readouts (Q1-top, Q2) replace
+`get_best_lengths` and `lz77_optimal_run` (reach 39.8%, no own symbol, no
+self time) with `follow_path` and `try_get` (self-hot, own symbol) and
+`find_longest_match`; the P > 0.5 readouts keep all six of Claude's and add
+3-7 more. `HashThing::update` (removed from Claude's set by the existence
+gate) is marked by v1/v2 Q1 (P 0.59-0.69) and by the hybrid rule; it is
+footnoted, not scored against anyone (176.4).
+
+#### 177.3 hintbench (sanity; N = 8)
+
+v1 and v2 Q1 mark 6 of 8 (median; one v1 repeat 7): **`k1_step` and
+`k7_error_path` are skipped** (P 0.34-0.54), both the kernels without a
+machine-code loop that are not called on their own (k2, loop-free but with
+its own symbol, gets P 0.96). All three positives (k2, k3, k8) are marked in
+every repeat. Q1-top N, Q2 and every control are all 8 by construction. The
+hybrid rule alone marks the 5 kernels with loops and misses **k2** (0 loops,
+gray); Jev then marks k2 in the gray zone (P 0.96), so Q3 = 6/8 with 3/3
+positives while "rule only" is 2/3.
+
+#### 177.4 Verdict (176.6, applied as written)
+
+| readout | jaq (a) >= 0.6 | jaq (b) >= every control | zopfli (a) >= 0.6 | zopfli (b) >= every control | passes |
+|---|:-:|:-:|:-:|:-:|:-:|
+| v1 Q1 | 0.53 no | 1/2 = 1/2 tie | 1.00 | tie | **no** |
+| v1 Q2 | 0.53 no | tie | 0.67 | tie | **no** |
+| v2 Q1 | 0.67 | tie | 1.00 | tie | **yes** |
+| v2 Q1-top N (secondary) | 0.60 | tie | 0.67 | tie | yes (at the bar) |
+| v2 Q2 | 0.47 no | tie | 0.67 | tie | **no** |
+| v2 Q3 hybrid | 0.67 | tie | 1.00 | tie | **yes**; beats "rule only" on jaq (a) 0.67 vs 0.40 and hintbench (b) 3/3 vs 2/3 |
+
+**Verdict: Jev can choose the marks from the profile when it is given the
+same binary facts Claude used (input set v2), at the pre-registered bar,
+and only there.** With perf shares alone (v1) it fails on jaq (0.53).
+Honest reading of the pass:
+
+1. **It ties the mechanical rules on the oracle positives; it never beats
+   them.** Jev's selection behaves like a reach ranking with extra weight on
+   own symbols and loops: it catches `write_until` (reach rank 10) and misses
+   `Val::hash` (reach rank 83, P <= 0.52). No mechanical control covers both
+   either; only Claude's set did.
+2. **What it gains over a single mechanical ranking is agreement across
+   both targets**: no single control reaches (a) >= 0.6 on both (top-N self
+   0.80 / 0.33, top-N reach 0.40 / 0.83), v2 Q1 reaches 0.67 / 1.00. Part
+   of that comes from marking more (jaq 25 rows vs 15, zopfli 13 vs 6); with
+   the size forced to N it is 0.60 / 0.67, exactly at the bar.
+3. The Score framing (Q2) is worse than Choice on jaq in both input sets
+   (0.53, 0.47), as in study 2 (174).
+4. The hybrid (rule decides the clear cases, Jev the gray zone) is as good
+   as v2 Q1 at 81% (jaq 101/124) and 54% (zopfli 14/26) of the questions,
+   the same number of HTTP requests on jaq (3 per repeat per question set,
+   set by state size) and fixes the rule's one blind spot on hintbench (k2).
+
+Q4 (source excerpts for the gray zone, 176.7) was **not run** (optional,
+lowest priority).
+
+#### 177.5 Nondeterminism
+
+Across the 3 repeats: jaq v1 Q1 set union 22 / intersection 13, v2 Q1 27 /
+21, v2 Q3 29 / 23; Q1-top and Q2 at N = 15: union 16-17, intersection
+12-13. zopfli v2 Q1 13 / 12, Q1-top and Q2 6 / 6. hintbench v2 6 / 6. The
+metric ranges are in the tables; the only positive that flips is
+`Val::hash` in v2 Q3 (0.42 / 0.44 / 0.52).
+
+#### 177.6 Requests, gateway, cost
+
+| run | requests | questions | 503 responses | exhausted (re-sent) | max body | billed | list price |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| v1 (`ms-*`) | 31 | 989 | 658 | 1 (jaq r1 Q2.c2, landed on the re-send) | 59 781 B | $0 | $0.017 |
+| v2 (`ms2-*`) | 48 | 1302 | 565 | 0 | 59 959 B | $0 | $0.031 |
+
+503s are almost all on the ~60 KB jaq requests (v1 655 of 658, v2 556 of
+565); zopfli and hintbench (7-27 KB) landed on the first or second attempt.
+No phase lost. Latency of landed requests 0.9-2.4 s.
+
+**Deviations.** None from 176 / 176.7 in what was sent. Report labels only:
+the jaq (d) column prints lower-upper bounds (the report script first
+printed them as "lo / hi" like zopfli's training / holdout; fixed before
+this section was written, numbers unchanged).
